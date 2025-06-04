@@ -8,17 +8,15 @@ layout(local_size_x = 16, local_size_y = 16) in;
 // Implemented ShaderToy Parameters
 uniform float iTime;
 uniform vec3  iResolution;
+uniform vec4  iMouse;
 
 // Unimplemented ShaderToy Parameters
-vec4 iMouse;
 int iFrame;
 
 // ShaderToy main function
 void mainImage(out vec4, in vec2);
 
 void main() {
-
-    iMouse = vec4(0);
     iFrame = 0;
 
     ivec2 pixel_coord = ivec2(gl_GlobalInvocationID.xy);
@@ -42,7 +40,10 @@ void main() {
 }
 
 // Some options to test out, just uncomment and press F
+
 // #include "src/shaders/shadertoy/Hearts.glsl"
 // #include "./src/shaders/shadertoy/ray-marching-primitives.glsl"
 #include "./src/shaders/shadertoy/March.glsl"
+// #include "./src/shaders/shadertoy/2D.glsl"
+// #include "./src/shaders/shadertoy/soft_shadow_variation.glsl"
 // #include "src/shaders/shadertoy/twinkling-tunnel.glsl"

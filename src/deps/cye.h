@@ -58,6 +58,7 @@
 #    define FILE_SHARE_DELETE 0x00000004 // MinGW compatibility
 #endif
 #    if defined(PLATFORM_MINGW)
+#        include <fcntl.h>
 #    else
 #        define stat _stat
 #        define utimbuf _utimbuf
@@ -520,7 +521,11 @@ typedef struct {
 } Cye_Command_Redirect;
 
 typedef struct {
-    usz count;
+    union {
+        usz count;
+        usz len;
+        usz size;
+    };
     const char *data;
 } Cye_String_Slice;
 
@@ -669,7 +674,7 @@ TString cye_tprintf(ZString fmt, ...);
 
 void cye_temp_reset(void);
 usz  cye_temp_save(void);
-void cye_temp_rewind(usz checkpoint);
+void cye_temp_restore(usz checkpoint);
 
 //------------------------------------------------------------------------------------
 //  Path Declarations
@@ -686,17 +691,20 @@ bool cye_read_dir_filtered(
 #define cye_read_dir(parent, children) cye_read_dir_filtered(parent, children, false, NULL, NULL)
 
 // Append data to the end of file
-bool cye_file_append(const char* path, const void* data, usz count);
+bool cye_append_file(const char* path, const void* data, usz count);
 
 // Append zero terminated string to the end of file
-bool cye_file_append_zstr(const char* path, const char* str);
+bool cye_append_file_zstr(const char* path, const char* str);
 
 // Write bytes to a file, creating if it doesnt exist
-bool cye_file_write_all(ZString path, const void *data, usz size);
-#define cye_file_write_all_zstr(path, zstring) cye_file_write_all(path, zstring, strlen(zstring))
+bool cye_write_file(ZString path, const void *data, usz size);
+#define cye_write_file_zstr(path, zstring) cye_write_file(path, zstring, strlen(zstring))
+
+// Read contents of file and return a malloc'ed pointer and zero terminates. You should free it with libc free. Returns NULL on error.
+char* cye_read_file(const char* path);
 
 // Read contents of file into a Dynamic String
-bool cye_file_read_all(ZString path, Cye_DString *ds);
+bool cye_ds_read_file(ZString path, Cye_DString *ds);
 
 // Get File Type
 Cye_File_Kind cye_path_file_kind(ZString path);
@@ -776,7 +784,6 @@ bool cye_make_dir_include_parents(ZString path);                  // Create dire
 bool cye_make_dir_include_parents_from_tstr(TString path);        // Create directories recursively
 
 bool cye_remove_file(ZString path);                               // Remove file
-bool cye_remove_dir(ZString path);                                // Remove directory
 bool cye_remove_dir(ZString path);                                // Remove directories recursively
 bool cye_path_move(ZString src, ZString dst);                     // Move file or directory
 bool cye_path_rename(ZString src, ZString dst);                   // Rename file or directory
@@ -884,7 +891,7 @@ void cye_pipe_close_handle(Cye_Pipe_Handle* pipe);
     } while (0)
 
 #define cye_da_fmt         "{.items=%p, .count=%zu, .capacity=%zu}"
-#define cye_da_fmt_arg(da) (da).items, (da).count, (da).capacity
+#define cye_da_fmt_arg(da) ((void*)(da).items), (da).count, (da).capacity
 
 //------------------------------------------------------------------------------------
 //  Slices Declarations
@@ -967,6 +974,7 @@ void cye_pipe_close_handle(Cye_Pipe_Handle* pipe);
 
 
 Cye_String_Slice cye_str_slice_make(ZString str);
+#define cye_str_slice_from_zstr cye_str_slice_make
 
 // Trim whitespace from both ends
 Cye_String_Slice cye_str_slice_trim(Cye_String_Slice s);
@@ -1894,7 +1902,7 @@ usz cye_temp_save(void) {
     return cye_temp_data.size;
 }
 
-void cye_temp_rewind(usz checkpoint) {
+void cye_temp_restore(usz checkpoint) {
     cye_temp_data.size = checkpoint;
 }
 
@@ -2049,7 +2057,7 @@ bool cye_copy_dir(ZString src_path, ZString dst_path) {
     }
 
 defer:
-    cye_temp_rewind(temp_checkpoint);
+    cye_temp_restore(temp_checkpoint);
     cye_da_free(src_ds);
     cye_da_free(dst_ds);
     cye_da_free(children);
@@ -2180,7 +2188,7 @@ defer:
 
 
 // Append data to the end of file
-bool cye_file_append(const char* path, const void* data, usz count) {
+bool cye_append_file(const char* path, const void* data, usz count) {
     bool result = true;
 
 #ifndef PLATFORM_WINDOWS
@@ -2251,13 +2259,13 @@ defer:
 }
 
 // Convenience function for appending strings
-bool cye_file_append_zstr(const char* path, const char* str) {
-    return cye_file_append(path, str, strlen(str));
+bool cye_append_file_zstr(const char* path, const char* str) {
+    return cye_append_file(path, str, strlen(str));
 }
 
 
 // TODO: Check this for windows
-bool cye_file_write_all(ZString path, const void *data, usz size) {
+bool cye_write_file(ZString path, const void *data, usz size) {
     bool result = true;
 
     FILE *f = fopen(path, "wb");
@@ -2288,8 +2296,99 @@ defer:
     return result;
 }
 
+#if 0 && defined(TODO_kindly_why_does_this_work_with_mingw)
+int write_entire_file_from_memory(const char *path, const uint8_t *data, size_t size) {
+   // Create if doesn't exist, overwrite if it does
+   int file = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+   if (file < 0) {
+      fprintf(stderr, "Failed to open file for writing: %s\n", path);
+      return -1;
+   }
+
+   // Write data
+   ssize_t bytes_written = write(file, data, size);
+   if (bytes_written < 0 || (size_t)bytes_written != size) {
+      fprintf(stderr, "Failed to write complete file: %s\n", path);
+      close(file);
+      return -1;
+   }
+
+   if (close(file) < 0) {
+      fprintf(stderr, "Failed to close file: %s\n", path);
+      return -1;
+   }
+
+   return 0; // Success
+}
+#endif
+
+
+
+// TODO: Check this for cl.exe it
+#if defined(PLATFORM_MINGW) || defined(PLATFORM_LINUX)
+char* cye_read_file(const char* path) {
+    int file = open(path, O_RDONLY);
+    if (file < 0) {
+        fprintf(stderr, "Failed to open file: %s\n", path);
+        return NULL;
+    }
+
+    off_t file_size = lseek(file, 0, SEEK_END);
+    lseek(file, 0, SEEK_SET);
+
+    // Read the file content into a buffer
+    char* data = malloc(file_size + 1);
+    if (data == NULL) {
+       fprintf(stderr, "Failed to allocate memory for shader source\n");
+       close(file);
+       return NULL;
+    }
+
+    read(file, data, file_size);
+    data[file_size] = '\0'; // Null-terminate the string
+    close(file);
+    return data;
+}
+
+#elif defined(PLATFORM_WINDOWS)
+
+u8* cye_read_file(const char* path) {
+    HANDLE file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "Failed to open file: %s\n", path);
+        return NULL;
+    }
+
+    DWORD file_size = GetFileSize(file, NULL);
+    if (file_size == INVALID_FILE_SIZE) {
+        fprintf(stderr, "Failed to get file size: %s\n", path);
+        CloseHandle(file);
+        return NULL;
+    }
+
+    u8* data = (u8*)malloc(file_size + 1);
+    if (data == NULL) {
+        fprintf(stderr, "Failed to allocate memory for shader source\n");
+        CloseHandle(file);
+        return NULL;
+    }
+
+    DWORD bytes_read;
+    if (!ReadFile(file, data, file_size, &bytes_read, NULL) || bytes_read != file_size) {
+        fprintf(stderr, "Failed to read file: %s\n", path);
+        free(data);
+        CloseHandle(file);
+        return NULL;
+    }
+
+    data[file_size] = '\0'; // Null-terminate the string
+    CloseHandle(file);
+    return data;
+}
+#endif
+
 // TODO: Check this for windows
-bool cye_file_read_all(ZString path, Cye_DString *ds) {
+bool cye_ds_read_file(ZString path, Cye_DString *ds) {
     bool result = true;
 
     FILE *f = fopen(path, "rb");
@@ -2450,7 +2549,7 @@ char* cye_path_create_from_array(ZString paths[], usz paths_count) {
         TString tpath = cye_path_temp_normalize(ds.items);
         // `strncpy` doesn't consider '\0'. It'd be nice to consider both `n` and char `'\0'`.
         strcpy(ds.items, tpath);
-        cye_temp_rewind(chk_point);
+        cye_temp_restore(chk_point);
     }
 
     return ds.items;
@@ -2561,7 +2660,7 @@ ZString cye_path_expand_user(ZString path) {
 ZString cye_path_expand_vars(ZString path) { cye_panic("TODO");}
 
 int cye_needs_rebuild_from_buf(ZString output_path, ZString *input_paths, usz input_paths_count) {
-#ifndef PLATFORM_WINDOWS
+#if !defined(PLATFORM_WINDOWS)
     struct stat statbuf = {0};
 
     if (stat(output_path, &statbuf) < 0) {
@@ -3391,7 +3490,7 @@ bool cye_make_dir_include_parents(ZString path) {
     created = cye_make_dir_include_parents_from_tstr(tpath);
 
     cye_context  = cye_default_context();
-    cye_temp_rewind(chk_point);
+    cye_temp_restore(chk_point);
     return created;
 }
 
@@ -4365,7 +4464,7 @@ void cye_ds_printf(Cye_DString *ds, ZString fmt, ...) {
     vsnprintf(result, n + 1, fmt, args);
     va_end(args);
     cye_ds_write_buf(ds, result, n); // Don't write the null terminator
-    cye_temp_rewind(chk_point);
+    cye_temp_restore(chk_point);
 }
 
 //----------------------------------------------------------------------------------
@@ -4766,9 +4865,14 @@ char *win32_error_message(DWORD err) {
 #define trealloc    cye_trealloc
 #define tprintf     cye_tprintf
 
-#define temp_reset  cye_temp_reset
-#define temp_save   cye_temp_save
-#define temp_rewind cye_temp_rewind
+#define temp_reset   cye_temp_reset
+#define temp_save    cye_temp_save
+#define temp_restore cye_temp_restore
+
+#define treset       cye_temp_reset
+#define tsave        cye_temp_save
+#define trestore     cye_temp_restore
+
 
 //------------------------------------------------------------------------------------
 //  Path Short Names
@@ -4780,11 +4884,12 @@ char *win32_error_message(DWORD err) {
 #define read_dir                        cye_read_dir
 #define read_dir_filtered               cye_read_dir_filtered
 
-#define file_append                     cye_file_append
-#define file_append_zstr                cye_file_append_zstr
-#define file_write_all                  cye_file_write_all
-#define file_write_all_zstr             cye_file_write_all_zstr
-#define file_read_all                   cye_file_read_all
+#define append_file                     cye_append_file
+#define append_file_zstr                cye_append_file_zstr
+#define write_file                      cye_write_file
+#define write_file_zstr                 cye_write_file_zstr
+#define read_file                       cye_read_file
+#define ds_read_file                    cye_ds_read_file
 #define path_file_kind                  cye_path_file_kind
 #define path_temp_normalize             cye_path_temp_normalize
 #define path_create_from_array          cye_path_create_from_array
@@ -4908,6 +5013,7 @@ char *win32_error_message(DWORD err) {
 //------------------------------------------------------------------------------------
 
 #define str_slice_make             cye_str_slice_make
+#define str_slice_from_zstr        cye_str_slice_from_zstr
 #define str_slice_trim             cye_str_slice_trim
 #define str_slice_to_zstr          cye_str_slice_to_zstr
 #define str_slice_strip_left       cye_str_slice_strip_left
@@ -4923,6 +5029,24 @@ char *win32_error_message(DWORD err) {
 #define str_slice_ends_with        cye_str_slice_ends_with
 #define str_slice_ends_with_zstr   cye_str_slice_ends_with_zstr
 #define str_slice_starts_with_zstr cye_str_slice_starts_with_zstr
+
+#define ss_make             cye_str_slice_make
+#define ss_from_zstr        str_slice_from_zstr
+#define ss_trim             cye_str_slice_trim
+#define ss_to_zstr          cye_str_slice_to_zstr
+#define ss_strip_left       cye_str_slice_strip_left
+#define ss_strip_right      cye_str_slice_strip_right
+#define ss_make_len         cye_str_slice_make_len
+#define ss_equals           cye_str_slice_equals
+#define ss_equals_zstr      cye_str_slice_equals_zstr
+#define ss_contains         cye_str_slice_contains
+#define ss_split            cye_str_slice_split
+#define ss_split_zstr       cye_str_slice_split_zstr
+#define ss_split_first      cye_str_slice_split_first
+#define ss_starts_with      cye_str_slice_starts_with
+#define ss_ends_with        cye_str_slice_ends_with
+#define ss_ends_with_zstr   cye_str_slice_ends_with_zstr
+#define ss_starts_with_zstr cye_str_slice_starts_with_zstr
 
 #define ss_fmt     cye_ss_fmt
 #define ss_fmt_arg cye_ss_fmt_arg

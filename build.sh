@@ -59,7 +59,8 @@ build_with_gcc_linux() {
         -lm
 }
 
-flag_catch_bugs='-Wall -Wextra -Wpedantic -Werror -Wno-error=unused-function -Wno-error=pointer-sign -Wno-error=unused-parameter -Wno-error=unused-variable'
+# flag_catch_bugs='-Wall -Wextra -Wpedantic -Werror -Wno-error=unused-function -Wno-error=pointer-sign -Wno-error=unused-parameter -Wno-error=unused-variable'
+flag_catch_bugs='-Wall -Wextra -Wpedantic -Werror -Wno-unused-function -Wno-error=pointer-sign -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing'
 
 build_with_mingw() {
     extras_flags='-I'
@@ -68,19 +69,21 @@ build_with_mingw() {
     bin='main.exe'
     pbd='main.pdb'
     pushd ./src/deps/glfw/
-    [ -f "$glfw_obj" ] || $cc rglfw.c -o $glfw_obj -c -lc -lm -g --for-linker --pdb="rglfw.pbd"
+    # [ -f "$glfw_obj" ] || $cc -H rglfw.c -o $glfw_obj -c -lc -lm -g --for-linker --pdb="rglfw.pbd"
+    [ -f "$glfw_obj" ] || $cc rglfw.c -o $glfw_obj -c -lc -lm -O3
     popd
 
-    # -Wl,--pdb="$pbd"                          \
-    # -g -gcodeview --for-linker --pdb="$pbd"   \
+    debug_flags="-g --for-linker --pdb=\"$pbd\""
     $cc -Isrc                                     \
+        -std=c23                                  \
+        -Wpedantic                                \
         src/main.c                                \
         src/deps/glfw/$glfw_obj                   \
         -Isrc/deps/                               \
         -Isrc/deps/glfw/glfw/include/             \
         $flag_catch_bugs                          \
         -lm -lgdi32 -luser32                      \
-        -g --for-linker --pdb="$pbd"              \
+        -O3                                       \
         -o $bin
         
 }

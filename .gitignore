@@ -18,7 +18,11 @@ CMakeUserPresets.json
 *.exe
 *.bin
 *.out
+*.obj
+*.o
 *.pdb
 *.sln
 .cache/
 .vim/
+ignore/
+src/shaders/output/
