@@ -8,6 +8,7 @@ layout(local_size_x = 16, local_size_y = 16) in;
 // Implemented ShaderToy Parameters
 uniform float iTime;
 uniform vec3  iResolution;
+uniform vec3  iPosition;
 uniform vec4  iMouse;
 
 // Unimplemented ShaderToy Parameters
@@ -43,7 +44,9 @@ void main() {
 
 // #include "src/shaders/shadertoy/Hearts.glsl"
 // #include "./src/shaders/shadertoy/ray-marching-primitives.glsl"
-#include "./src/shaders/shadertoy/March.glsl"
+// #include "./src/shaders/shadertoy/March.glsl"
+#include "./src/shaders/shadertoy/orthographic-raymarching.glsl"
+
 // #include "./src/shaders/shadertoy/2D.glsl"
 // #include "./src/shaders/shadertoy/soft_shadow_variation.glsl"
 // #include "src/shaders/shadertoy/twinkling-tunnel.glsl"

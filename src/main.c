@@ -9,8 +9,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
-// #define RAYMATH_IMPLEMENTATION
-// #include "raymath.h"
+#include "raymath.h"
 
 #define CYE_IMPLEMENTATION
 #undef assert
@@ -37,6 +36,7 @@ typedef struct {
       const char *base;
       const char *sticky;
       const char *reload;
+      const char *fps;
       const char *zero;
    };
 
@@ -48,10 +48,45 @@ static Window_Title title = {
    // These Should be empty string, not null
    .sticky = "",
    .reload = "",
+   .fps = "",
    .zero = 0 // Mark the end
 };
 
+typedef struct {
+   Vector3 position;
+   Vector2 rotation;
+} Camera;
 
+Camera move_camera(GLFWwindow *window, Camera cam) {
+   Vector3 v;
+   v.x = 0;
+   v.y = 0;
+   v.z = 0;
+
+   const f32 c = 0.00000005;
+   if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+      v.z += c;
+   }
+
+   if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+      v.z -= c;
+   }
+
+   if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+      v.x -= c;
+   }
+
+
+   if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+      v.x += c;
+   }
+
+   v = Vector3Normalize(v);
+
+   cam.position = Vector3Add(cam.position, v);
+   // cam.rotation;
+   return cam;
+}
 
 static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
@@ -95,7 +130,12 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
    }
 }
 
-static void conditionally_change_windows_title(GLFWwindow *window) {
+static void conditionally_change_windows_title(GLFWwindow *window, f64 dt) {
+   static char fps[512];
+   if (dt > 0) {
+      int written = snprintf(fps, (sizeof fps / sizeof fps[0]),"%.2f", 1./dt);
+      title.fps = fps;
+   }
    bool sticky = glfwGetWindowAttrib(window, GLFW_FLOATING);
    if (sticky) {
       title.sticky = "*sticky";
@@ -179,13 +219,20 @@ int main() {
    Framebuffer fb = create_framebuffer_with_texture(compute_shader_texture);
    f64 start_time = glfwGetTime();
 
-   f64 conditionally_change_windows_title_timer_default = 1.5;
+   f64 conditionally_change_windows_title_timer_default = 0.75;
    f64 conditionally_change_windows_title_timer = conditionally_change_windows_title_timer_default;
 
    f64 shader_needs_reload_timer_default = 1.1; // Seconds
    f64 shader_needs_reload_timer = shader_needs_reload_timer_default;
 
    f64 previous_time = glfwGetTime();
+   Camera camera_default  = (Camera){
+      cliteral(Vector3){.x=0, .y=3.0, .z=-5.},
+      cliteral(Vector2){.x=0, .y=3.0 }
+   };
+
+   Camera camera = camera_default;
+
    while (!glfwWindowShouldClose(window)) {
       bool window_minized = glfwGetWindowAttrib(window, GLFW_ICONIFIED) == GLFW_TRUE;
       f64 current_time = glfwGetTime();
@@ -198,7 +245,7 @@ int main() {
       shader_needs_reload_timer -= delta_time;
 
       if (conditionally_change_windows_title_timer <= 0) {
-         conditionally_change_windows_title(window);
+         conditionally_change_windows_title(window, delta_time);
          conditionally_change_windows_title_timer = conditionally_change_windows_title_timer_default;
       }
 
@@ -228,23 +275,38 @@ int main() {
       }
 
       // Compute GO!
+      camera = move_camera(window, camera);
 
       if (INVALID_SHADER_HANDLE != compute_shader)
       {
          glUseProgram(compute_shader);
 
          {  // Time uniform
-            GLint time_loc = glGetUniformLocation(compute_shader, "iTime");
-            glUniform1f(time_loc, (f32)elapsed_time);
+            GLint loc = glGetUniformLocation(compute_shader, "iTime");
+            glUniform1f(loc, (f32)elapsed_time);
          }
 
 
          {  // Resolution uniform
-            GLint resolution_loc = glGetUniformLocation(compute_shader, "iResolution");
+            GLint loc = glGetUniformLocation(compute_shader, "iResolution");
             glUniform3f(
-               resolution_loc,
+               loc,
                (f32)compute_shader_texture.width, (f32)compute_shader_texture.height,
                compute_shader_texture.width/(f32)compute_shader_texture.height
+            );
+         }
+
+         {  // Position uniform
+            GLint loc = glGetUniformLocation(compute_shader, "iPosition");
+            glUniform3f(
+               loc, camera.position.x, camera.position.y, camera.position.z
+            );
+         }
+
+         {  // Position uniform
+            GLint loc = glGetUniformLocation(compute_shader, "iRotation");
+            glUniform2f(
+               loc, camera.rotation.x, camera.rotation.y
             );
          }
 

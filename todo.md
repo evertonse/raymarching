@@ -1,0 +1,18 @@
+
+- [x] Render triangles with raymarching xD
+- [ ] Render triangles from a model
+- [x] Derive cube sdf
+- [ ] Antialiasing
+- [ ] All common operations plus smoothing
+- [ ] Mirroring
+- [ ] Focus and defocus
+- [ ] Twisting
+- [ ] Domain repetition unbounded
+- [ ] Domain repetition bounded
+- [ ] Actually understand soft shadows
+- [ ] Understand camera as origin to canvas
+- [ ] Understand camera as origin rectangle to canvas
+- [ ] Understand ray direction distortion
+- [ ] Understand camera distortion
+- [ ] Understand camera as a basis vector in the context of raymarching
+- [ ] Understand scaling and rotation of distance fields

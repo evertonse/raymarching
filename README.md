@@ -8,3 +8,8 @@ Look at build.sh to uncomment building from linux to linux
 ```
 ./build.sh
 ```
+
+# Resources
+
+- https://www.youtube.com/watch?v=khblXafu7iA
+- https://github.com/electricsquare/raymarching-workshop?tab=readme-ov-file#camera
