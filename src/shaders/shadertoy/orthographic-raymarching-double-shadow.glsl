@@ -2,10 +2,10 @@
 #define sdf sdScene
 
 
-#define RAYMARCH_MAX_STEPS 200
+#define RAYMARCH_MAX_STEPS 400
 // #define NEAR 0.000001
-float NEAR = 0.0001;
-float FAR = 400.0;
+float NEAR = 0.001;
+float FAR = 1000.0;
 float time;      // time
 #define PI 3.14159
 #define TAU PI * 2.
@@ -318,37 +318,6 @@ vec3 cameraDir(vec2 uv, vec3 pos, vec3 target, float pespective) {
    );
 }
 
-vec3 sphericalToCartesian(float theta, float phi) {
-    float x = sin(phi) * sin(theta);
-    float y = cos(phi);
-    float z = sin(phi) * cos(theta);
-    return vec3(x, y, z);
-}
-
-
-// pg. 324
-vec3 cameraDir(vec2 uv, vec3 r) {
-   vec3 forward = normalize(vec3(0.0, 0.0, 1.0));
-   vec3 right   = normalize(vec3(1.0, 0.0, 0.0));
-   vec3 up      = normalize(vec3(0.0, 1.0, 0.0));
-
-   // forward = sphericalToCartesian(1, -r.y, 0);
-   forward = sphericalToCartesian(-r.y, -r.x + PI/2);
-   // forward = sphericalToCartesian(1, 0, PI);
-   right = cross(up, forward);
-   up = cross(forward,  right);
-   // up = cross(right, forward);
-
-   float pespective = iZoom;
-   // float pespective = 1.;
-
-   return normalize(
-        uv.x       * right
-      + uv.y       * up
-      + pespective * forward
-   );
-}
-
 struct Quad {
    vec3 bl, br, tl, tr;
 };
@@ -363,18 +332,34 @@ void mainImage(out vec4 color, in vec2 f) {
    time = 0.8*iTime;
    vec2 uv = vec2(f - iResolution.xy / 2.) / iResolution.y;
    vec2 m = vec2(iMouse.xy - iResolution.xy / 2.) / iResolution.y;
-   vec2 r = iRotation.xy;
+   bool clicking = (iMouse.z == 1.0f);
+
    vec3 camera_pos, camera_dir;
    {
       mat2 camera_rotation = rotation(-PI/8.);
       const float widen = 10.;
-      camera_pos = iPosition;
 
-      // camera_dir = cameraDir(uv, vec3(PI/2, 0., 0.));
-      camera_dir = cameraDir(uv, vec3(iRotation.x, iRotation.y, 0.));
+      // uv.x = sin(uv.x);
+      // uv.x = abs(uv.x);
 
-      // camera_dir = cameraDir(uv, iRotation);
+      camera_pos =  vec3(uv.x*widen, uv.y*widen, -10);
+      camera_pos.xy *= (sin(iTime*0.4)/2 + 1);
+      camera_pos.y += 2.75;
 
+
+      // vec3 canvas_pos =  vec3(camera_pos.xy, 0);
+      vec3 canvas_pos =  vec3(uv.x*widen, uv.y*widen, 0);
+      camera_dir = normalize(canvas_pos - camera_pos);
+
+      // camera_dir =  normalize(vec3(uv.x, uv.y, 1));
+      if (clicking) {
+         // camera_pos.xz *= rotation(time*.2-m.x*6.2831);
+         camera_pos.xz *= rotation(.2-m.x*4);
+         camera_dir.xz *= rotation(.2-m.x*4);
+
+         // camera_pos.yz *= rotation(-m.y+.4);
+         // camera_dir.yz *= rotation(-m.y+.4);
+      }
    }
 
    render(color, camera_pos, camera_dir);

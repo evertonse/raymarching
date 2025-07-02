@@ -8,22 +8,122 @@
 #include <unistd.h>
 #include <stdint.h>
 
-uint32_t reload_compute_shader(uint32_t shader_handle, const char* path);
-uint32_t create_compute_shader(const char* path);
-uint32_t create_compute_shader_from_memory(u8* source);
+#define INVALID_SHADER_HANDLE U32_MAX
+#define INVALID_SHADER_TYPE  U32_MAX
 
-uint8_t* read_entire_file_into_memory(const char* path);
+typedef u32 Shader_Type;
+
+typedef struct {
+   GLuint handle;
+   Shader_Type type;
+   ZString path;
+} Shader;
+
+constexpr static Shader shader_invalid = {
+   .handle = INVALID_SHADER_HANDLE,
+   .type   = INVALID_SHADER_HANDLE,
+   .path   = NULL
+};
 
 typedef DArray(isz) Isz_DArray;
 
-
-
-
 #define MAX_SHADERS 256
 static Isz_DArray shader_to_paths[MAX_SHADERS] = {0};
+
+Shader create_shader_from_memory(const u8** sources, const Shader_Type* types, usize count) {
+   Shader shader = shader_invalid;
+
+   if (nullptr == sources || nullptr == types || count == 0) {
+      fprintf(stderr, "Invalid shader input arrays.\n");
+      return shader;
+   }
+
+   GLuint program = glCreateProgram();
+   GLuint compiled_shaders[8] = {0}; // supports up to 8 stages; expand if needed
+
+   for (usz i = 0; i < count; ++i) {
+      const u8* src = sources[i];
+      Shader_Type type = types[i];
+
+      if (nullptr == src || type == INVALID_SHADER_TYPE) {
+         fprintf(stderr, "Null shader source or invalid type at index %zu.\n", i);
+         continue;
+      }
+
+      GLuint shader_handle = glCreateShader(type);
+      glShaderSource(shader_handle, 1, (const GLchar**)&src, NULL);
+      glCompileShader(shader_handle);
+
+      GLint compiled = 0;
+      glGetShaderiv(shader_handle, GL_COMPILE_STATUS, &compiled);
+      if (compiled == GL_FALSE) {
+         GLint log_length = 0;
+         glGetShaderiv(shader_handle, GL_INFO_LOG_LENGTH, &log_length);
+
+         char* log = (char*)malloc(log_length);
+         glGetShaderInfoLog(shader_handle, log_length, NULL, log);
+         fprintf(stderr, "Shader compile error (type %u):\n%s\n", type, log);
+         free(log);
+
+         glDeleteShader(shader_handle);
+         continue;
+      }
+
+      glAttachShader(program, shader_handle);
+      compiled_shaders[i] = shader_handle;
+   }
+
+   glLinkProgram(program);
+
+   GLint linked = 0;
+   glGetProgramiv(program, GL_LINK_STATUS, &linked);
+   if (linked == GL_FALSE) {
+      GLint log_length = 0;
+      glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_length);
+
+      char* log = (char*)malloc(log_length);
+      glGetProgramInfoLog(program, log_length, NULL, log);
+      fprintf(stderr, "Shader link error:\n%s\n", log);
+      free(log);
+
+      glDeleteProgram(program);
+      for (usz i = 0; i < count; ++i) {
+         if (compiled_shaders[i])
+            glDeleteShader(compiled_shaders[i]);
+      }
+
+      return shader;
+   }
+
+   // Cleanup attached shaders after linking
+   for (usz i = 0; i < count; ++i) {
+      if (compiled_shaders[i]) {
+         glDetachShader(program, compiled_shaders[i]);
+         glDeleteShader(compiled_shaders[i]);
+      }
+   }
+
+   shader.handle = program;
+   shader.type = 0; // could store bitfield of stages if needed
+   shader.path = NULL; // optional: track which file(s) generated this
+
+   return shader;
+}
+
+Shader create_shader_single_from_memory(u8* source, Shader_Type type) {
+   const u8 *sources[] = {source};
+   const Shader_Type types[] = {type};
+   assert(count_of(sources) == count_of(types));
+   return create_shader_from_memory(sources, types, count_of(sources));
+}
+
+Shader create_shader(const char* path, Shader_Type type);
+Shader reload_shader(Shader shader);
+
 static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_offets);
 
-#define INVALID_SHADER_HANDLE ((GLuint)-1)
+
+
 
 #undef read_file
 #define read_file(x) (char*)cye_read_file(x)
@@ -101,21 +201,23 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
    return true;
 }
 
+#define COMPUTE_SHADER GL_COMPUTE_SHADER
 
 // Create and preprocess and compile the shader
-u32 create_compute_shader(const char* path) {
+Shader create_shader(const char* path, Shader_Type type) {
     DString ds = {0};
     Isz_DArray path_offsets = {0};
-    u32 result = INVALID_SHADER_HANDLE;
+    Shader result = shader_invalid;
 
     // WARNING: We don't detect cyclic includes. #include "a" in b and #include "b" in a will halt the program
     if (pre_process_shader(path, &ds, &path_offsets)) {
         ds_write_zero(&ds);
-        result = create_compute_shader_from_memory(ds.data);
+        result = create_shader_single_from_memory(ds.data, type);
+        result.path = path;
     }
 
 
-    if (INVALID_SHADER_HANDLE != result) {
+    if (INVALID_SHADER_HANDLE != result.handle) {
        usz checkpoint = tsave();
        {
           TString time_path = tprintf("%s.time", path_stem(path));
@@ -125,7 +227,7 @@ u32 create_compute_shader(const char* path) {
        trestore(checkpoint);
 
        write_file("src/shaders/output/success-dump.glsl", ds.data, ds.size);
-       shader_to_paths[result] =  path_offsets;
+       shader_to_paths[result.handle] =  path_offsets;
 
     } else {
         write_file("src/shaders/output/failed-dump.glsl", ds.data, ds.size);
@@ -138,10 +240,11 @@ u32 create_compute_shader(const char* path) {
     return result;
 }
 
-// Returns INVALID_SHADER_HANDLE (-1) if error
-// TODO: Allow passing size along with the string
-uint32_t create_compute_shader_from_memory(u8* source) {
-   GLuint shader_handle = glCreateShader(GL_COMPUTE_SHADER);
+
+Shader create_shader_single_from_memory_old(u8* source, Shader_Type type) {
+   Shader shader = shader_invalid;
+   shader.type = type;
+   GLuint shader_handle = glCreateShader(type);
    glShaderSource(shader_handle, 1, (const GLchar**)&source, NULL);
    glCompileShader(shader_handle);
 
@@ -159,7 +262,7 @@ uint32_t create_compute_shader_from_memory(u8* source) {
       fprintf(stderr, "%s\n", info_log);
       free(info_log);
       glDeleteShader(shader_handle);
-      return INVALID_SHADER_HANDLE;
+      return shader;
    }
 
    // Create and link the program
@@ -181,15 +284,19 @@ uint32_t create_compute_shader_from_memory(u8* source) {
       free(info_log);
       glDeleteProgram(program);
       glDeleteShader(shader_handle);
-      return INVALID_SHADER_HANDLE;
+      return shader;
    }
 
    // Clean up
    glDetachShader(program, shader_handle);
-   return program;
+   shader.handle = program;
+   return shader;
 }
 
-bool shader_needs_reload(uint32_t shader_handle) {
+
+
+bool shader_needs_reload(Shader shader) {
+   GLuint shader_handle = shader.handle;
    if (INVALID_SHADER_HANDLE == shader_handle) {
       return false;
    }
@@ -222,28 +329,29 @@ defer:
    return result;
 }
 
-uint32_t reload_compute_shader(uint32_t shader_handle, const char *path) {
+Shader create_shader_from_vertex_and_fragment_memory(const char* vs_src, const char* fs_src) {
+   const u8 *sources[] = { (const u8*)vs_src, (const u8*)fs_src};
+   const Shader_Type types[] = {
+      GL_VERTEX_SHADER,
+      GL_FRAGMENT_SHADER
+   };
+   assert(count_of(sources) == count_of(types));
+   return create_shader_from_memory(sources, types, count_of(sources));
+}
+
+Shader reload_shader(Shader shader) {
    system("clear"); // HACK XXX
-
-   Isz_DArray paths = shader_to_paths[shader_handle];
-   trace_debug(da_fmt, da_fmt_arg(paths));
-
-   for (usz idx = 0; idx < paths.count; ++idx) {
-      trace_debug("%lld\n", paths.items[idx]);
-   }
-   print_unique_paths();
-
-   uint32_t new_shader_handle = create_compute_shader(path);
+   Shader new_shader = create_shader(shader.path, shader.type);
 
 
    // Keep current shader while errors in new shader
-   if (INVALID_SHADER_HANDLE == new_shader_handle) {
-      return shader_handle;
+   if (INVALID_SHADER_HANDLE == new_shader.handle) {
+      return shader;
    }
 
    // Only delete if shader was valid to begin with
-   if (INVALID_SHADER_HANDLE != shader_handle) {
-      glDeleteProgram(shader_handle);
+   if (INVALID_SHADER_HANDLE != shader.handle) {
+      glDeleteProgram(shader.handle);
    }
-   return new_shader_handle;
+   return new_shader;
 }

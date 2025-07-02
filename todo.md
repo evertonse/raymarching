@@ -16,3 +16,4 @@
 - [ ] Understand camera distortion
 - [ ] Understand camera as a basis vector in the context of raymarching
 - [ ] Understand scaling and rotation of distance fields
+- [ ] Call back error from opengl howw to setup

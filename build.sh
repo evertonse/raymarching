@@ -64,7 +64,7 @@ config_mingw() {
 
 build() {
     # $cc -H rglfw.c -o $glfw_obj -c -lc -lm -g --for-linker --pdb="rglfw.pbd"
-    flag_catch_bugs='-Wall -Wextra -Wpedantic -Werror -Wno-unused-function -Wno-error=pointer-sign -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing'
+    flag_catch_bugs='-Wall -Wextra -Wpedantic -Werror -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -fwrapv -fno-strict-aliasing'
 
     pushd ./src/deps/glfw/
     [ -f "$glfw_obj" ] || $cc rglfw.c -o $glfw_obj -c -lc -lm -O3
@@ -74,8 +74,9 @@ build() {
     [ -f "$raymath_obj" ] || $cc raymath.c -o $raymath_obj -I./deps/ -c -lc -lm -O3
     popd
 
+    # -std=c23                                  \
+    # -std=c99                                  \
     $cc -Isrc                                     \
-        -std=c23                                  \
         -Wpedantic                                \
         src/main.c                                \
         src/deps/glfw/$glfw_obj                   \
@@ -85,7 +86,7 @@ build() {
         -Isrc/deps/glfw/glfw/include/             \
         -lm -lgdi32 -luser32                      \
         $flag_catch_bugs                          \
-        -O3
+        -O3 -static
 
 }
 
@@ -105,8 +106,6 @@ create_zip() {
     fi
 }
 
-
-# flag_catch_bugs='-Wall -Wextra -Wpedantic -Werror -Wno-error=unused-function -Wno-error=pointer-sign -Wno-error=unused-parameter -Wno-error=unused-variable'
 
 config_mingw
 build
