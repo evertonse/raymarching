@@ -17,12 +17,14 @@
 #include "cye.h"
 
 #include "stb_c_lexer.c"
+
 #include "shader.c"
 #include "renderer.c"
 
 void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    // Step 1: Generate Vertex Buffer
+#if 1
    static Vertex* gpu_vertices = nullptr;
    gpu_vertices = realloc(gpu_vertices, mesh->vertices_count * size_of(Vertex)); // @Leak
    for (u32 i = 0; i < mesh->vertices_count; ++i) {
@@ -30,48 +32,53 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
       gpu_vertices[i].normal_v3 = mesh->normals[i];
       gpu_vertices[i].uv_v2 = mesh->uvs[i];
    }
+   Vertex_Array va = create_vertex_array(gpu_vertices, mesh->vertices_count, mesh->indices, mesh->indices_count);
 
-   Vertex_Array va = create_vertex_array(gpu_vertices, mesh->vertices_count);
-   Index_Buffer vi = create_index_buffer((GLuint *)mesh->indices, mesh->indices_count);
-
-   // Step 2: Create framebuffer
+#else
+   Vertex_Array va = create_vertex_array_from_mesh(mesh);
+#endif
    Texture tex = create_texture(512, 512);
    Framebuffer fb = create_framebuffer_with_texture(tex);
 
    // Step 3: Shader source
    const char *vs_src = R"(
-        #version 330 core
-        layout(location = 0) in vec3 position;
-        layout(location = 1) in vec3 normal;
-        layout(location = 2) in vec2 uv;
+       #version 420 core
+       layout(location = 0) in vec3 position;
+       layout(location = 1) in vec3 normal;
+       layout(location = 2) in vec2 uv;
 
-        uniform mat4 uMVP;
+       uniform mat4 uMVP;
 
-        out vec3 Normal;
-        out vec2 TexCoord;
+       out vec3 Normal;
+       out vec2 TexCoord;
 
-        void main() {
-            gl_Position = uMVP * vec4(position, 1.0);
-            TexCoord = uv;
-            Normal = normal;
-        }
-    )";
+       void main() {
+           // gl_Position = uMVP * vec4(position, 1.0);
+           gl_Position = vec4(position, 1.0);
+           TexCoord = uv;
+           Normal = normal;
+       }
+   )";
 
    const char *fs_src = R"(
-        #version 330 core
+       #version 420 core
 
-        in vec3 Normal;
-        in vec2 TexCoord;
+       in vec3 Normal;
+       in vec2 TexCoord;
 
-        out vec4 FragColor;
-
-        void main() {
-            FragColor = vec4(TexCoord, 1.0, 1.0);
-            FragColor = vec4(Normal, 1.0);
-        }
-    )";
-
+       out vec4 FragColor;
+       layout(binding = 4) uniform sampler2D tex;
+       void main() {
+          vec3 light = normalize(vec3(1., 1., 1.));
+           // FragColor = vec4(TexCoord, 1.0, 1.0);
+           // FragColor = vec4(Normal, 1.0);
+           float percent = max(0, dot(Normal, light));
+           FragColor = texture(tex, TexCoord)*max(0.3, percent);
+       }
+   )";
    Shader shader = create_shader_from_vertex_and_fragment_memory(vs_src, fs_src);
+   Texture diffuse_texture = create_texture_from_filepath("res/textures/tex_bamboo.jpg");
+   glBindTextureUnit(4, diffuse_texture.handle); // matches binding = 4
 
    // Step 4: Render setup
    glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
@@ -80,16 +87,18 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+   // Wireframe mode
+   // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+   // back to its default using glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
    // Step 5: Set MVP (identity for simplicity)
    glUseProgram(shader.handle);
    GLint uMVP = glGetUniformLocation(shader.handle, "uMVP");
    float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
    glUniformMatrix4fv(uMVP, 1, GL_FALSE, identity);
 
-   // Step 6: Draw
-   glBindVertexArray(va.vao);
-   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vi.ibo);
-   glDrawElements(GL_TRIANGLES, vi.count, GL_UNSIGNED_INT, NULL);
+   glBindVertexArray(va.handle);
+   glDrawElements(GL_TRIANGLES, va.index_count, GL_UNSIGNED_INT, NULL);
 
    // Step 7: Cleanup
    glBindVertexArray(0);
