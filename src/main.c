@@ -24,7 +24,7 @@
 void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    // Step 1: Generate Vertex Buffer
-#if 1
+#if 0
    static Vertex* gpu_vertices = nullptr;
    gpu_vertices = realloc(gpu_vertices, mesh->vertices_count * size_of(Vertex)); // @Leak
    for (u32 i = 0; i < mesh->vertices_count; ++i) {
@@ -37,47 +37,57 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 #else
    Vertex_Array va = create_vertex_array_from_mesh(mesh);
 #endif
-   Texture tex = create_texture(512, 512);
+   Texture tex = create_texture(1600, 800);
    Framebuffer fb = create_framebuffer_with_texture(tex);
 
    // Step 3: Shader source
    const char *vs_src = R"(
-       #version 420 core
-       layout(location = 0) in vec3 position;
-       layout(location = 1) in vec3 normal;
-       layout(location = 2) in vec2 uv;
+      #version 420 core
+      layout(location = 0) in vec3 position;
+      layout(location = 1) in vec3 normal;
+      layout(location = 2) in vec2 uv;
 
-       uniform mat4 uMVP;
+      uniform mat4 uMVP;
 
-       out vec3 Normal;
-       out vec2 TexCoord;
+      out vec3 Normal;
+      out vec2 TexCoord;
 
-       void main() {
-           // gl_Position = uMVP * vec4(position, 1.0);
-           gl_Position = vec4(position, 1.0);
-           TexCoord = uv;
-           Normal = normal;
-       }
+      void main() {
+         gl_Position = uMVP * vec4(position, 1.0);
+         // gl_Position = vec4(position, 1.0);
+         TexCoord = uv;
+         Normal = normal;
+      }
    )";
 
    const char *fs_src = R"(
-       #version 420 core
+      #version 420 core
 
-       in vec3 Normal;
-       in vec2 TexCoord;
+      in vec3 Normal;
+      in vec2 TexCoord;
 
-       out vec4 FragColor;
-       layout(binding = 4) uniform sampler2D tex;
-       void main() {
-          vec3 light = normalize(vec3(1., 1., 1.));
-           // FragColor = vec4(TexCoord, 1.0, 1.0);
-           // FragColor = vec4(Normal, 1.0);
-           float percent = max(0, dot(Normal, light));
-           FragColor = texture(tex, TexCoord)*max(0.3, percent);
-       }
+      out vec4 FragColor;
+      layout(binding = 4) uniform sampler2D tex;
+      void main() {
+         vec3 light = normalize(vec3(1., 1., 1.));
+         // FragColor = vec4(TexCoord, 1.0, 1.0);
+         // FragColor = vec4(Normal, 1.0);
+         float percent = max(0.3, dot(Normal, light));
+         FragColor = texture(tex, TexCoord)*percent;
+         FragColor.w = 1.0;
+      }
    )";
-   Shader shader = create_shader_from_vertex_and_fragment_memory(vs_src, fs_src);
-   Texture diffuse_texture = create_texture_from_filepath("res/textures/tex_bamboo.jpg");
+
+   static Shader shader = shader_invalid;
+
+   if (INVALID_SHADER_HANDLE == shader.handle ) {
+      shader = create_shader_from_vertex_and_fragment_memory(vs_src, fs_src);
+   }
+
+   static Texture diffuse_texture = {0};
+   if (0 == diffuse_texture.height * diffuse_texture.width) {
+      diffuse_texture = create_texture_from_filepath("res/textures/tex_bamboo.jpg");
+   }
    glBindTextureUnit(4, diffuse_texture.handle); // matches binding = 4
 
    // Step 4: Render setup
@@ -93,9 +103,15 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    // Step 5: Set MVP (identity for simplicity)
    glUseProgram(shader.handle);
-   GLint uMVP = glGetUniformLocation(shader.handle, "uMVP");
-   float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-   glUniformMatrix4fv(uMVP, 1, GL_FALSE, identity);
+
+   {
+      GLint loc = glGetUniformLocation(shader.handle, "uMVP");
+      float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+      Matrix mvp = MatrixRotate((Vector3){0., 1., 1.}, (f32)glfwGetTime() / 2.);
+      f32* matrix_values = &mvp.m0;
+      // f32* matrix_values = MatrixToFloatV(mvp).v;
+      glUniformMatrix4fv(loc, 1, GL_FALSE, matrix_values);
+   }
 
    glBindVertexArray(va.handle);
    glDrawElements(GL_TRIANGLES, va.index_count, GL_UNSIGNED_INT, NULL);
@@ -105,7 +121,19 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    glUseProgram(0);
    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-   blit_framebuffer_to_swapchain(fb);
+   // blit_framebuffer_to_swapchain(fb);
+
+   Rectanglei32 destination = {
+      .x = 100,
+      .y = 100,
+      .width = 600,
+      .height = 400
+   };
+
+   blit_framebuffer_to_swapchain_rect(
+       fb,
+       destination
+   );
 }
 
 

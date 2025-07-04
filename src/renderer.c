@@ -130,19 +130,21 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    glGenBuffers(1, &va.ibo);
 
    // Calculate sizes
-   usz vertex_count = mesh->vertices_count * sizeof(Vector3);
-   usz normal_count = mesh->normals_count * sizeof(Vector3);
-   usz uv_count = mesh->uvs_count * sizeof(Vector2);
-   usz total_count = vertex_count + normal_count + uv_count;
+   usz vertex_size = mesh->vertices_count * sizeof(Vector3);
+   usz normal_size = mesh->normals_count * sizeof(Vector3);
+   usz uv_size     = mesh->uvs_count * sizeof(Vector2);
+   usz total_size  = vertex_size + normal_size + uv_size;
 
-   assert(vertex_count == normal_count && vertex_count == uv_count);
+   assert(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count);
 
    // Upload VBO data
    glBindBuffer(GL_ARRAY_BUFFER, va.vbo);
-   glBufferData(GL_ARRAY_BUFFER, total_count, NULL, GL_STATIC_DRAW);
-   glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_count, mesh->vertices);
-   glBufferSubData(GL_ARRAY_BUFFER, vertex_count, normal_count, mesh->normals);
-   glBufferSubData(GL_ARRAY_BUFFER, vertex_count + normal_count, uv_count, mesh->uvs);
+   // glBufferData(GL_ARRAY_BUFFER, total_size, NULL, GL_STATIC_DRAW);
+   glBufferData(GL_ARRAY_BUFFER, total_size, NULL, GL_DYNAMIC_DRAW);
+   
+   glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_size, mesh->vertices);
+   glBufferSubData(GL_ARRAY_BUFFER, vertex_size, normal_size, mesh->normals);
+   glBufferSubData(GL_ARRAY_BUFFER, vertex_size + normal_size, uv_size, mesh->uvs);
 
 
    // Setup vertex attributes. Always stride = 0 because is tightly packed. Attributes are in separate blocks, this is correct.
@@ -150,10 +152,10 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)(uintptr_t)0);
 
    glEnableVertexAttribArray(1); // Normal
-   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, (void *)(uintptr_t)vertex_count);
+   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, (void *)(uintptr_t)vertex_size);
 
    glEnableVertexAttribArray(2); // UV
-   glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, (void *)(uintptr_t)(vertex_count + normal_count));
+   glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, (void *)(uintptr_t)(vertex_size + normal_size));
 
    // Upload index buffer
    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, va.ibo);
@@ -256,53 +258,60 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
    return true;
 }
 
-void blit_framebuffer_to_swapchain(const Framebuffer framebuffer) {
+inline void blit_framebuffer_to_swapchain_src_and_dst(
+   const Framebuffer framebuffer,
+   int src_x0, int src_y0, int src_x1, int src_y1,
+   int dst_x0, int dst_y0, int dst_x1, int dst_y1,
+   GLbitfield mask,
+   GLenum filter
+) {
    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer.handle);
-   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // swapchain
+   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // default framebuffer (screen)
 
    glBlitFramebuffer(
-      0, 0, framebuffer.color_attachment.width, framebuffer.color_attachment.height, // source rect
-      0, 0, framebuffer.color_attachment.width, framebuffer.color_attachment.height, // destination rect
-      GL_COLOR_BUFFER_BIT, GL_NEAREST
+       src_x0, src_y0, src_x1, src_y1,   // source rectangle
+       dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
+       mask,                             // e.g. GL_COLOR_BUFFER_BIT
+       filter                            // e.g. GL_NEAREST or GL_LINEAR
    );
 }
 
-void blit_framebuffer_to_swapchain_from_rect_vals(
-    const Framebuffer framebuffer,
-    int src_x0, int src_y0, int src_x1, int src_y1,
-    int dst_x0, int dst_y0, int dst_x1, int dst_y1,
-    GLbitfield mask,
-    GLenum filter
-) {
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer.handle);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
-    glBlitFramebuffer(
-        src_x0, src_y0, src_x1, src_y1,   // source rectangle
-        dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
-        mask,                             // e.g. GL_COLOR_BUFFER_BIT
-        filter                            // e.g. GL_NEAREST or GL_LINEAR
-    );
-}
-
-void blit_framebuffer_to_swapchain_rect(
+inline void blit_framebuffer_to_swapchain_rect_src_and_dst(
     const Framebuffer framebuffer,
     const Rectanglei32 src,
     const Rectanglei32 dst,
     GLbitfield mask,
     GLenum filter
 ) {
-   glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer.handle);
-   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // default framebuffer (screen)
-   
-   
    int src_x0 = (GLint)src.x, src_y0 = (GLint)src.y, src_x1 = (GLint)(src.x + src.width), src_y1 = (GLint)(src.y + src.height);
    int dst_x0 = (GLint)dst.x, dst_y0 = (GLint)dst.y, dst_x1 = (GLint)(dst.x + dst.width), dst_y1 = (GLint)(dst.y + dst.height);
-   glBlitFramebuffer(
+   blit_framebuffer_to_swapchain_src_and_dst(
+       framebuffer,
        src_x0, src_y0, src_x1, src_y1,   // source rectangle
        dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
        mask,                             // e.g. GL_COLOR_BUFFER_BIT
        filter                            // e.g. GL_NEAREST or GL_LINEAR
+   );
+}
+
+inline void blit_framebuffer_to_swapchain(const Framebuffer framebuffer) {
+   blit_framebuffer_to_swapchain_src_and_dst(
+      framebuffer,
+      0, 0, framebuffer.color_attachment.width, framebuffer.color_attachment.height, // source rect
+      0, 0, framebuffer.color_attachment.width, framebuffer.color_attachment.height, // destination rect
+      GL_COLOR_BUFFER_BIT, GL_NEAREST
+   );
+}
+
+inline void blit_framebuffer_to_swapchain_rect(
+    const Framebuffer  framebuffer, const Rectanglei32 dst
+) {
+   int dst_x0 = (GLint)dst.x, dst_y0 = (GLint)dst.y, dst_x1 = (GLint)(dst.x + dst.width), dst_y1 = (GLint)(dst.y + dst.height);
+   blit_framebuffer_to_swapchain_src_and_dst(
+      framebuffer,
+      0, 0, framebuffer.color_attachment.width, framebuffer.color_attachment.height, // source rect
+      dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
+      GL_COLOR_BUFFER_BIT, GL_NEAREST
    );
 }
 
