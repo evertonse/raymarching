@@ -1,4 +1,5 @@
 
+- [ ] Shader from single buffer by having #pragma Vertex in it
 - [x] Render triangles with raymarching xD
 - [ ] Render triangles from a model
 - [x] Derive cube sdf

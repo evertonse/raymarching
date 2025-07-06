@@ -62,19 +62,56 @@ typedef struct {
     i32 height;           // Rectangle height
 } Rectanglei32;
 
-#include "assets/all_obj.h"
 
-static Mesh bamboo_mesh = {
-   .vertices       = (Vector3*)bamboo_objVerts,
-   .normals        = (Vector3*)bamboo_objNormals,
-   .uvs            = (Vector2*)bamboo_objTexCoords,
-   .indices        = (u32*)bamboo_objIndexes,
+inline bool is_valid_shader(Shader shader) {
+    return shader.handle != INVALID_SHADER_HANDLE;
+}
 
-   .vertices_count = bamboo_objVertsCount,
-   .uvs_count      = bamboo_objTexCoordsCount,
-   .normals_count  = bamboo_objNormalsCount,
-   .indices_count  = bamboo_objIndexesCount
-};
+inline bool is_valid_texture(Texture tex) {
+    if (tex.handle == 0) return false;
+    if (tex.width <= 0 || tex.height <= 0) return false;
+    
+    // Actual OpenGL state check (costly, use only in debug)
+    #ifdef _DEBUG
+      return glIsTexture(tex.handle);
+    #else
+      return true;
+    #endif
+}
+
+inline bool is_valid_framebuffer(Framebuffer fb) {
+    return fb.handle != 0 && is_valid_texture(fb.color_attachment);
+}
+
+inline bool is_valid_vertex_array(Vertex_Array va) {
+    if (va.handle == 0 || va.vbo == 0) return false;
+    if (va.vertex_count == 0) return false;
+    
+    #ifdef _DEBUG
+    GLint vao_valid;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao_valid);
+    return vao_valid == va.handle;
+    #else
+    return true;
+    #endif
+}
+
+// Index Buffer is used separately so maybe we shouldnt expose this?
+inline bool is_valid_index_buffer(Index_Buffer ib) {
+    return ib.ibo != 0 && ib.count > 0;
+}
+
+// Mesh
+inline bool is_valid_mesh(Mesh mesh) {
+    return mesh.vertices != NULL && mesh.indices != NULL &&
+           mesh.vertices_count > 0 && mesh.indices_count > 0;
+}
+
+// Rectanglei32
+inline bool is_valid_rectangle(Rectanglei32 r) {
+    return r.width > 0 && r.height > 0;
+}
+
 
 Texture create_texture(int width, int height);
 Texture load_texture(const char *filepath);

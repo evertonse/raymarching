@@ -21,10 +21,31 @@
 #include "shader.c"
 #include "renderer.c"
 
-void render_mesh_to_framebuffer(const Mesh *mesh) {
+#include "assets/all_obj.h"
 
-   // Step 1: Generate Vertex Buffer
-#if 0
+// Macro to define a mesh from OBJ data
+#define DEFINE_MESH(prefix)                                \
+    static Mesh prefix##_mesh = {                          \
+        .vertices       = (Vector3*)prefix##_objVerts,     \
+        .normals        = (Vector3*)prefix##_objNormals,   \
+        .uvs            = (Vector2*)prefix##_objTexCoords, \
+        .indices        = (u32*)prefix##_objIndexes,       \
+                                                           \
+        .vertices_count = prefix##_objVertsCount,          \
+        .uvs_count      = prefix##_objTexCoordsCount,      \
+        .normals_count  = prefix##_objNormalsCount,        \
+        .indices_count  = prefix##_objIndexesCount         \
+    }
+
+
+DEFINE_MESH(bamboo);  // Creates bamboo_mesh
+
+
+void render_mesh_to_framebuffer(const Mesh *mesh) {
+   static Vertex_Array va = {0};
+
+   // Generate Vertex Buffer
+#if 1
    static Vertex* gpu_vertices = nullptr;
    gpu_vertices = realloc(gpu_vertices, mesh->vertices_count * size_of(Vertex)); // @Leak
    for (u32 i = 0; i < mesh->vertices_count; ++i) {
@@ -32,13 +53,20 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
       gpu_vertices[i].normal_v3 = mesh->normals[i];
       gpu_vertices[i].uv_v2 = mesh->uvs[i];
    }
-   Vertex_Array va = create_vertex_array(gpu_vertices, mesh->vertices_count, mesh->indices, mesh->indices_count);
+   if (!is_valid_vertex_array(va)) {
+      va = create_vertex_array(gpu_vertices, mesh->vertices_count, mesh->indices, mesh->indices_count);
+   }
 
 #else
-   Vertex_Array va = create_vertex_array_from_mesh(mesh);
+   if (!is_valid_vertex_array(va)) {
+      va = create_vertex_array_from_mesh(mesh);
+   }
 #endif
-   Texture tex = create_texture(1600, 800);
-   Framebuffer fb = create_framebuffer_with_texture(tex);
+   static Framebuffer fb = {0};
+   if (!is_valid_framebuffer(fb)) {
+      Texture tex = create_texture(1600, 800);
+      fb = create_framebuffer_with_texture(tex);
+   }
 
    // Step 3: Shader source
    const char *vs_src = R"(
@@ -47,21 +75,31 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
       layout(location = 1) in vec3 normal;
       layout(location = 2) in vec2 uv;
 
-      uniform mat4 uMVP;
+      uniform mat4 matrix;
 
       out vec3 Normal;
       out vec2 TexCoord;
 
       void main() {
-         gl_Position = uMVP * vec4(position, 1.0);
-         // gl_Position = vec4(position, 1.0);
+         // vec3 translation = vec3(0., 0., 1.5);
+         if (false) {
+            vec3 translation = vec3(-0.25, -0.25, 0.);
+            float scale = 1.6;
+            vec4 position = vec4(translation + scale*position, 1.0);
+            gl_Position = position;
+         } else {
+            vec4 position = vec4(position, 1.0);
+            gl_Position = matrix * position;
+         }
+
          TexCoord = uv;
-         Normal = normal;
+         Normal   = normal;
       }
    )";
 
    const char *fs_src = R"(
       #version 420 core
+      #pragma type fragment
 
       in vec3 Normal;
       in vec2 TexCoord;
@@ -80,19 +118,22 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    static Shader shader = shader_invalid;
 
-   if (INVALID_SHADER_HANDLE == shader.handle ) {
-      shader = create_shader_from_vertex_and_fragment_memory(vs_src, fs_src);
+   if (!is_valid_shader(shader)) {
+      shader = create_shader("res/shaders/default.glsl", 0);
+      if (!is_valid_shader(shader)) {
+         shader = create_shader_from_vertex_and_fragment_memory(vs_src, fs_src);
+      }
    }
 
    static Texture diffuse_texture = {0};
-   if (0 == diffuse_texture.height * diffuse_texture.width) {
+   if (!is_valid_texture(diffuse_texture)) {
       diffuse_texture = create_texture_from_filepath("res/textures/tex_bamboo.jpg");
    }
    glBindTextureUnit(4, diffuse_texture.handle); // matches binding = 4
 
    // Step 4: Render setup
    glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
-   glViewport(0, 0, tex.width, tex.height);
+   glViewport(0, 0, fb.color_attachment.width, fb.color_attachment.height);
    glEnable(GL_DEPTH_TEST);
    glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -104,12 +145,21 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    // Step 5: Set MVP (identity for simplicity)
    glUseProgram(shader.handle);
 
-   {
-      GLint loc = glGetUniformLocation(shader.handle, "uMVP");
+   {  // uniform
+
+      GLint loc = glGetUniformLocation(shader.handle, "matrix");
       float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-      Matrix mvp = MatrixRotate((Vector3){0., 1., 1.}, (f32)glfwGetTime() / 2.);
-      f32* matrix_values = &mvp.m0;
-      // f32* matrix_values = MatrixToFloatV(mvp).v;
+      Matrix model = MatrixRotate((Vector3){0., 1., 1.}, (f32)glfwGetTime() / 2.);
+
+      Matrix ortho = MatrixOrtho(-1., 1.,  -10., 10.0,  -10, 10.);
+      Matrix perspective = MatrixPerspective(PI/2., 1.0, -50., 50.0);
+      // Matrix perspective = MatrixFrustum(-5., 5.,  -5., 5.,  -5., 5.);
+      Matrix mp = MatrixMultiply(perspective, model);
+      Matrix id = MatrixIdentity();
+      // f32* matrix_values = &mp.m0;
+      // f32* matrix_values = &perspective.m0;
+      f32* matrix_values = MatrixToFloatV(ortho).v;
+      // f32* matrix_values = MatrixToFloatV(perspective).v;
       glUniformMatrix4fv(loc, 1, GL_FALSE, matrix_values);
    }
 

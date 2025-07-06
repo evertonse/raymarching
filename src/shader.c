@@ -12,6 +12,10 @@
 #define INVALID_SHADER_TYPE  U32_MAX
 
 typedef u32 Shader_Type;
+#define MAX_SHADER_TYPES 3
+#define COMPUTE_SHADER  GL_COMPUTE_SHADER
+#define FRAGMENT_SHADER GL_FRAGMENT_SHADER
+#define VERTEX_SHADER   GL_VERTEX_SHADER
 
 typedef struct {
    GLuint handle;
@@ -29,6 +33,112 @@ typedef DArray(isz) Isz_DArray;
 
 #define MAX_SHADERS 256
 static Isz_DArray shader_to_paths[MAX_SHADERS] = {0};
+
+#undef read_file
+#define read_file(x) (char*)cye_read_file(x)
+
+static DString all_unique_paths = {0};
+
+// Returns the start of added string or start of equal but already existing one.
+static isz append_unique_path(ZString path) {
+   isz count = 0;
+   assert_msg(all_unique_paths.count < U32_MAX, "Comparing with count as signed");
+
+   while (count < (isz)all_unique_paths.count) {
+      char* curr_path = (char*)all_unique_paths.data + count;
+      usz len = strlen(curr_path);
+      assert_msg(len < I16_MAX, "Overflow might happens here and we're geting close in this case");
+      if (strcmp(path, curr_path) == 0) {
+         return count;
+      }
+      count += (isz)len + 1;
+   }
+
+   ds_write_buf(&all_unique_paths, path, strlen(path));
+   ds_write_zero(&all_unique_paths);
+   return count;
+}
+
+static void print_unique_paths(void) {
+   usz count = 0;
+   while (count < all_unique_paths.count) {
+      char* curr_path = (char*)all_unique_paths.data + count;
+      usz len = strlen(curr_path);
+      count += len + 1;
+      trace_debug("\n%s ", curr_path);
+   }
+}
+
+// i64 *offset_* gets filled with the offset to the dynamic string data buffer for that type. It gets detected from reading #pragma type
+static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_offets, i64 *offset_compute, i64 *offset_fragment, i64 *offset_vertex) {
+   char *source = read_file(path);
+   if (!source) {
+      return false;
+   }
+   isz string_offset_in_buffer = append_unique_path(path);
+   da_append(path_offets, string_offset_in_buffer);
+
+   stb_lexer lexer;
+   char store[8192] = {0}; // WARNING: @Big Max possible path string in #include that we can read
+   assert((sizeof store / sizeof store[0]) == 8192);
+   stb_c_lexer_init(&lexer, source, source + strlen(source), store, (sizeof store / sizeof store[0]));
+
+   char *start = lexer.parse_point;
+   char *end   = lexer.parse_point;
+   while (stb_c_lexer_get_token(&lexer)) {
+      if (lexer.token == '#' && stb_c_lexer_get_token(&lexer)) {
+         if (lexer.token == CLEX_id && strcmp(lexer.string, "include") == 0) {
+            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_dqstring) {
+               // On double quoted token the inside string (without quote) is stored at lexer.string
+               const char *include_path = lexer.string;
+               ds_write_buf(ds, start, end-start);
+               start = lexer.parse_point;
+               end   = lexer.parse_point;
+               ds_write(ds, "\n"); // More readable in case of outputting to a file
+
+               if (!pre_process_shader(include_path, ds, path_offets, offset_compute, offset_fragment, offset_vertex)) {
+                  assert_msg(false, "TODO handle pre_process_shader failure");
+                  return false;
+               }
+            }
+         } else if (lexer.token == CLEX_id && strcmp(lexer.string, "pragma") == 0) {
+            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id) {
+               if (strcmp(lexer.string, "fragment") == 0) {
+                  if (offset_fragment == nullptr || -1 != *offset_fragment) {
+                     return false;
+                  } else {
+                     ds_write_buf(ds, start, end-start);
+                     start = lexer.parse_point;
+                     end   = lexer.parse_point;
+                     if (ds->count > 0) {
+                        ds_write_zero(ds);
+                     }
+                     trace_info("fragment count %d", ds->count);
+                     *offset_fragment = ds->count;
+                  }
+               } else if (strcmp(lexer.string, "vertex") == 0) {
+                  if (offset_vertex == nullptr || -1 != *offset_vertex) {
+                     return false;
+                  } else {
+                     ds_write_buf(ds, start, end-start);
+                     start = lexer.parse_point;
+                     end   = lexer.parse_point;
+                     if (ds->count > 0) {
+                        ds_write_zero(ds);
+                     }
+                     trace_info("vertex count %d", ds->count);
+                     *offset_vertex = ds->count;
+                  }
+               }
+            }
+         }
+      }
+      end = lexer.parse_point;
+   }
+   ds_write_buf(ds, start, end-start);
+   free(source);
+   return true;
+}
 
 Shader create_shader_from_memory(const u8** sources, const Shader_Type* types, usize count) {
    Shader shader = shader_invalid;
@@ -78,13 +188,15 @@ Shader create_shader_from_memory(const u8** sources, const Shader_Type* types, u
    GLint linked = 0;
    glGetProgramiv(program, GL_LINK_STATUS, &linked);
    if (linked == GL_FALSE) {
-      GLint log_length = 0;
+      GLint log_length = 256;
       glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_length);
 
-      char* log = (char*)malloc(log_length);
-      glGetProgramInfoLog(program, log_length, NULL, log);
-      fprintf(stderr, "Shader link error:\n%s\n", log);
-      free(log);
+      if (0 != log_length) {
+         char* log = (char*)malloc(log_length);
+         glGetProgramInfoLog(program, log_length, NULL, log);
+         fprintf(stderr, "Shader link error:\n%s(log_length=%d)\n", log, log_length);
+         free(log);
+      }
 
       glDeleteProgram(program);
       for (usz i = 0; i < count; ++i) {
@@ -120,100 +232,51 @@ Shader create_shader_single_from_memory(u8* source, Shader_Type type) {
 Shader create_shader(const char* path, Shader_Type type);
 Shader reload_shader(Shader shader);
 
-static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_offets);
-
-
-
-
-#undef read_file
-#define read_file(x) (char*)cye_read_file(x)
-
-static DString all_unique_paths = {0};
-
-// Returns the start of added string or start of equal but already existing one.
-static isz append_unique_path(ZString path) {
-   isz count = 0;
-   assert_msg(all_unique_paths.count < U32_MAX, "Comparing with count as signed");
-
-   while (count < (isz)all_unique_paths.count) {
-      char* curr_path = (char*)all_unique_paths.data + count;
-      usz len = strlen(curr_path);
-      assert_msg(len < I16_MAX, "Overflow might happens here and we're geting close in this case");
-      if (strcmp(path, curr_path) == 0) {
-         return count;
-      }
-      count += (isz)len + 1;
-   }
-
-   ds_write_buf(&all_unique_paths, path, strlen(path));
-   ds_write_zero(&all_unique_paths);
-   return count;
-}
-
-static void print_unique_paths(void) {
-   usz count = 0;
-   while (count < all_unique_paths.count) {
-      char* curr_path = (char*)all_unique_paths.data + count;
-      usz len = strlen(curr_path);
-      count += len + 1;
-      trace_debug("\n%s ", curr_path);
-   }
-}
-
-static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_offets) {
-   char *source = read_file(path);
-   if (!source) {
-      return false;
-   }
-   isz string_offset_in_buffer = append_unique_path(path);
-   da_append(path_offets, string_offset_in_buffer);
-
-   stb_lexer lexer;
-   char store[8192] = {0}; // Max possible path string in #include that we can read
-   assert((sizeof store / sizeof store[0]) == 8192);
-   stb_c_lexer_init(&lexer, source, source + strlen(source), store, (sizeof store / sizeof store[0]));
-
-   char *start = lexer.parse_point;
-   char *end   = lexer.parse_point;
-   while (stb_c_lexer_get_token(&lexer)) {
-      if (lexer.token == '#' && stb_c_lexer_get_token(&lexer)) {
-         if (lexer.token == CLEX_id && strcmp(lexer.string, "include") == 0) {
-            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_dqstring) {
-               // On double quoted token the inside string (without quote) is stored at lexer.string
-               const char *include_path = lexer.string;
-               ds_write_buf(ds, start, end-start);
-               start = lexer.parse_point;
-               end   = lexer.parse_point;
-               ds_write(ds, "\n"); // More readable in case of outputting to a file
-
-               if (!pre_process_shader(include_path, ds, path_offets)) {
-                  assert_msg(false, "TODO handle pre_process_shader failure");
-                  return false;
-               }
-
-            }
-         }
-      }
-      end = lexer.parse_point;
-   }
-   ds_write_buf(ds, start, end-start);
-   free(source);
-   return true;
-}
-
-#define COMPUTE_SHADER GL_COMPUTE_SHADER
-
 // Create and preprocess and compile the shader
 Shader create_shader(const char* path, Shader_Type type) {
     DString ds = {0};
     Isz_DArray path_offsets = {0};
     Shader result = shader_invalid;
-
+    i64 offset_compute = -1, offset_fragment = -1, offset_vertex = -1;
     // WARNING: We don't detect cyclic includes. #include "a" in b and #include "b" in a will halt the program
-    if (pre_process_shader(path, &ds, &path_offsets)) {
-        ds_write_zero(&ds);
-        result = create_shader_single_from_memory(ds.data, type);
-        result.path = path;
+    if (pre_process_shader(path, &ds, &path_offsets, &offset_compute, &offset_fragment, &offset_vertex)) {
+       ds_write_zero(&ds);
+
+       Shader_Type types[MAX_SHADER_TYPES] = {0};
+       const u8* sources[MAX_SHADER_TYPES] = {0};
+       usz count = 0;
+
+       if (offset_compute != -1) {
+          sources[count] = &ds.data[offset_compute];
+          types[count] = COMPUTE_SHADER;
+          count += 1;
+       }
+
+       if (offset_fragment != -1) {
+          sources[count] = &ds.data[offset_fragment];
+          types[count] = FRAGMENT_SHADER;
+          count += 1;
+       }
+
+       if (offset_vertex != -1) {
+          sources[count] = &ds.data[offset_vertex];
+          types[count] = VERTEX_SHADER;
+          count += 1;
+       }
+
+       trace_info("offset_compute = %d, offset_fragment = %d, offset_vertex = %d\n", offset_compute, offset_fragment, offset_vertex);
+         
+       // No type detected from pre_process at all
+       if (-1 == offset_compute && -1 == offset_fragment && -1 == offset_vertex) {
+          result = create_shader_single_from_memory(ds.data, type);
+       } else {
+          for (size_t i = 0; i < count; i++) {
+            write_file(tprintf("(%d)type-%d.glsl", count, types[i]), sources[i], strlen(sources[i]));
+          }
+          result = create_shader_from_memory(sources, types, count);
+       }
+
+       result.path = path;
     }
 
 
@@ -355,3 +418,53 @@ Shader reload_shader(Shader shader) {
    }
    return new_shader;
 }
+
+typedef struct {
+    GLuint handle;
+    GLuint binding_index;
+    GLsizeiptr size;
+    void* mapped_ptr; // For persistent mapped buffer
+} SSBO;
+
+SSBO create_ssbo(GLuint binding_index, GLsizeiptr size, const void* initial_data, bool persistent) {
+    SSBO ssbo = {0};
+    ssbo.binding_index = binding_index;
+    ssbo.size = size;
+
+    glGenBuffers(1, &ssbo.handle);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo.handle);
+
+    if (persistent) {
+        glBufferStorage(GL_SHADER_STORAGE_BUFFER, size, initial_data,
+            GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
+
+        ssbo.mapped_ptr = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, size,
+            GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
+    } else {
+        glBufferData(GL_SHADER_STORAGE_BUFFER, size, initial_data, GL_DYNAMIC_DRAW);
+    }
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding_index, ssbo.handle);
+    return ssbo;
+}
+
+void ssbo_update(SSBO* ssbo, const void* data, GLsizeiptr size) {
+    assert(!ssbo->mapped_ptr && "You can't use ssbo_update on a persistently mapped SSBO");
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo->handle);
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, size, data);
+}
+
+void* ssbo_get_mapped_ptr(SSBO* ssbo) {
+    return ssbo->mapped_ptr;
+}
+
+void destroy_ssbo(SSBO* ssbo) {
+    if (ssbo->mapped_ptr) {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo->handle);
+        glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    }
+    glDeleteBuffers(1, &ssbo->handle);
+    *ssbo = (SSBO){0};
+}
+
+

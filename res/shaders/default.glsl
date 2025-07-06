@@ -1,33 +1,43 @@
 #pragma vertex
-#version 330 core
+#version 420 core
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 normal;
+layout(location = 2) in vec2 uv;
 
-layout (location = 0) in vec3 aPos;
-// Texture Coordinates
-layout (location = 1) in vec2 aTexture;
+uniform mat4 matrix;
 
+out vec3 Normal;
+out vec2 TexCoord;
 
-out vec2 TexCoords;
+void main() {
+   // vec3 translation = vec3(0., 0., 1.5);
+   if (false) {
+      vec3 translation = vec3(-0.25, -0.25, 0.);
+      float scale = 1.6;
+      vec4 position = vec4(translation + scale * position, 1.0);
+      gl_Position = position;
+   } else {
+      vec4 position = vec4(position, 1.0);
+      gl_Position = matrix * position;
+   }
 
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
-uniform vec3 cam;
-void main()
-{
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
-    TexCoords = aTexture;
+   TexCoord = uv;
+   Normal = normal;
 }
 
 #pragma fragment
-#version 330 core
+#version 420 core
+
+in vec3 Normal;
+in vec2 TexCoord;
 
 out vec4 FragColor;
-in vec2 TexCoords;
-
-uniform sampler2D tex0;
-
-void main()
-{
-    FragColor = texture(tex0, TexCoords);
-    //FragColor = vec4(240,200,200,255)/255.0;
+layout(binding = 4) uniform sampler2D tex;
+void main() {
+   vec3 light = normalize(vec3(1., 1., 1.));
+   // FragColor = vec4(TexCoord, 1.0, 1.0);
+   // FragColor = vec4(Normal, 1.0);
+   float percent = max(0.3, dot(Normal, light));
+   FragColor = texture(tex, TexCoord) * percent;
+   FragColor.w = 1.0;
 }

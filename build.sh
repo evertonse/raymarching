@@ -87,7 +87,8 @@ build() {
 
     flag_nowarn='-Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -fwrapv -fno-strict-aliasing'
     flag_basic='-Wall -Wextra -Wpedantic -Werror'
-    flag_catch_bugs="$flag_nowarn $flag_basic"
+    # flag_sanitize='-fsanitize=undefined'
+    flag_catch_bugs="$flag_nowarn $flag_basic $flag_sanitize"
     flag_catch_bugs="$flag_catch_bugs -Wcast-align -Wdisabled-optimization -Wduplicated-cond -Wformat=2"
     # flag_catch_bugs="$flag_catch_bugs -Wcast-qual -Wduplicated-branches"
     # flag_catch_bugs="$flag_catch_bugs -Wlogical-op -Wmissing-include-dirs -Wnull-dereference -Woverloaded-virtual -Wpointer-arith -Wshadow -Wswitch-enum -Wvla"
@@ -136,5 +137,10 @@ create_zip() {
 
 config_mingw
 build
+
+if [ "$1" = "run" ]; then
+    ./$bin
+fi
+
 create_zip raymarch
 
