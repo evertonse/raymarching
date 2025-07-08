@@ -71,6 +71,12 @@ static void print_unique_paths(void) {
 
 // i64 *offset_* gets filled with the offset to the dynamic string data buffer for that type. It gets detected from reading #pragma type
 static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_offets, i64 *offset_compute, i64 *offset_fragment, i64 *offset_vertex) {
+   static ZString shader_prefix_defines = R"(
+      #define PI 3.14159
+      #define TAU PI * 2.
+      #define lerp mix
+   )";
+
    char *source = read_file(path);
    if (!source) {
       return false;
@@ -92,8 +98,7 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
                // On double quoted token the inside string (without quote) is stored at lexer.string
                const char *include_path = lexer.string;
                ds_write_buf(ds, start, end-start);
-               start = lexer.parse_point;
-               end   = lexer.parse_point;
+               start = lexer.parse_point; end = start;
                ds_write(ds, "\n"); // More readable in case of outputting to a file
 
                if (!pre_process_shader(include_path, ds, path_offets, offset_compute, offset_fragment, offset_vertex)) {
@@ -101,6 +106,21 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
                   return false;
                }
             }
+         } else if (lexer.token == CLEX_id && strcmp(lexer.string, "version") == 0) {
+            if (stb_c_lexer_get_token(&lexer) && lexer.token != CLEX_intlit) {
+               assert_msg(false, "After #version everything should be a integer");
+               return false;
+            }
+
+            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id && strcmp(lexer.string, "core") != 0) {
+               assert_msg(false, "Only core version allowed, but we got %s instead", lexer.string);
+               return false;
+            }
+
+            ds_write_buf(ds, start, lexer.parse_point-start);
+            start = lexer.parse_point; end = start;
+            ds_write(ds, shader_prefix_defines);
+
          } else if (lexer.token == CLEX_id && strcmp(lexer.string, "pragma") == 0) {
             if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id) {
                if (strcmp(lexer.string, "fragment") == 0) {
@@ -108,8 +128,7 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
                      return false;
                   } else {
                      ds_write_buf(ds, start, end-start);
-                     start = lexer.parse_point;
-                     end   = lexer.parse_point;
+                     start = lexer.parse_point; end = start;
                      if (ds->count > 0) {
                         ds_write_zero(ds);
                      }
@@ -121,8 +140,7 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
                      return false;
                   } else {
                      ds_write_buf(ds, start, end-start);
-                     start = lexer.parse_point;
-                     end   = lexer.parse_point;
+                     start = lexer.parse_point; end = start;
                      if (ds->count > 0) {
                         ds_write_zero(ds);
                      }
@@ -271,7 +289,7 @@ Shader create_shader(const char* path, Shader_Type type) {
           result = create_shader_single_from_memory(ds.data, type);
        } else {
           for (size_t i = 0; i < count; i++) {
-            write_file(tprintf("(%d)type-%d.glsl", count, types[i]), sources[i], strlen(sources[i]));
+            write_file(tprintf("(%d)type-%d.glsl", count, types[i]), (ZString)sources[i], strlen((ZString)sources[i]));
           }
           result = create_shader_from_memory(sources, types, count);
        }

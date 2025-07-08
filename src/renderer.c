@@ -3,15 +3,27 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef enum {
+   TEXTURE_FORMAT_UNDEFINED,
+   TEXTURE_FORMAT_DEPTH24,
+   TEXTURE_FORMAT_SHADOW,
+   TEXTURE_FORMAT_RGBA32F,
+   TEXTURE_FORMAT_RGB8,
+   TEXTURE_FORMAT_RGBA8,
+   TEXTURE_FORMAT_RG8,
+   TEXTURE_FORMAT_R8,
+} Texture_Format;
+
 typedef struct {
    GLuint handle;
    int32_t width;
    int32_t height;
+   Texture_Format format;
 } Texture;
 
 typedef struct {
    GLuint handle;
-   Texture color_attachment;
+   Texture color, depth;
 } Framebuffer;
 
 typedef struct {
@@ -80,7 +92,7 @@ inline bool is_valid_texture(Texture tex) {
 }
 
 inline bool is_valid_framebuffer(Framebuffer fb) {
-    return fb.handle != 0 && is_valid_texture(fb.color_attachment);
+    return fb.handle != 0 && is_valid_texture(fb.color);
 }
 
 inline bool is_valid_vertex_array(Vertex_Array va) {
@@ -111,10 +123,6 @@ inline bool is_valid_mesh(Mesh mesh) {
 inline bool is_valid_rectangle(Rectanglei32 r) {
     return r.width > 0 && r.height > 0;
 }
-
-
-Texture create_texture(int width, int height);
-Texture load_texture(const char *filepath);
 
 Framebuffer create_framebuffer_with_texture(const Texture texture);
 
@@ -156,6 +164,58 @@ Vertex_Array create_vertex_array(const Vertex* vertices, usz vertex_count, const
 }
 
 Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
+   Vertex_Array va = {0};
+
+   assert(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count);
+
+   // Calculate sizes
+   usz vertex_size = mesh->vertices_count * sizeof(Vector3);
+   usz normal_size = mesh->normals_count * sizeof(Vector3);
+   usz uv_size     = mesh->uvs_count * sizeof(Vector2);
+   usz total_size  = vertex_size + normal_size + uv_size;
+
+   // Create VAO
+   glCreateVertexArrays(1, &va.handle);
+
+   // Create and upload VBO
+   glCreateBuffers(1, &va.vbo);
+   glNamedBufferStorage(va.vbo, total_size, NULL, GL_DYNAMIC_STORAGE_BIT);
+   glNamedBufferSubData(va.vbo, 0, vertex_size, mesh->vertices);
+   glNamedBufferSubData(va.vbo, vertex_size, normal_size, mesh->normals);
+   glNamedBufferSubData(va.vbo, vertex_size + normal_size, uv_size, mesh->uvs);
+
+   // Link VBO to VAO (positions)
+   glEnableVertexArrayAttrib(va.handle, 0);
+   glVertexArrayVertexBuffer(va.handle, 0, va.vbo, 0, sizeof(Vector3));
+   glVertexArrayAttribFormat(va.handle, 0, 3, GL_FLOAT, GL_FALSE, 0);
+   glVertexArrayAttribBinding(va.handle, 0, 0);
+
+   // Normals (offset binding)
+   glEnableVertexArrayAttrib(va.handle, 1);
+   glVertexArrayVertexBuffer(va.handle, 1, va.vbo, vertex_size, sizeof(Vector3));
+   glVertexArrayAttribFormat(va.handle, 1, 3, GL_FLOAT, GL_FALSE, 0);
+   glVertexArrayAttribBinding(va.handle, 1, 1);
+
+   // UVs
+   glEnableVertexArrayAttrib(va.handle, 2);
+   glVertexArrayVertexBuffer(va.handle, 2, va.vbo, vertex_size + normal_size, sizeof(Vector2));
+   glVertexArrayAttribFormat(va.handle, 2, 2, GL_FLOAT, GL_FALSE, 0);
+   glVertexArrayAttribBinding(va.handle, 2, 2);
+
+   // Create and upload index buffer
+   glCreateBuffers(1, &va.ibo);
+   glNamedBufferStorage(va.ibo, mesh->indices_count * sizeof(u32), mesh->indices, 0);
+   glVertexArrayElementBuffer(va.handle, va.ibo);
+
+   // Store counts
+   va.vertex_count = mesh->vertices_count;
+   va.index_count = mesh->indices_count;
+
+   return va;
+}
+
+
+Vertex_Array create_vertex_array_from_mesh_non_dsa(const Mesh *mesh) {
    Vertex_Array va = {0};
 
    // Create and bind VAO
@@ -219,56 +279,130 @@ Index_Buffer create_index_buffer(const GLuint* indices, usz index_count) {
     return vi;
 }
 
-Texture create_texture(int width, int height) {
-   Texture result;
+
+
+Texture create_texture_extended(int width, int height, void *data, Texture_Format format, bool generate_mipmap) {
+   Texture result = {0};
    result.width = width;
    result.height = height;
+   result.format = format;
 
    glCreateTextures(GL_TEXTURE_2D, 1, &result.handle);
 
-   glTextureStorage2D(result.handle, 1, GL_RGBA32F, width, height);
+   GLenum internal_format, gl_format;
+   GLenum type = GL_UNSIGNED_BYTE;
 
-   glTextureParameteri(result.handle, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-   glTextureParameteri(result.handle, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-   glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-   glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-   return result;
-}
-
-Texture create_texture_from_filepath(const char *filepath) {
-   int width, height, channels;
-   unsigned char *data = stbi_load(filepath, &width, &height, &channels, 0);
-
-   if (!data) {
-      fprintf(stderr, "Faile to load texture: %s\n", filepath);
-      return (Texture){0};
+   GLenum compare_mode = 0;
+   GLenum compare_func = 0;
+   switch (format) {
+      case TEXTURE_FORMAT_RGBA8: {
+         internal_format = GL_RGBA8;
+         gl_format       = GL_RGBA;
+         break;
+      }
+      case TEXTURE_FORMAT_RGB8: {
+         internal_format = GL_RGB8;
+         gl_format       = GL_RGB;
+         break;
+      }
+      case TEXTURE_FORMAT_RG8: {
+         internal_format = GL_RG8;
+         gl_format       = GL_RG;
+         break;
+      }
+      case TEXTURE_FORMAT_R8: {
+         internal_format = GL_R8;
+         gl_format       = GL_RED;
+         break;
+      }
+      case TEXTURE_FORMAT_RGBA32F: {
+         internal_format = GL_RGBA32F;
+         gl_format       = GL_RGBA;
+         type            = GL_FLOAT;
+         break;
+      }
+      case TEXTURE_FORMAT_DEPTH24: {
+         internal_format = GL_DEPTH_COMPONENT24;
+         gl_format       = GL_DEPTH_COMPONENT;
+         type            = GL_UNSIGNED_INT;
+         break;
+      }
+      case TEXTURE_FORMAT_SHADOW: {
+         internal_format = GL_DEPTH_COMPONENT24;
+         gl_format       = GL_DEPTH_COMPONENT;
+         type            = GL_UNSIGNED_INT;
+         compare_mode    = GL_COMPARE_REF_TO_TEXTURE;
+         compare_func    = GL_LEQUAL;
+         break;
+      }
+      default: {
+         assert_msg(false, "Unsupported texture format\n");
+         return result;
+      }
    }
 
-   GLenum format = channels == 4 ? GL_RGBA : channels == 3 ? GL_RGB : channels == 1 ? GL_RED : 0;
+   glTextureStorage2D(result.handle, 1, internal_format, width, height);
 
-   Texture result;
-   result.width = width;
-   result.height = height;
+   if (data && (format != TEXTURE_FORMAT_DEPTH24 && format != TEXTURE_FORMAT_SHADOW)) {
+      glTextureSubImage2D(result.handle, 0, 0, 0, width, height, gl_format, type, data);
+   }
 
-   glCreateTextures(GL_TEXTURE_2D, 1, &result.handle);
-
-   glTextureStorage2D(result.handle, 1, (format == GL_RGBA ? GL_RGBA8 : GL_RGB8), width, height);
-
-   glTextureSubImage2D(result.handle, 0, 0, 0, width, height, format, GL_UNSIGNED_BYTE, data);
+   if (compare_mode) {
+      glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_MODE, compare_mode);
+      glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_FUNC, compare_func);
+   }
 
    glTextureParameteri(result.handle, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
    glTextureParameteri(result.handle, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+   glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
+   glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
 
-   glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S, GL_REPEAT);
-   glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-   glGenerateTextureMipmap(result.handle);
-   stbi_image_free(data);
+   if (generate_mipmap) {
+      glGenerateTextureMipmap(result.handle);
+   }
 
    return result;
 }
+
+
+inline Texture create_texture(int width, int height) {
+    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, false);
+}
+
+inline Texture create_depth_texture(int width, int height) {
+    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, false);
+}
+
+inline Texture create_shadow_texture(int width, int height) {
+    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_SHADOW, false);
+}
+
+Texture create_texture_from_filepath(const char *filepath) {
+    int width, height, channels;
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char *data = stbi_load(filepath, &width, &height, &channels, 0);
+
+    if (!data) {
+        fprintf(stderr, "Failed to load texture: %s\n", filepath);
+        return (Texture){0};
+    }
+
+    Texture_Format format = TEXTURE_FORMAT_RGBA8;
+    switch (channels) {
+        case 4: format = TEXTURE_FORMAT_RGBA8; break;
+        case 3: format = TEXTURE_FORMAT_RGB8;  break;
+        case 2: format = TEXTURE_FORMAT_RG8;   break;
+        case 1: format = TEXTURE_FORMAT_R8;    break;
+        default:
+            assert_msg(false, "Unsupported texture channel count from image");
+            break;
+    }
+
+    Texture result = create_texture_extended(width, height, data, format, true);
+    stbi_image_free(data);
+    return result;
+}
+
 
 Framebuffer create_framebuffer_with_texture(const Texture texture) {
    Framebuffer result;
@@ -284,18 +418,58 @@ Framebuffer create_framebuffer_with_texture(const Texture texture) {
 }
 
 bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture texture) {
-   glNamedFramebufferTexture(framebuffer->handle, GL_COLOR_ATTACHMENT0, texture.handle, 0);
+   GLenum attachment = GL_COLOR_ATTACHMENT0;
 
-   if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-      fprintf(stderr, "Framebuffer is not complete!");
+   switch (texture.format) {
+      case TEXTURE_FORMAT_RGBA32F:
+      case TEXTURE_FORMAT_RGBA8:
+      case TEXTURE_FORMAT_RGB8:
+      case TEXTURE_FORMAT_RG8:
+      case TEXTURE_FORMAT_R8: {
+         attachment = GL_COLOR_ATTACHMENT0;
+         framebuffer->color = texture;
+         break;
+      }
+      case TEXTURE_FORMAT_DEPTH24: {
+         attachment = GL_DEPTH_ATTACHMENT;
+         framebuffer->depth = texture;
+         break;
+      }
+      case TEXTURE_FORMAT_SHADOW: {
+         attachment = GL_DEPTH_ATTACHMENT;
+         framebuffer->depth = texture;
+         break;
+      }
+      default: {
+         assert_msg(false, "Unsupported texture format for framebuffer attachment\n");
+         return false;
+      }
+   }
+
+   glNamedFramebufferTexture(framebuffer->handle, attachment, texture.handle, 0);
+
+   if (glCheckNamedFramebufferStatus(framebuffer->handle, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+      fprintf(stderr, "Framebuffer is not complete!\n");
       return false;
    }
 
-   framebuffer->color_attachment = texture;
+#if 0
+   // if the framebuffer only has a depth texture might make sense
+   if (attachment == GL_DEPTH_ATTACHMENT && make suure only depth and no color attachment) {
+      glNamedFramebufferDrawBuffer(framebuffer->handle, GL_NONE);
+      glNamedFramebufferReadBuffer(framebuffer->handle, GL_NONE);
+   }
+#endif
+
+
    return true;
 }
 
-inline void blit_framebuffer_to_swapchain_src_and_dst(
+inline void destroy_texture(Texture texture) {
+   glDeleteTextures(1, &texture.handle);
+}
+
+inline void blit_framebuffer_to_swapchain_src_and_dst_non_dsa(
    const Framebuffer framebuffer,
    int src_x0, int src_y0, int src_x1, int src_y1,
    int dst_x0, int dst_y0, int dst_x1, int dst_y1,
@@ -312,6 +486,24 @@ inline void blit_framebuffer_to_swapchain_src_and_dst(
        filter                            // e.g. GL_NEAREST or GL_LINEAR
    );
 }
+
+inline void blit_framebuffer_to_swapchain_src_and_dst(
+    const Framebuffer framebuffer,
+    int src_x0, int src_y0, int src_x1, int src_y1,
+    int dst_x0, int dst_y0, int dst_x1, int dst_y1,
+    GLbitfield mask,
+    GLenum filter
+) {
+    glBlitNamedFramebuffer(
+       framebuffer.handle,               // src framebuffer
+       0,                                // dst framebuffer (swapchain in this case)
+       src_x0, src_y0, src_x1, src_y1,   // source rectangle
+       dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
+       mask,                             // e.g. GL_COLOR_BUFFER_BIT
+       filter                            // e.g. GL_NEAREST or GL_LINEAR
+    );
+}
+
 
 inline void blit_framebuffer_to_swapchain_rect_src_and_dst(
     const Framebuffer framebuffer,
@@ -334,8 +526,8 @@ inline void blit_framebuffer_to_swapchain_rect_src_and_dst(
 inline void blit_framebuffer_to_swapchain(const Framebuffer framebuffer) {
    blit_framebuffer_to_swapchain_src_and_dst(
       framebuffer,
-      0, 0, framebuffer.color_attachment.width, framebuffer.color_attachment.height, // source rect
-      0, 0, framebuffer.color_attachment.width, framebuffer.color_attachment.height, // destination rect
+      0, 0, framebuffer.color.width, framebuffer.color.height, // source rect
+      0, 0, framebuffer.color.width, framebuffer.color.height, // destination rect
       GL_COLOR_BUFFER_BIT, GL_NEAREST
    );
 }
@@ -346,7 +538,7 @@ inline void blit_framebuffer_to_swapchain_rect(
    int dst_x0 = (GLint)dst.x, dst_y0 = (GLint)dst.y, dst_x1 = (GLint)(dst.x + dst.width), dst_y1 = (GLint)(dst.y + dst.height);
    blit_framebuffer_to_swapchain_src_and_dst(
       framebuffer,
-      0, 0, framebuffer.color_attachment.width, framebuffer.color_attachment.height, // source rect
+      0, 0, framebuffer.color.width, framebuffer.color.height, // source rect
       dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
       GL_COLOR_BUFFER_BIT, GL_NEAREST
    );

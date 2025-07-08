@@ -24,21 +24,37 @@
 #include "assets/all_obj.h"
 
 // Macro to define a mesh from OBJ data
-#define DEFINE_MESH(prefix)                                \
-    static Mesh prefix##_mesh = {                          \
-        .vertices       = (Vector3*)prefix##_objVerts,     \
-        .normals        = (Vector3*)prefix##_objNormals,   \
-        .uvs            = (Vector2*)prefix##_objTexCoords, \
-        .indices        = (u32*)prefix##_objIndexes,       \
-                                                           \
-        .vertices_count = prefix##_objVertsCount,          \
-        .uvs_count      = prefix##_objTexCoordsCount,      \
-        .normals_count  = prefix##_objNormalsCount,        \
-        .indices_count  = prefix##_objIndexesCount         \
-    }
+#define DEFINE_MESH(prefix, ext)                          \
+   static Mesh prefix##_mesh = {                          \
+       .vertices       = (Vector3*)prefix##_objVerts,     \
+       .normals        = (Vector3*)prefix##_objNormals,   \
+       .uvs            = (Vector2*)prefix##_objTexCoords, \
+       .indices        = (u32*)prefix##_objIndexes,       \
+                                                          \
+       .vertices_count = prefix##_objVertsCount,          \
+       .uvs_count      = prefix##_objTexCoordsCount,      \
+       .normals_count  = prefix##_objNormalsCount,        \
+       .indices_count  = prefix##_objIndexesCount         \
+   };                                                     \
+   static char *prefix##_texture_path = "res/textures/" #prefix ext
 
 
-DEFINE_MESH(bamboo);  // Creates bamboo_mesh
+DEFINE_MESH(bamboo, ".jpg");
+DEFINE_MESH(enemy, ".png");
+DEFINE_MESH(tiger, "_yellow.png");
+DEFINE_MESH(horse, ".png");
+
+// #define chosen_mesh bamboo_mesh
+// #define chosen_texture_path bamboo_texture_path
+
+// #define chosen_mesh horse_mesh
+// #define chosen_texture_path horse_texture_path
+
+#define chosen_mesh tiger_mesh
+#define chosen_texture_path tiger_texture_path
+
+// #define chosen_mesh enemy_mesh
+// #define chosen_texture_path enemy_texture_path
 
 
 void render_mesh_to_framebuffer(const Mesh *mesh) {
@@ -68,7 +84,6 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
       fb = create_framebuffer_with_texture(tex);
    }
 
-   // Step 3: Shader source
    const char *vs_src = R"(
       #version 420 core
       layout(location = 0) in vec3 position;
@@ -117,24 +132,31 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    )";
 
    static Shader shader = shader_invalid;
-
-   if (!is_valid_shader(shader)) {
-      shader = create_shader("res/shaders/default.glsl", 0);
+   static const char *shader_path = "res/shaders/default.glsl";
+   bool want_reload = shader_needs_reload(shader);
+   if (!is_valid_shader(shader) || want_reload) {
+      if (is_valid_shader(shader) && want_reload) {
+         shader = reload_shader(shader);
+      } else {
+         shader = create_shader(shader_path, 0);
+      }
       if (!is_valid_shader(shader)) {
          shader = create_shader_from_vertex_and_fragment_memory(vs_src, fs_src);
       }
+
    }
 
    static Texture diffuse_texture = {0};
    if (!is_valid_texture(diffuse_texture)) {
-      diffuse_texture = create_texture_from_filepath("res/textures/tex_bamboo.jpg");
+      diffuse_texture = create_texture_from_filepath(chosen_texture_path);
    }
    glBindTextureUnit(4, diffuse_texture.handle); // matches binding = 4
 
    // Step 4: Render setup
    glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
-   glViewport(0, 0, fb.color_attachment.width, fb.color_attachment.height);
-   glEnable(GL_DEPTH_TEST);
+   glViewport(0, 0, fb.color.width, fb.color.height);
+
+
    glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -150,18 +172,25 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
       GLint loc = glGetUniformLocation(shader.handle, "matrix");
       float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
       Matrix model = MatrixRotate((Vector3){0., 1., 1.}, (f32)glfwGetTime() / 2.);
-
       Matrix ortho = MatrixOrtho(-1., 1.,  -10., 10.0,  -10, 10.);
-      Matrix perspective = MatrixPerspective(PI/2., 1.0, -50., 50.0);
+
+      Matrix perspective = MatrixPerspective(PI/3., 16./9., 0.01, 1000.0);
+      // perspective.m11 *= -1; // Force to be "left-handed" just like the NDC
       // Matrix perspective = MatrixFrustum(-5., 5.,  -5., 5.,  -5., 5.);
       Matrix mp = MatrixMultiply(perspective, model);
       Matrix id = MatrixIdentity();
-      // f32* matrix_values = &mp.m0;
-      // f32* matrix_values = &perspective.m0;
-      f32* matrix_values = MatrixToFloatV(ortho).v;
-      // f32* matrix_values = MatrixToFloatV(perspective).v;
+      f32* matrix_values = MatrixToFloatV(model).v;
       glUniformMatrix4fv(loc, 1, GL_FALSE, matrix_values);
    }
+
+   glEnable(GL_DEPTH_TEST);
+   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+   glEnable(GL_BLEND);
+   // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+   // glEnable(GL_MULTISAMPLE);
+   // glEnable(GL_CULL_FACE);
+   // glCullFace(GL_BACK);          // Cull back faces
+   // glFrontFace(GL_CW);          // Define front faces as counter-clockwise
 
    glBindVertexArray(va.handle);
    glDrawElements(GL_TRIANGLES, va.index_count, GL_UNSIGNED_INT, NULL);
@@ -176,8 +205,8 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    Rectanglei32 destination = {
       .x = 100,
       .y = 100,
-      .width = 600,
-      .height = 400
+      .width = 800,
+      .height = 600
    };
 
    blit_framebuffer_to_swapchain_rect(
@@ -580,7 +609,7 @@ int main() {
             );
          }
 
-         glBindImageTexture(0, fb.color_attachment.handle, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+         glBindImageTexture(0, fb.color.handle, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
          const GLuint work_group_size = 16;
          const GLuint work_group_size_x = work_group_size;
@@ -598,7 +627,7 @@ int main() {
       // Only blit if windows is not minimized
       if (!window_minized) {
           blit_framebuffer_to_swapchain(fb);
-          render_mesh_to_framebuffer(&bamboo_mesh);
+          render_mesh_to_framebuffer(&chosen_mesh);
       }
 
       glfwSwapBuffers(window);
