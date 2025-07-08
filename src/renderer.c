@@ -79,9 +79,10 @@ inline bool is_valid_shader(Shader shader) {
     return shader.handle != INVALID_SHADER_HANDLE;
 }
 
-inline bool is_valid_texture(Texture tex) {
-    if (tex.handle == 0) return false;
-    if (tex.width <= 0 || tex.height <= 0) return false;
+inline bool is_valid_texture(Texture texture) {
+    if (0 == texture.handle) return false;
+    if (texture.width <= 0 || texture.height <= 0) return false;
+    if (TEXTURE_FORMAT_UNDEFINED == texture.format) return false;
     
     // Actual OpenGL state check (costly, use only in debug)
     #ifdef _DEBUG
@@ -92,7 +93,11 @@ inline bool is_valid_texture(Texture tex) {
 }
 
 inline bool is_valid_framebuffer(Framebuffer fb) {
-    return fb.handle != 0 && is_valid_texture(fb.color);
+    return fb.handle != 0;
+}
+
+inline bool is_valid_framebuffer_and_its_textures(Framebuffer fb) {
+    return fb.handle != 0 && is_valid_texture(fb.color) && is_valid_texture(fb.depth);
 }
 
 inline bool is_valid_vertex_array(Vertex_Array va) {
@@ -123,11 +128,6 @@ inline bool is_valid_mesh(Mesh mesh) {
 inline bool is_valid_rectangle(Rectanglei32 r) {
     return r.width > 0 && r.height > 0;
 }
-
-Framebuffer create_framebuffer_with_texture(const Texture texture);
-
-bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture texture);
-void blit_framebuffer_to_swapchain(const Framebuffer framebuffer);
 
 // The last element buffer object that gets bound while a VAO is bound, is stored as the VAO's element buffer object. Binding to a VAO then also automatically binds that EBO.
 Vertex_Array create_vertex_array(const Vertex* vertices, usz vertex_count, const u32* indices, usz index_count) {
@@ -403,21 +403,11 @@ Texture create_texture_from_filepath(const char *filepath) {
     return result;
 }
 
-
-Framebuffer create_framebuffer_with_texture(const Texture texture) {
-   Framebuffer result;
-
-   glCreateFramebuffers(1, &result.handle);
-
-   if (!attach_texture_to_framebuffer(&result, texture)) {
-      glDeleteFramebuffers(1, &result.handle);
-      return (Framebuffer){0};
-   }
-
-   return result;
-}
+//-------- Framebuffer ---------
 
 bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture texture) {
+   assert(framebuffer && is_valid_framebuffer(*framebuffer));
+
    GLenum attachment = GL_COLOR_ATTACHMENT0;
 
    switch (texture.format) {
@@ -464,6 +454,57 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
 
    return true;
 }
+
+Framebuffer create_framebuffer_extended(Texture color, Texture depth) {
+    Framebuffer fb = {0};
+
+    glCreateFramebuffers(1, &fb.handle);
+
+    if (is_valid_texture(color) && color.format != TEXTURE_FORMAT_DEPTH24) {
+        if (!attach_texture_to_framebuffer(&fb, color)) {
+            glDeleteFramebuffers(1, &fb.handle);
+            return (Framebuffer){0};
+        }
+    }
+
+    // Add more depth compatible formats in this if needed
+    if (is_valid_texture(depth) && depth.format == TEXTURE_FORMAT_DEPTH24) {
+        if (!attach_texture_to_framebuffer(&fb, depth)) {
+            glDeleteFramebuffers(1, &fb.handle);
+            return (Framebuffer){0};
+        }
+    }
+
+    GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "Framebuffer not complete: 0x%X\n", status);
+        glDeleteFramebuffers(1, &fb.handle);
+        return (Framebuffer){0};
+    }
+
+    return fb;
+}
+
+Framebuffer create_framebuffer(int width, int height) {
+    Texture color = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, false);
+    Texture depth = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, false);
+    return create_framebuffer_extended(color, depth);
+}
+
+Framebuffer create_framebuffer_from_texture(const Texture texture) {
+   Framebuffer result;
+
+   glCreateFramebuffers(1, &result.handle);
+
+   if (!attach_texture_to_framebuffer(&result, texture)) {
+      glDeleteFramebuffers(1, &result.handle);
+      return (Framebuffer){0};
+   }
+
+   return result;
+}
+
+
 
 inline void destroy_texture(Texture texture) {
    glDeleteTextures(1, &texture.handle);

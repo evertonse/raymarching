@@ -80,8 +80,7 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 #endif
    static Framebuffer fb = {0};
    if (!is_valid_framebuffer(fb)) {
-      Texture tex = create_texture(1600, 800);
-      fb = create_framebuffer_with_texture(tex);
+      fb = create_framebuffer(1600, 800);
    }
 
    const char *vs_src = R"(
@@ -495,7 +494,7 @@ int main() {
    }
 
    Texture compute_shader_texture = create_texture(window_width, window_height);
-   Framebuffer fb = create_framebuffer_with_texture(compute_shader_texture);
+   Framebuffer fb = create_framebuffer_from_texture(compute_shader_texture);
    f64 start_time = glfwGetTime();
 
    f64 conditionally_change_windows_title_timer_default = 0.75;
