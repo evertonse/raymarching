@@ -1,8 +1,28 @@
 
 #version 420 core
-      #define PI 3.14159
-      #define TAU PI * 2.
-      #define lerp mix
+      #ifndef lerp
+         #define lerp 3.14159265358979323846
+      #endif
+
+      #ifndef PI
+         #define PI 3.14159265358979323846
+      #endif
+
+      #ifndef TAU
+         #define TAU PI * 2.
+      #endif
+
+      #ifndef EPSILON
+         #define EPSILON 0.000001
+      #endif
+
+      #ifndef DEG2RAD
+         #define DEG2RAD (PI/180.0)
+      #endif
+
+      #ifndef RAD2DEG
+         #define RAD2DEG (180.0/PI)
+      #endif
    
 
 in vec3 Normal;

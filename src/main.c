@@ -80,6 +80,7 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 #endif
    static Framebuffer fb = {0};
    if (!is_valid_framebuffer(fb)) {
+
       fb = create_framebuffer(1600, 800);
    }
 
@@ -156,8 +157,11 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    glViewport(0, 0, fb.color.width, fb.color.height);
 
 
-   glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
-   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+   {
+      glEnable(GL_DEPTH_TEST);
+      glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+   }
 
    // Wireframe mode
    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -166,33 +170,45 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    // Step 5: Set MVP (identity for simplicity)
    glUseProgram(shader.handle);
 
-   {  // uniform
+   {
 
-      GLint loc = glGetUniformLocation(shader.handle, "matrix");
-      float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-      Matrix model = MatrixRotate((Vector3){0., 1., 1.}, (f32)glfwGetTime() / 2.);
-      Matrix ortho = MatrixOrtho(-1., 1.,  -10., 10.0,  -10, 10.);
-
-      Matrix perspective = MatrixPerspective(PI/3., 16./9., 0.01, 1000.0);
+      GLint loc = glGetUniformLocation(shader.handle, "perspective");
+      Matrix perspective = MatrixPerspective(PI/3., (f64)fb.color.width/fb.color.height, 0.01, 1000.0);
       // perspective.m11 *= -1; // Force to be "left-handed" just like the NDC
       // Matrix perspective = MatrixFrustum(-5., 5.,  -5., 5.,  -5., 5.);
-      Matrix mp = MatrixMultiply(perspective, model);
-      Matrix id = MatrixIdentity();
-      f32* matrix_values = MatrixToFloatV(model).v;
-      glUniformMatrix4fv(loc, 1, GL_FALSE, matrix_values);
+      glUniformMatrix4fv(loc, 1, GL_FALSE, MatrixToFloat(perspective));
    }
 
-   glEnable(GL_DEPTH_TEST);
-   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-   glEnable(GL_BLEND);
-   // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-   // glEnable(GL_MULTISAMPLE);
-   // glEnable(GL_CULL_FACE);
-   // glCullFace(GL_BACK);          // Cull back faces
-   // glFrontFace(GL_CW);          // Define front faces as counter-clockwise
+   {
+      Vector3 positions[] = {
+          (Vector3){  0.0f,  0.0f,  0.0f  },
+          (Vector3){  2.0f,  5.0f, -15.0f },
+          (Vector3){ -1.5f, -2.2f, -2.5f  },
+          (Vector3){ -3.8f, -2.0f, -12.3f },
+          (Vector3){  2.4f, -0.4f, -3.5f  },
+          (Vector3){ -1.7f,  3.0f, -7.5f  },
+          (Vector3){  1.3f, -2.0f, -2.5f  },
+          (Vector3){  1.5f,  2.0f, -2.5f  },
+          (Vector3){  1.5f,  0.2f, -1.5f  },
+          (Vector3){ -1.3f,  1.0f, -1.5f  }
+      };
 
-   glBindVertexArray(va.handle);
-   glDrawElements(GL_TRIANGLES, va.index_count, GL_UNSIGNED_INT, NULL);
+      glBindVertexArray(va.handle);
+      for (isz i = 0; i < count_of(positions); i++) {
+         if (1 == i ) {
+            break;
+         }
+
+         Vector3 position = positions[i];
+         GLint loc = glGetUniformLocation(shader.handle, "model");
+         Matrix model = MatrixRotate((Vector3){0., 1., 1.}, (f32)glfwGetTime() / 10.);
+         model = MatrixMultiply(MatrixTranslate(position.z, position.y, position.z), model);
+         f32* matrix_values = MatrixToFloatV(model).v;
+         glUniformMatrix4fv(loc, 1, GL_FALSE, matrix_values);
+         glDrawElements(GL_TRIANGLES, va.index_count, GL_UNSIGNED_INT, NULL);
+      }
+
+   }
 
    // Step 7: Cleanup
    glBindVertexArray(0);
@@ -511,6 +527,17 @@ int main() {
    };
 
    Camera camera = camera_default;
+
+
+   { // Some expected settings
+      glEnable(GL_DEPTH_TEST);
+      // glEnable(GL_BLEND);
+      // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+      // glEnable(GL_MULTISAMPLE);
+      // glEnable(GL_CULL_FACE);
+      // glCullFace(GL_BACK);          // Cull back faces
+      // glFrontFace(GL_CW);           // GL_CCW to define front faces as counter-clockwise
+   }
 
    while (!glfwWindowShouldClose(window)) {
       bool window_minized = glfwGetWindowAttrib(window, GLFW_ICONIFIED) == GLFW_TRUE;

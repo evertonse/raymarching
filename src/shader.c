@@ -72,9 +72,29 @@ static void print_unique_paths(void) {
 // i64 *offset_* gets filled with the offset to the dynamic string data buffer for that type. It gets detected from reading #pragma type
 static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_offets, i64 *offset_compute, i64 *offset_fragment, i64 *offset_vertex) {
    static ZString shader_prefix_defines = R"(
-      #define PI 3.14159
-      #define TAU PI * 2.
-      #define lerp mix
+      #ifndef lerp
+         #define lerp 3.14159265358979323846
+      #endif
+
+      #ifndef PI
+         #define PI 3.14159265358979323846
+      #endif
+
+      #ifndef TAU
+         #define TAU PI * 2.
+      #endif
+
+      #ifndef EPSILON
+         #define EPSILON 0.000001
+      #endif
+
+      #ifndef DEG2RAD
+         #define DEG2RAD (PI/180.0)
+      #endif
+
+      #ifndef RAD2DEG
+         #define RAD2DEG (180.0/PI)
+      #endif
    )";
 
    char *source = read_file(path);
@@ -252,73 +272,73 @@ Shader reload_shader(Shader shader);
 
 // Create and preprocess and compile the shader
 Shader create_shader(const char* path, Shader_Type type) {
-    DString ds = {0};
-    Isz_DArray path_offsets = {0};
-    Shader result = shader_invalid;
-    i64 offset_compute = -1, offset_fragment = -1, offset_vertex = -1;
-    // WARNING: We don't detect cyclic includes. #include "a" in b and #include "b" in a will halt the program
-    if (pre_process_shader(path, &ds, &path_offsets, &offset_compute, &offset_fragment, &offset_vertex)) {
-       ds_write_zero(&ds);
+   DString ds = {0};
+   Isz_DArray path_offsets = {0};
+   Shader result = shader_invalid;
+   i64 offset_compute = -1, offset_fragment = -1, offset_vertex = -1;
+   // WARNING: We don't detect cyclic includes. #include "a" in b and #include "b" in a will halt the program
+   if (pre_process_shader(path, &ds, &path_offsets, &offset_compute, &offset_fragment, &offset_vertex)) {
+      ds_write_zero(&ds);
 
-       Shader_Type types[MAX_SHADER_TYPES] = {0};
-       const u8* sources[MAX_SHADER_TYPES] = {0};
-       usz count = 0;
+      Shader_Type types[MAX_SHADER_TYPES] = {0};
+      const u8* sources[MAX_SHADER_TYPES] = {0};
+      usz count = 0;
 
-       if (offset_compute != -1) {
-          sources[count] = &ds.data[offset_compute];
-          types[count] = COMPUTE_SHADER;
-          count += 1;
-       }
+      if (offset_compute != -1) {
+         sources[count] = &ds.data[offset_compute];
+         types[count] = COMPUTE_SHADER;
+         count += 1;
+      }
 
-       if (offset_fragment != -1) {
-          sources[count] = &ds.data[offset_fragment];
-          types[count] = FRAGMENT_SHADER;
-          count += 1;
-       }
+      if (offset_fragment != -1) {
+         sources[count] = &ds.data[offset_fragment];
+         types[count] = FRAGMENT_SHADER;
+         count += 1;
+      }
 
-       if (offset_vertex != -1) {
-          sources[count] = &ds.data[offset_vertex];
-          types[count] = VERTEX_SHADER;
-          count += 1;
-       }
+      if (offset_vertex != -1) {
+         sources[count] = &ds.data[offset_vertex];
+         types[count] = VERTEX_SHADER;
+         count += 1;
+      }
 
-       trace_info("offset_compute = %d, offset_fragment = %d, offset_vertex = %d\n", offset_compute, offset_fragment, offset_vertex);
-         
-       // No type detected from pre_process at all
-       if (-1 == offset_compute && -1 == offset_fragment && -1 == offset_vertex) {
-          result = create_shader_single_from_memory(ds.data, type);
-       } else {
-          for (size_t i = 0; i < count; i++) {
-            write_file(tprintf("(%d)type-%d.glsl", count, types[i]), (ZString)sources[i], strlen((ZString)sources[i]));
-          }
-          result = create_shader_from_memory(sources, types, count);
-       }
+      trace_info("offset_compute = %d, offset_fragment = %d, offset_vertex = %d\n", offset_compute, offset_fragment, offset_vertex);
 
-       result.path = path;
-    }
+      // No type detected from pre_process at all
+      if (-1 == offset_compute && -1 == offset_fragment && -1 == offset_vertex) {
+         result = create_shader_single_from_memory(ds.data, type);
+      } else {
+         for (size_t i = 0; i < count; i++) {
+           write_file(tprintf("(%d)type-%d.glsl", count, types[i]), (ZString)sources[i], strlen((ZString)sources[i]));
+         }
+         result = create_shader_from_memory(sources, types, count);
+      }
+
+      result.path = path;
+   }
 
 
-    if (INVALID_SHADER_HANDLE != result.handle) {
-       usz checkpoint = tsave();
-       {
-          TString time_path = tprintf("%s.time", path_stem(path));
-          String_Slice msg = ss_from_zstr("This file is just to mark time_t when the shader was compiled");
-          write_file(time_path , msg.data, msg.size);
-       }
-       trestore(checkpoint);
+   if (INVALID_SHADER_HANDLE != result.handle) {
+      usz checkpoint = tsave();
+      {
+         TString time_path = tprintf("%s.time", path_stem(path));
+         String_Slice msg = ss_from_zstr("This file is just to mark time_t when the shader was compiled");
+         write_file(time_path , msg.data, msg.size);
+      }
+      trestore(checkpoint);
 
-       write_file("src/shaders/output/success-dump.glsl", ds.data, ds.size);
-       shader_to_paths[result.handle] =  path_offsets;
+      write_file("src/shaders/output/success-dump.glsl", ds.data, ds.size);
+      shader_to_paths[result.handle] =  path_offsets;
 
-    } else {
-        write_file("src/shaders/output/failed-dump.glsl", ds.data, ds.size);
-        // Only free on failure because we're gonna use the paths if all succeeds.
-        da_free(path_offsets);
-    }
+   } else {
+       write_file("src/shaders/output/failed-dump.glsl", ds.data, ds.size);
+       // Only free on failure because we're gonna use the paths if all succeeds.
+       da_free(path_offsets);
+   }
 
-    // Always free the dynamic array, under success or failure.
-    ds_free(ds);
-    return result;
+   // Always free the dynamic array, under success or failure.
+   ds_free(ds);
+   return result;
 }
 
 

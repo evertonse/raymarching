@@ -7,9 +7,12 @@
 float NEAR = 0.0001;
 float FAR = 400.0;
 float time;      // time
+
+#ifndef PI
 #define PI 3.14159
 #define TAU PI * 2.
 #define lerp mix
+#endif
 
 // Max component
 float maxc(vec2 v) {
