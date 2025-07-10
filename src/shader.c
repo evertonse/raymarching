@@ -73,7 +73,7 @@ static void print_unique_paths(void) {
 static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_offets, i64 *offset_compute, i64 *offset_fragment, i64 *offset_vertex) {
    static ZString shader_prefix_defines = R"(
       #ifndef lerp
-         #define lerp 3.14159265358979323846
+         #define lerp mix
       #endif
 
       #ifndef PI
@@ -267,16 +267,13 @@ Shader create_shader_single_from_memory(u8* source, Shader_Type type) {
    return create_shader_from_memory(sources, types, count_of(sources));
 }
 
-Shader create_shader(const char* path, Shader_Type type);
-Shader reload_shader(Shader shader);
-
 // Create and preprocess and compile the shader
 Shader create_shader(const char* path, Shader_Type type) {
    DString ds = {0};
    Isz_DArray path_offsets = {0};
    Shader result = shader_invalid;
    i64 offset_compute = -1, offset_fragment = -1, offset_vertex = -1;
-   // WARNING: We don't detect cyclic includes. #include "a" in b and #include "b" in a will halt the program
+   // WARNING: We don't detect cyclic includes. #include "a" in b and #include "b" in a will not halt the programa and loop fo'ever
    if (pre_process_shader(path, &ds, &path_offsets, &offset_compute, &offset_fragment, &offset_vertex)) {
       ds_write_zero(&ds);
 
@@ -409,9 +406,10 @@ bool shader_needs_reload(Shader shader) {
 
    ZString first_path = (char*)all_unique_paths.data + paths.items[0];
    usz count = 0;
-   usz checkpoint = tsave();
    bool result = false;
 
+
+   usz checkpoint = tsave();
    // We always save and .time files based on first_path
    TString time_path = tprintf("%s.time", path_stem(first_path));
 

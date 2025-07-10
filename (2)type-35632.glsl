@@ -1,7 +1,7 @@
 
 #version 420 core
       #ifndef lerp
-         #define lerp 3.14159265358979323846
+         #define lerp mix
       #endif
 
       #ifndef PI
@@ -31,14 +31,15 @@ in vec2 TexCoord;
 out vec4 FragColor;
 layout(binding = 4) uniform sampler2D tex;
 void main() {
-   vec3  light = normalize(vec3(1., 1., 1.));
+   vec3  light = normalize(vec3(2., 1., 1.));
    float percent = max(0.3, dot(Normal, light));
    FragColor = texture(tex, TexCoord);
 
    // FragColor = vec4(0.2, 0.3, 0.2, 1.0)*2.;
 
-   if (false) {
+   if (true) {
       FragColor *= percent;
    }
+   // FragColor.xyz += vec3(.1, .1, .1);
    FragColor.w = 1.0;
 }

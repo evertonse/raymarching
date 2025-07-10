@@ -130,7 +130,7 @@ inline bool is_valid_rectangle(Rectanglei32 r) {
 }
 
 // The last element buffer object that gets bound while a VAO is bound, is stored as the VAO's element buffer object. Binding to a VAO then also automatically binds that EBO.
-Vertex_Array create_vertex_array(const Vertex* vertices, usz vertex_count, const u32* indices, usz index_count) {
+Vertex_Array create_vertex_array_non_dsa(const Vertex* vertices, usz vertex_count, const u32* indices, usz index_count) {
     Vertex_Array va;
     glGenVertexArrays(1, &va.handle);
     glBindVertexArray(va.handle);
@@ -162,6 +162,39 @@ Vertex_Array create_vertex_array(const Vertex* vertices, usz vertex_count, const
     va.index_count = (GLuint)index_count;
     return va;
 }
+
+Vertex_Array create_vertex_array(const Vertex* vertices, usz vertex_count, const u32* indices, usz index_count) {
+    Vertex_Array va = {0};
+
+    glCreateVertexArrays(1, &va.handle);
+    glCreateBuffers(1, &va.vbo);
+    glNamedBufferStorage(va.vbo, vertex_count * size_of(Vertex), vertices, 0);
+
+    glVertexArrayVertexBuffer(va.handle, 0, va.vbo, 0, size_of(Vertex));
+
+    // Vertex attributes
+    glEnableVertexArrayAttrib(va.handle, 0);
+    glVertexArrayAttribFormat(va.handle, 0, 3, GL_FLOAT, GL_FALSE, offset_of(Vertex, position));
+    glVertexArrayAttribBinding(va.handle, 0, 0);
+
+    glEnableVertexArrayAttrib(va.handle, 1);
+    glVertexArrayAttribFormat(va.handle, 1, 3, GL_FLOAT, GL_FALSE, offset_of(Vertex, normal));
+    glVertexArrayAttribBinding(va.handle, 1, 0);
+
+    glEnableVertexArrayAttrib(va.handle, 2);
+    glVertexArrayAttribFormat(va.handle, 2, 2, GL_FLOAT, GL_FALSE, offset_of(Vertex, uv));
+    glVertexArrayAttribBinding(va.handle, 2, 0);
+
+    // Index buffer
+    glCreateBuffers(1, &va.ibo);
+    glNamedBufferStorage(va.ibo, index_count * sizeof(GLuint), indices, 0);
+    glVertexArrayElementBuffer(va.handle, va.ibo);
+
+    va.vertex_count = (GLuint)vertex_count;
+    va.index_count = (GLuint)index_count;
+    return va;
+}
+
 
 Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    Vertex_Array va = {0};

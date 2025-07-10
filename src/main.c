@@ -44,6 +44,18 @@ DEFINE_MESH(enemy, ".png");
 DEFINE_MESH(tiger, "_yellow.png");
 DEFINE_MESH(horse, ".png");
 
+static Mesh cube_mesh = {
+   .vertices       = (Vector3*)cube_objVerts,
+   .normals        = (Vector3*)cube_objNormals,
+   .uvs            = (Vector2*)cube_objTexCoords,
+   .indices        = (u32*)cube_objIndexes,
+
+   .vertices_count = cube_objVertsCount,
+   .uvs_count      = cube_objTexCoordsCount,
+   .normals_count  = cube_objNormalsCount,
+   .indices_count  = cube_objIndexesCount
+};
+
 // #define chosen_mesh bamboo_mesh
 // #define chosen_texture_path bamboo_texture_path
 
@@ -59,11 +71,12 @@ DEFINE_MESH(horse, ".png");
 
 void render_mesh_to_framebuffer(const Mesh *mesh) {
    static Vertex_Array va = {0};
+   static Vertex_Array cube_va = {0};
 
-   // Generate Vertex Buffer
+
 #if 1
    static Vertex* gpu_vertices = nullptr;
-   gpu_vertices = realloc(gpu_vertices, mesh->vertices_count * size_of(Vertex)); // @Leak
+   gpu_vertices = realloc(gpu_vertices, mesh->vertices_count * size_of(Vertex));
    for (u32 i = 0; i < mesh->vertices_count; ++i) {
       gpu_vertices[i].position_v3 = mesh->vertices[i];
       gpu_vertices[i].normal_v3 = mesh->normals[i];
@@ -78,58 +91,15 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
       va = create_vertex_array_from_mesh(mesh);
    }
 #endif
-   static Framebuffer fb = {0};
-   if (!is_valid_framebuffer(fb)) {
 
-      fb = create_framebuffer(1600, 800);
+   if (!is_valid_vertex_array(cube_va)) {
+      cube_va = create_vertex_array_from_mesh(&cube_mesh);
    }
 
-   const char *vs_src = R"(
-      #version 420 core
-      layout(location = 0) in vec3 position;
-      layout(location = 1) in vec3 normal;
-      layout(location = 2) in vec2 uv;
-
-      uniform mat4 matrix;
-
-      out vec3 Normal;
-      out vec2 TexCoord;
-
-      void main() {
-         // vec3 translation = vec3(0., 0., 1.5);
-         if (false) {
-            vec3 translation = vec3(-0.25, -0.25, 0.);
-            float scale = 1.6;
-            vec4 position = vec4(translation + scale*position, 1.0);
-            gl_Position = position;
-         } else {
-            vec4 position = vec4(position, 1.0);
-            gl_Position = matrix * position;
-         }
-
-         TexCoord = uv;
-         Normal   = normal;
-      }
-   )";
-
-   const char *fs_src = R"(
-      #version 420 core
-      #pragma type fragment
-
-      in vec3 Normal;
-      in vec2 TexCoord;
-
-      out vec4 FragColor;
-      layout(binding = 4) uniform sampler2D tex;
-      void main() {
-         vec3 light = normalize(vec3(1., 1., 1.));
-         // FragColor = vec4(TexCoord, 1.0, 1.0);
-         // FragColor = vec4(Normal, 1.0);
-         float percent = max(0.3, dot(Normal, light));
-         FragColor = texture(tex, TexCoord)*percent;
-         FragColor.w = 1.0;
-      }
-   )";
+   static Framebuffer fb = {0};
+   if (!is_valid_framebuffer(fb)) {
+      fb = create_framebuffer(1600, 800);
+   }
 
    static Shader shader = shader_invalid;
    static const char *shader_path = "res/shaders/default.glsl";
@@ -141,7 +111,8 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
          shader = create_shader(shader_path, 0);
       }
       if (!is_valid_shader(shader)) {
-         shader = create_shader_from_vertex_and_fragment_memory(vs_src, fs_src);
+         // TODO: Load some default known to work shader program
+         // shader = create_shader_from_vertex_and_fragment_memory(vs_src, fs_src);
       }
 
    }
@@ -150,7 +121,11 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    if (!is_valid_texture(diffuse_texture)) {
       diffuse_texture = create_texture_from_filepath(chosen_texture_path);
    }
-   glBindTextureUnit(4, diffuse_texture.handle); // matches binding = 4
+
+   static Texture cube_texture = {0};
+   if (!is_valid_texture(cube_texture)) {
+      cube_texture = create_texture_from_filepath("res/textures/sand.jpg");
+   }
 
    // Step 4: Render setup
    glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
@@ -171,9 +146,8 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    glUseProgram(shader.handle);
 
    {
-
       GLint loc = glGetUniformLocation(shader.handle, "perspective");
-      Matrix perspective = MatrixPerspective(PI/3., (f64)fb.color.width/fb.color.height, 0.01, 1000.0);
+      Matrix perspective = MatrixPerspective(PI/3., (f64)fb.color.width/fb.color.height, 0.1, 100.0);
       // perspective.m11 *= -1; // Force to be "left-handed" just like the NDC
       // Matrix perspective = MatrixFrustum(-5., 5.,  -5., 5.,  -5., 5.);
       glUniformMatrix4fv(loc, 1, GL_FALSE, MatrixToFloat(perspective));
@@ -181,31 +155,46 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    {
       Vector3 positions[] = {
-          (Vector3){  0.0f,  0.0f,  0.0f  },
-          (Vector3){  2.0f,  5.0f, -15.0f },
-          (Vector3){ -1.5f, -2.2f, -2.5f  },
-          (Vector3){ -3.8f, -2.0f, -12.3f },
-          (Vector3){  2.4f, -0.4f, -3.5f  },
-          (Vector3){ -1.7f,  3.0f, -7.5f  },
-          (Vector3){  1.3f, -2.0f, -2.5f  },
-          (Vector3){  1.5f,  2.0f, -2.5f  },
-          (Vector3){  1.5f,  0.2f, -1.5f  },
-          (Vector3){ -1.3f,  1.0f, -1.5f  }
+         (Vector3){  0.0f,  0.0f,  0.0f  },
+         (Vector3){  0.02f,  0.05f, -10.15f },
+         (Vector3){ -1.5f, -2.2f, -2.5f  },
+         (Vector3){ -3.8f, -2.0f, -12.3f },
+         (Vector3){  2.4f, -0.4f, -3.5f  },
+         (Vector3){ -1.7f,  3.0f, -7.5f  },
+         (Vector3){  1.3f, -2.0f, -2.5f  },
+         (Vector3){  1.5f,  2.0f, -2.5f  },
+         (Vector3){  1.5f,  0.2f, -1.5f  },
+         (Vector3){ -1.3f,  1.0f, -1.5f  }
       };
 
       glBindVertexArray(va.handle);
+      glBindTextureUnit(4, diffuse_texture.handle); // matches binding = 4
+      GLint model_location = glGetUniformLocation(shader.handle, "model");
       for (isz i = 0; i < count_of(positions); i++) {
-         if (1 == i ) {
+         if (9 == i ) {
             break;
          }
 
          Vector3 position = positions[i];
-         GLint loc = glGetUniformLocation(shader.handle, "model");
-         Matrix model = MatrixRotate((Vector3){0., 1., 1.}, (f32)glfwGetTime() / 10.);
-         model = MatrixMultiply(MatrixTranslate(position.z, position.y, position.z), model);
-         f32* matrix_values = MatrixToFloatV(model).v;
-         glUniformMatrix4fv(loc, 1, GL_FALSE, matrix_values);
+         // Matrix model = MatrixRotate((Vector3){0., (float)(i % 2 == 0)*1., 1.}, (f32)glfwGetTime() / 10.);
+         Matrix model = MatrixRotate((Vector3){ 1., 1., 1.}, i);
+         // model = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), model);
+         model = MatrixMultiply(MatrixTranslate(i/2., 0., i/2.), model);
+
+         glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
          glDrawElements(GL_TRIANGLES, va.index_count, GL_UNSIGNED_INT, NULL);
+      }
+
+
+      if (true) {
+         Matrix model = MatrixRotate((Vector3){ 1., 1., 1.}, PI/3.);
+         // model = MatrixMultiply(MatrixTranslate(0, -0.50, 0), model);
+
+         glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
+         glBindTextureUnit(4, cube_texture.handle);
+
+         glBindVertexArray(cube_va.handle);
+         glDrawElements(GL_TRIANGLES, cube_va.index_count, GL_UNSIGNED_INT, NULL);
       }
 
    }
@@ -534,9 +523,9 @@ int main() {
       // glEnable(GL_BLEND);
       // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
       // glEnable(GL_MULTISAMPLE);
-      // glEnable(GL_CULL_FACE);
+      glDisable(GL_CULL_FACE);
       // glCullFace(GL_BACK);          // Cull back faces
-      // glFrontFace(GL_CW);           // GL_CCW to define front faces as counter-clockwise
+      glFrontFace(GL_CCW);           // GL_CCW to define front faces as counter-clockwise
    }
 
    while (!glfwWindowShouldClose(window)) {

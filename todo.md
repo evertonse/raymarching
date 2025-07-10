@@ -23,3 +23,4 @@
 - [ ] Renderbuffer, SSBO, Uniform buffer objects
 - [ ] Vertex Pulling
 - [ ] All DSA
+- [ ] Infinite drawing no distant shit being culled
