@@ -1,3 +1,4 @@
+#include "raymath.h"
 #include <stdio.h>
 
 #define GLFW_INCLUDE_NONE
@@ -9,7 +10,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
-#include "raymath.h"
+#include "raymath.c"
 
 #define CYE_IMPLEMENTATION
 #undef assert
@@ -69,6 +70,15 @@ static Mesh cube_mesh = {
 // #define chosen_texture_path enemy_texture_path
 
 
+typedef struct {
+   Vector3 position;
+   Vector3 rotation; // .x value is radians rotation around x-axis
+   f32 zoom;
+} Camera;
+
+static Camera camera = {0};
+
+bool camera_basis(const Camera *camera, Vector3 *out_right, Vector3 *out_up, Vector3 *out_forward);
 void render_mesh_to_framebuffer(const Mesh *mesh) {
    static Vertex_Array va = {0};
    static Vertex_Array cube_va = {0};
@@ -134,7 +144,7 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    {
       glEnable(GL_DEPTH_TEST);
-      glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
+      glClearColor(0.2f, 0.2f, 0.3f, 0.0f);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
    }
 
@@ -144,6 +154,30 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    // Step 5: Set MVP (identity for simplicity)
    glUseProgram(shader.handle);
+
+   {
+      GLint view_location = glGetUniformLocation(shader.handle, "view");
+
+      // Vector3 direction = spherical_to_cartesian((f32)glfwGetTime(), (f32)glfwGetTime() + PI/2.);
+      Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
+      Matrix view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
+      printf("vec3(%f, %f, %f)\n", direction.x, direction.y, direction.z);
+      // Matrix view = MatrixViewFromSpherical(camera.position, -camera.rotation.y, -camera.rotation.x);
+      glUniformMatrix4fv(view_location, 1, GL_FALSE, MatrixToFloat(view));
+   }
+
+   {  // Time uniform
+      GLint loc = glGetUniformLocation(shader.handle, "u_time");
+      glUniform1f(loc, (f32)glfwGetTime());
+   }
+
+   {
+      GLint spherical_location = glGetUniformLocation(shader.handle, "spherical");
+      glUniform2f(spherical_location, camera.rotation.y, camera.rotation.x);
+
+      GLint position_location = glGetUniformLocation(shader.handle, "camera_position");
+      glUniform3f(position_location, camera.position.x, camera.position.y, camera.position.z);
+   }
 
    {
       GLint loc = glGetUniformLocation(shader.handle, "perspective");
@@ -255,12 +289,103 @@ static Window_Title title = {
 
 static f64 glfwGetScroll(GLFWwindow *window);
 
-typedef struct {
-   Vector3 position;
-   Vector3 rotation; // .x value is radians rotation around x-axis
-   f32 zoom;
-} Camera;
 
+// CORRECTED: Camera basis calculation
+bool camera_basis(const Camera *camera, Vector3 *out_right, Vector3 *out_up, Vector3 *out_forward) {
+   if (!camera || !out_right || !out_up || !out_forward)
+      return false;
+
+   float pitch = camera->rotation.x; // Rotation around X-axis
+   float yaw = camera->rotation.y;   // Rotation around Y-axis
+   float roll = camera->rotation.z;  // Rotation around Z-axis
+
+   // CORRECTED: Forward vector calculation (negative Z in OpenGL camera space)
+   // This assumes yaw=0 points along negative Z, pitch=0 is level
+   Vector3 forward = {
+       -sinf(yaw) * cosf(pitch), // X component
+       sinf(pitch),              // Y component
+       -cosf(yaw) * cosf(pitch)  // Z component (negative Z forward)
+   };
+   forward = Vector3Normalize(forward);
+
+   // World up vector
+   Vector3 world_up = {0, 1, 0};
+
+   // Check if forward is too aligned with world up
+   float alignment = fabsf(Vector3DotProduct(forward, world_up));
+   if (alignment >= 0.999f) {
+      // Use alternative up vector when looking straight up/down
+      Vector3 alt_up = {0, 0, 1}; // Use Z as alternative
+      Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, alt_up));
+      Vector3 up = Vector3Normalize(Vector3CrossProduct(right, forward));
+
+      // Apply roll
+      float cos_r = cosf(roll);
+      float sin_r = sinf(roll);
+      *out_right = Vector3Add(Vector3Scale(right, cos_r), Vector3Scale(up, sin_r));
+      *out_up = Vector3CrossProduct(*out_right, forward);
+      *out_up = Vector3Normalize(*out_up);
+      *out_forward = forward;
+      return true;
+   }
+
+   // Standard basis calculation
+   Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, world_up));
+   Vector3 up = Vector3Normalize(Vector3CrossProduct(right, forward));
+
+   // Apply roll rotation
+   float cos_r = cosf(roll);
+   float sin_r = sinf(roll);
+
+   Vector3 right_rolled = Vector3Add(Vector3Scale(right, cos_r), Vector3Scale(up, sin_r));
+   Vector3 up_rolled = Vector3Add(Vector3Scale(up, cos_r), Vector3Scale(right, -sin_r));
+
+   *out_right = Vector3Normalize(right_rolled);
+   *out_up = Vector3Normalize(up_rolled);
+   *out_forward = forward;
+
+   return true;
+}
+
+bool camera_basis2(const Camera *camera, Vector3 *out_right, Vector3 *out_up, Vector3 *out_forward) {
+    if (!camera || !out_right || !out_up || !out_forward) return false;
+
+    float pitch = camera->rotation.x;
+    float yaw   = camera->rotation.y;
+    float roll  = camera->rotation.z;
+    // Step 1: Forward vector (Z axis)
+    Vector3 forward = {
+        cosf(pitch) * sinf(yaw),
+        sinf(pitch),
+        cosf(pitch) * cosf(yaw)
+    };
+    forward = Vector3Normalize(forward);
+
+    // Base world up
+    Vector3 world_up = {0, 1, 0};
+
+    // Compute right and up from world_up (before roll)
+    float alignment = fabsf(Vector3DotProduct(forward, world_up));
+    if (alignment >= 0.999f) {
+        return false; // Can't resolve stable basis if aligned
+    }
+
+    Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, world_up));
+    Vector3 up    = Vector3Normalize(Vector3CrossProduct(right, forward));
+
+    // Step 4: Apply roll to right and up
+    float cos_r = cosf(roll);
+    float sin_r = sinf(roll);
+
+    Vector3 up_rolled = Vector3Add(Vector3Scale(up, cos_r), Vector3Scale(right, sin_r));
+    Vector3 right_rolled = Vector3CrossProduct(forward, up_rolled); // Keep orthogonality
+
+    *out_forward = forward;
+    *out_right   = Vector3Normalize(right_rolled);
+    *out_up      = Vector3Normalize(up_rolled);
+
+    return true;
+}
 
 Camera move_camera(GLFWwindow *window, Camera cam) {
 
@@ -515,13 +640,15 @@ int main() {
        .zoom = 1.0f
    };
 
-   Camera camera = camera_default;
+   camera = camera_default;
 
+   print_opengl_resource_limits();
 
    { // Some expected settings
       glEnable(GL_DEPTH_TEST);
-      // glEnable(GL_BLEND);
-      // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+      glEnable(GL_BLEND);
+      glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       // glEnable(GL_MULTISAMPLE);
       glDisable(GL_CULL_FACE);
       // glCullFace(GL_BACK);          // Cull back faces

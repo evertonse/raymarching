@@ -1,4 +1,5 @@
 
+# Raymarch Compute Pipeline
 - [ ] Shader from single buffer by having #pragma Vertex in it
 - [x] Render triangles with raymarching xD
 - [ ] Render triangles from a model
@@ -11,7 +12,7 @@
 - [ ] Domain repetition unbounded
 - [ ] Domain repetition bounded
 - [ ] Actually understand soft shadows
-- [ ] Understand camera as origin to canvas
+- [x] Understand camera as origin and ray to canvas
 - [ ] Understand camera as origin rectangle to canvas
 - [ ] Understand ray direction distortion
 - [ ] Understand camera distortion
@@ -23,4 +24,9 @@
 - [ ] Renderbuffer, SSBO, Uniform buffer objects
 - [ ] Vertex Pulling
 - [ ] All DSA
+- [ ] Instancing with uniform and without it
+- [ ] Texture sampling from ssbo is possible?
+- [ ] DrawIndirect
 - [ ] Infinite drawing no distant shit being culled
+- [ ] AZDO
+- [ ] Bindless textures

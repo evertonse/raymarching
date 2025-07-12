@@ -663,3 +663,121 @@ void draw_with_index_buffer(const Vertex_Array va, const Index_Buffer vi, const 
     glUseProgram(0);
 }
 
+static const char* human_readable_size(i64 bytes) {
+    static char output[32];
+    static const char *units[] = {"B", "KB", "MB", "GB"};
+    f64 size = (f64)bytes;
+    int unit_index = 0;
+
+    while (size >= 1024.0 && unit_index < 3) {
+        size /= 1024.0;
+        unit_index++;
+    }
+
+    snprintf(output, size_of(output), "%.2f %s", size, units[unit_index]);
+    return output;
+}
+
+
+void print_opengl_resource_limits(void) {
+    GLint value;
+
+    printf("\n=== OpenGL Resource Limits ===\n\n");
+
+    // TEXTURES
+    glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &value);
+    printf("Max texture image units per fragment shader: %d\n", value);
+
+    glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &value);
+    printf("Max combined texture image units (all shader stages): %d\n", value);
+
+    glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &value);
+    printf("Max texture units in vertex shader: %d\n", value);
+
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &value);
+    printf("Max 2D texture size: %dx%d\n", value, value);
+
+    glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &value);
+    printf("Max 3D texture size: %dx%dx%d\n", value, value, value);
+
+    glGetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE, &value);
+    printf("Max cube map size: %dx%d\n", value, value);
+
+    glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &value);
+    printf("Max array texture layers: %d\n", value);
+
+    // UNIFORMS
+    glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &value);
+    printf("Max vertex shader uniforms (floats): %d\n", value);
+
+    glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, &value);
+    printf("Max fragment shader uniforms (floats): %d\n", value);
+
+    glGetIntegerv(GL_MAX_COMBINED_UNIFORM_BLOCKS, &value);
+    printf("Max combined uniform blocks across all stages: %d\n", value);
+
+    glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &value);
+    printf("Max uniform buffer binding points: %d\n", value);
+
+    glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &value);
+    printf("Max size of a single UBO: %s\n", human_readable_size(value));
+
+    // SHADER STORAGE BUFFERS (SSBOs)
+    glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &value);
+    printf("Max SSBO binding points: %d\n", value);
+
+    glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &value);
+    printf("Max SSBO block size: %s\n", human_readable_size(value));
+
+    // ATTRIBUTES & VARYINGS
+    glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &value);
+    printf("Max vertex attributes (vec3 pos, vec3 normal, etc): %d\n", value);
+
+    glGetIntegerv(GL_MAX_VARYING_COMPONENTS, &value);
+    printf("Max varying components between vertex & fragment shaders: %d\n", value);
+
+    // FRAMEBUFFERS
+    glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &value);
+    printf("Max framebuffer color attachments: %d\n", value);
+
+    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &value);
+    printf("Max draw buffers (MRT): %d\n", value);
+
+    // IMAGE UNITS
+    glGetIntegerv(GL_MAX_IMAGE_UNITS, &value);
+    printf("Max image units for shaders: %d\n", value);
+
+    // COMPUTE SHADER
+    glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &value);
+    printf("Max compute work group invocations: %d\n", value);
+
+    GLint wg_size[3];
+    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &wg_size[0]);
+    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &wg_size[1]);
+    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &wg_size[2]);
+    printf("Max compute work group sizes: [%d, %d, %d]\n", wg_size[0], wg_size[1], wg_size[2]);
+
+    // TRANSFORM FEEDBACK
+    glGetIntegerv(GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS, &value);
+    printf("Max transform feedback separate attribs: %d\n", value);
+
+    glGetIntegerv(GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS, &value);
+    printf("Max transform feedback components: %d\n", value);
+
+    // RECOMMENDED DRAW COUNTS
+    glGetIntegerv(GL_MAX_ELEMENTS_VERTICES, &value);
+    printf("Max recommended glDrawElements vertices: %d\n", value);
+
+    glGetIntegerv(GL_MAX_ELEMENTS_INDICES, &value);
+    printf("Max recommended glDrawElements indices: %d\n", value);
+
+    // VIEWPORT
+    GLint dims[2];
+    glGetIntegerv(GL_MAX_VIEWPORT_DIMS, dims);
+    printf("Max viewport dimensions: %d x %d\n", dims[0], dims[1]);
+
+    printf("\n=================================\n\n");
+}
+
+
+

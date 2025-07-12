@@ -47,7 +47,6 @@ dirs() {
 config_gcc_linux() {
     cc='gcc'
     glfw_obj=rglfw.o
-    glfw_obj=raymath.o
     bin='main.bin'
     pbd=''
     debug_flags="-g -ggdb"
@@ -57,7 +56,6 @@ config_mingw() {
     cxx='/bin/x86_64-w64-mingw32-g++'
     cc='/bin/x86_64-w64-mingw32-gcc'
     glfw_obj=rglfw.obj
-    raymath_obj=raymath.obj
     bin='main.exe'
     pbd='main.pdb'
     debug_flags="-g --for-linker --pdb=\"$pbd\""
@@ -98,17 +96,12 @@ build() {
     [ -f "$glfw_obj" ] || $cc rglfw.c -o $glfw_obj -c -lc -lm -O3
     popd
 
-    pushd ./src/
-    [ -f "$raymath_obj" ] || $cc raymath.c -o $raymath_obj -I./deps/ -c -lc -lm -O3
-    popd
-
     # -std=c23                                  \
     # -std=c99                                  \
     $cc -Isrc                                     \
         -Wpedantic                                \
         src/main.c                                \
         src/deps/glfw/$glfw_obj                   \
-        src/$raymath_obj                          \
         -o $bin                                   \
         -Isrc/deps/                               \
         -Isrc/deps/glfw/glfw/include/             \
