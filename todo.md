@@ -30,3 +30,7 @@
 - [ ] Infinite drawing no distant shit being culled
 - [ ] AZDO
 - [ ] Bindless textures
+- [ ] MSAA with multisampled textures
+- [ ] MSAA manually
+- [ ] Update Vertex_Array to use the Buffer api
+

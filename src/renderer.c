@@ -3,28 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef enum {
-   TEXTURE_FORMAT_UNDEFINED,
-   TEXTURE_FORMAT_DEPTH24,
-   TEXTURE_FORMAT_SHADOW,
-   TEXTURE_FORMAT_RGBA32F,
-   TEXTURE_FORMAT_RGB8,
-   TEXTURE_FORMAT_RGBA8,
-   TEXTURE_FORMAT_RG8,
-   TEXTURE_FORMAT_R8,
-} Texture_Format;
-
-typedef struct {
-   GLuint handle;
-   int32_t width;
-   int32_t height;
-   Texture_Format format;
-} Texture;
-
-typedef struct {
-   GLuint handle;
-   Texture color, depth;
-} Framebuffer;
 
 typedef struct {
    union {
@@ -51,11 +29,6 @@ typedef struct {
 } Vertex_Array;
 
 typedef struct {
-    GLuint ibo;
-    GLuint count;
-} Index_Buffer;
-
-typedef struct {
    Vector3 *vertices;
    Vector3 *normals;
    Vector2 *uvs;
@@ -79,31 +52,11 @@ inline bool is_valid_shader(Shader shader) {
     return shader.handle != INVALID_SHADER_HANDLE;
 }
 
-inline bool is_valid_texture(Texture texture) {
-    if (0 == texture.handle) return false;
-    if (texture.width <= 0 || texture.height <= 0) return false;
-    if (TEXTURE_FORMAT_UNDEFINED == texture.format) return false;
-    
-    // Actual OpenGL state check (costly, use only in debug)
-    #ifdef _DEBUG
-      return glIsTexture(tex.handle);
-    #else
-      return true;
-    #endif
-}
-
-inline bool is_valid_framebuffer(Framebuffer fb) {
-    return fb.handle != 0;
-}
-
-inline bool is_valid_framebuffer_and_its_textures(Framebuffer fb) {
-    return fb.handle != 0 && is_valid_texture(fb.color) && is_valid_texture(fb.depth);
-}
 
 inline bool is_valid_vertex_array(Vertex_Array va) {
     if (va.handle == 0 || va.vbo == 0) return false;
     if (va.vertex_count == 0) return false;
-    
+
     #ifdef _DEBUG
     GLint vao_valid;
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao_valid);
@@ -111,11 +64,6 @@ inline bool is_valid_vertex_array(Vertex_Array va) {
     #else
     return true;
     #endif
-}
-
-// Index Buffer is used separately so maybe we shouldnt expose this?
-inline bool is_valid_index_buffer(Index_Buffer ib) {
-    return ib.ibo != 0 && ib.count > 0;
 }
 
 // Mesh
@@ -131,36 +79,36 @@ inline bool is_valid_rectangle(Rectanglei32 r) {
 
 // The last element buffer object that gets bound while a VAO is bound, is stored as the VAO's element buffer object. Binding to a VAO then also automatically binds that EBO.
 Vertex_Array create_vertex_array_non_dsa(const Vertex* vertices, usz vertex_count, const u32* indices, usz index_count) {
-    Vertex_Array va;
-    glGenVertexArrays(1, &va.handle);
-    glBindVertexArray(va.handle);
+   Vertex_Array va;
+   glGenVertexArrays(1, &va.handle);
+   glBindVertexArray(va.handle);
 
-    // Vertex Buffer
-    glGenBuffers(1, &va.vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, va.vbo);
-    glBufferData(GL_ARRAY_BUFFER, vertex_count * size_of(Vertex), vertices, GL_STATIC_DRAW);
+   // Vertex Buffer
+   glGenBuffers(1, &va.vbo);
+   glBindBuffer(GL_ARRAY_BUFFER, va.vbo);
+   glBufferData(GL_ARRAY_BUFFER, vertex_count * size_of(Vertex), vertices, GL_STATIC_DRAW);
 
-    // Vertex Buffer attributes
-    glEnableVertexAttribArray(0); // position
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, size_of(Vertex), (void*)offset_of(Vertex, position));
+   // Vertex Buffer attributes
+   glEnableVertexAttribArray(0); // position
+   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, size_of(Vertex), (void*)offset_of(Vertex, position));
 
-    glEnableVertexAttribArray(1); // normal
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, size_of(Vertex), (void*)offset_of(Vertex, normal));
+   glEnableVertexAttribArray(1); // normal
+   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, size_of(Vertex), (void*)offset_of(Vertex, normal));
 
-    glEnableVertexAttribArray(2); // uv (text coordinate)
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, size_of(Vertex), (void*)offset_of(Vertex, uv));
+   glEnableVertexAttribArray(2); // uv (text coordinate)
+   glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, size_of(Vertex), (void*)offset_of(Vertex, uv));
 
-    // Index Buffer
-    glGenBuffers(1, &va.ibo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, va.ibo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(GLuint), indices, GL_STATIC_DRAW);
+   // Index Buffer
+   glGenBuffers(1, &va.ibo);
+   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, va.ibo);
+   glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * size_of(GLuint), indices, GL_STATIC_DRAW);
 
 
-    glBindVertexArray(0);
+   glBindVertexArray(0);
 
-    va.vertex_count = (GLuint)vertex_count;
-    va.index_count = (GLuint)index_count;
-    return va;
+   va.vertex_count = (GLuint)vertex_count;
+   va.index_count = (GLuint)index_count;
+   return va;
 }
 
 Vertex_Array create_vertex_array(const Vertex* vertices, usz vertex_count, const u32* indices, usz index_count) {
@@ -173,21 +121,21 @@ Vertex_Array create_vertex_array(const Vertex* vertices, usz vertex_count, const
     glVertexArrayVertexBuffer(va.handle, 0, va.vbo, 0, size_of(Vertex));
 
     // Vertex attributes
-    glEnableVertexArrayAttrib(va.handle, 0);
-    glVertexArrayAttribFormat(va.handle, 0, 3, GL_FLOAT, GL_FALSE, offset_of(Vertex, position));
+    glEnableVertexArrayAttrib (va.handle, 0);
+    glVertexArrayAttribFormat (va.handle, 0, 3, GL_FLOAT, GL_FALSE, offset_of(Vertex, position));
     glVertexArrayAttribBinding(va.handle, 0, 0);
 
-    glEnableVertexArrayAttrib(va.handle, 1);
-    glVertexArrayAttribFormat(va.handle, 1, 3, GL_FLOAT, GL_FALSE, offset_of(Vertex, normal));
+    glEnableVertexArrayAttrib (va.handle, 1);
+    glVertexArrayAttribFormat (va.handle, 1, 3, GL_FLOAT, GL_FALSE, offset_of(Vertex, normal));
     glVertexArrayAttribBinding(va.handle, 1, 0);
 
-    glEnableVertexArrayAttrib(va.handle, 2);
-    glVertexArrayAttribFormat(va.handle, 2, 2, GL_FLOAT, GL_FALSE, offset_of(Vertex, uv));
+    glEnableVertexArrayAttrib (va.handle, 2);
+    glVertexArrayAttribFormat (va.handle, 2, 2, GL_FLOAT, GL_FALSE, offset_of(Vertex, uv));
     glVertexArrayAttribBinding(va.handle, 2, 0);
 
     // Index buffer
     glCreateBuffers(1, &va.ibo);
-    glNamedBufferStorage(va.ibo, index_count * sizeof(GLuint), indices, 0);
+    glNamedBufferStorage(va.ibo, index_count * size_of(GLuint), indices, 0);
     glVertexArrayElementBuffer(va.handle, va.ibo);
 
     va.vertex_count = (GLuint)vertex_count;
@@ -202,9 +150,9 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    assert(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count);
 
    // Calculate sizes
-   usz vertex_size = mesh->vertices_count * sizeof(Vector3);
-   usz normal_size = mesh->normals_count * sizeof(Vector3);
-   usz uv_size     = mesh->uvs_count * sizeof(Vector2);
+   usz vertex_size = mesh->vertices_count * size_of(Vector3);
+   usz normal_size = mesh->normals_count * size_of(Vector3);
+   usz uv_size     = mesh->uvs_count * size_of(Vector2);
    usz total_size  = vertex_size + normal_size + uv_size;
 
    // Create VAO
@@ -212,6 +160,7 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
 
    // Create and upload VBO
    glCreateBuffers(1, &va.vbo);
+
    glNamedBufferStorage(va.vbo, total_size, NULL, GL_DYNAMIC_STORAGE_BIT);
    glNamedBufferSubData(va.vbo, 0, vertex_size, mesh->vertices);
    glNamedBufferSubData(va.vbo, vertex_size, normal_size, mesh->normals);
@@ -219,25 +168,25 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
 
    // Link VBO to VAO (positions)
    glEnableVertexArrayAttrib(va.handle, 0);
-   glVertexArrayVertexBuffer(va.handle, 0, va.vbo, 0, sizeof(Vector3));
+   glVertexArrayVertexBuffer(va.handle, 0, va.vbo, 0, size_of(Vector3));
    glVertexArrayAttribFormat(va.handle, 0, 3, GL_FLOAT, GL_FALSE, 0);
    glVertexArrayAttribBinding(va.handle, 0, 0);
 
    // Normals (offset binding)
    glEnableVertexArrayAttrib(va.handle, 1);
-   glVertexArrayVertexBuffer(va.handle, 1, va.vbo, vertex_size, sizeof(Vector3));
+   glVertexArrayVertexBuffer(va.handle, 1, va.vbo, vertex_size, size_of(Vector3));
    glVertexArrayAttribFormat(va.handle, 1, 3, GL_FLOAT, GL_FALSE, 0);
    glVertexArrayAttribBinding(va.handle, 1, 1);
 
    // UVs
    glEnableVertexArrayAttrib(va.handle, 2);
-   glVertexArrayVertexBuffer(va.handle, 2, va.vbo, vertex_size + normal_size, sizeof(Vector2));
+   glVertexArrayVertexBuffer(va.handle, 2, va.vbo, vertex_size + normal_size, size_of(Vector2));
    glVertexArrayAttribFormat(va.handle, 2, 2, GL_FLOAT, GL_FALSE, 0);
    glVertexArrayAttribBinding(va.handle, 2, 2);
 
    // Create and upload index buffer
    glCreateBuffers(1, &va.ibo);
-   glNamedBufferStorage(va.ibo, mesh->indices_count * sizeof(u32), mesh->indices, 0);
+   glNamedBufferStorage(va.ibo, mesh->indices_count * size_of(u32), mesh->indices, 0);
    glVertexArrayElementBuffer(va.handle, va.ibo);
 
    // Store counts
@@ -247,199 +196,21 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    return va;
 }
 
+typedef struct {
+   GLuint handle;
+   Texture color, depth;
+} Framebuffer;
 
-Vertex_Array create_vertex_array_from_mesh_non_dsa(const Mesh *mesh) {
-   Vertex_Array va = {0};
-
-   // Create and bind VAO
-   glGenVertexArrays(1, &va.handle);
-   glBindVertexArray(va.handle);
-
-   // Generate VBO and IBO
-   glGenBuffers(1, &va.vbo);
-   glGenBuffers(1, &va.ibo);
-
-   // Calculate sizes
-   usz vertex_size = mesh->vertices_count * sizeof(Vector3);
-   usz normal_size = mesh->normals_count * sizeof(Vector3);
-   usz uv_size     = mesh->uvs_count * sizeof(Vector2);
-   usz total_size  = vertex_size + normal_size + uv_size;
-
-   assert(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count);
-
-   // Upload VBO data
-   glBindBuffer(GL_ARRAY_BUFFER, va.vbo);
-   // glBufferData(GL_ARRAY_BUFFER, total_size, NULL, GL_STATIC_DRAW);
-   glBufferData(GL_ARRAY_BUFFER, total_size, NULL, GL_DYNAMIC_DRAW);
-   
-   glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_size, mesh->vertices);
-   glBufferSubData(GL_ARRAY_BUFFER, vertex_size, normal_size, mesh->normals);
-   glBufferSubData(GL_ARRAY_BUFFER, vertex_size + normal_size, uv_size, mesh->uvs);
-
-
-   // Setup vertex attributes. Always stride = 0 because is tightly packed. Attributes are in separate blocks, this is correct.
-   glEnableVertexAttribArray(0); // Position
-   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)(uintptr_t)0);
-
-   glEnableVertexAttribArray(1); // Normal
-   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, (void *)(uintptr_t)vertex_size);
-
-   glEnableVertexAttribArray(2); // UV
-   glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, (void *)(uintptr_t)(vertex_size + normal_size));
-
-   // Upload index buffer
-   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, va.ibo);
-   glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh->indices_count * sizeof(u32), mesh->indices, GL_STATIC_DRAW);
-
-   // Store counts
-   va.vertex_count = mesh->vertices_count;
-   va.index_count = mesh->indices_count;
-
-   // Unbind VAO, buffer and attributes to avoid accidental changes
-   glEnableVertexAttribArray(0);
-   glBindBuffer(GL_ARRAY_BUFFER, 0);
-   glBindVertexArray(0);
-
-   return va;
+inline bool is_valid_framebuffer(Framebuffer fb) {
+    return fb.handle != 0;
 }
 
-Index_Buffer create_index_buffer(const GLuint* indices, usz index_count) {
-    Index_Buffer vi;
-    glGenBuffers(1, &vi.ibo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vi.ibo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(GLuint), indices, GL_STATIC_DRAW);
-    vi.count = (GLuint)index_count;
-    return vi;
+inline bool is_valid_framebuffer_and_its_textures(Framebuffer fb) {
+    return fb.handle != 0 && is_valid_texture(fb.color) && is_valid_texture(fb.depth);
 }
-
-
-
-Texture create_texture_extended(int width, int height, void *data, Texture_Format format, bool generate_mipmap) {
-   Texture result = {0};
-   result.width = width;
-   result.height = height;
-   result.format = format;
-
-   glCreateTextures(GL_TEXTURE_2D, 1, &result.handle);
-
-   GLenum internal_format, gl_format;
-   GLenum type = GL_UNSIGNED_BYTE;
-
-   GLenum compare_mode = 0;
-   GLenum compare_func = 0;
-   switch (format) {
-      case TEXTURE_FORMAT_RGBA8: {
-         internal_format = GL_RGBA8;
-         gl_format       = GL_RGBA;
-         break;
-      }
-      case TEXTURE_FORMAT_RGB8: {
-         internal_format = GL_RGB8;
-         gl_format       = GL_RGB;
-         break;
-      }
-      case TEXTURE_FORMAT_RG8: {
-         internal_format = GL_RG8;
-         gl_format       = GL_RG;
-         break;
-      }
-      case TEXTURE_FORMAT_R8: {
-         internal_format = GL_R8;
-         gl_format       = GL_RED;
-         break;
-      }
-      case TEXTURE_FORMAT_RGBA32F: {
-         internal_format = GL_RGBA32F;
-         gl_format       = GL_RGBA;
-         type            = GL_FLOAT;
-         break;
-      }
-      case TEXTURE_FORMAT_DEPTH24: {
-         internal_format = GL_DEPTH_COMPONENT24;
-         gl_format       = GL_DEPTH_COMPONENT;
-         type            = GL_UNSIGNED_INT;
-         break;
-      }
-      case TEXTURE_FORMAT_SHADOW: {
-         internal_format = GL_DEPTH_COMPONENT24;
-         gl_format       = GL_DEPTH_COMPONENT;
-         type            = GL_UNSIGNED_INT;
-         compare_mode    = GL_COMPARE_REF_TO_TEXTURE;
-         compare_func    = GL_LEQUAL;
-         break;
-      }
-      default: {
-         assert_msg(false, "Unsupported texture format\n");
-         return result;
-      }
-   }
-
-   glTextureStorage2D(result.handle, 1, internal_format, width, height);
-
-   if (data && (format != TEXTURE_FORMAT_DEPTH24 && format != TEXTURE_FORMAT_SHADOW)) {
-      glTextureSubImage2D(result.handle, 0, 0, 0, width, height, gl_format, type, data);
-   }
-
-   if (compare_mode) {
-      glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_MODE, compare_mode);
-      glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_FUNC, compare_func);
-   }
-
-   glTextureParameteri(result.handle, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-   glTextureParameteri(result.handle, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-   glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
-   glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
-
-   if (generate_mipmap) {
-      glGenerateTextureMipmap(result.handle);
-   }
-
-   return result;
-}
-
-
-inline Texture create_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, false);
-}
-
-inline Texture create_depth_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, false);
-}
-
-inline Texture create_shadow_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_SHADOW, false);
-}
-
-Texture create_texture_from_filepath(const char *filepath) {
-    int width, height, channels;
-    stbi_set_flip_vertically_on_load(true);
-    unsigned char *data = stbi_load(filepath, &width, &height, &channels, 0);
-
-    if (!data) {
-        fprintf(stderr, "Failed to load texture: %s\n", filepath);
-        return (Texture){0};
-    }
-
-    Texture_Format format = TEXTURE_FORMAT_RGBA8;
-    switch (channels) {
-        case 4: format = TEXTURE_FORMAT_RGBA8; break;
-        case 3: format = TEXTURE_FORMAT_RGB8;  break;
-        case 2: format = TEXTURE_FORMAT_RG8;   break;
-        case 1: format = TEXTURE_FORMAT_R8;    break;
-        default:
-            assert_msg(false, "Unsupported texture channel count from image");
-            break;
-    }
-
-    Texture result = create_texture_extended(width, height, data, format, true);
-    stbi_image_free(data);
-    return result;
-}
-
-//-------- Framebuffer ---------
 
 bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture texture) {
-   assert(framebuffer && is_valid_framebuffer(*framebuffer));
+   assert(framebuffer && is_valid_framebuffer(*framebuffer) && is_valid_texture(texture));
 
    GLenum attachment = GL_COLOR_ATTACHMENT0;
 
@@ -488,7 +259,8 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
    return true;
 }
 
-Framebuffer create_framebuffer_extended(Texture color, Texture depth) {
+
+Framebuffer create_framebuffer_from_textures(Texture color, Texture depth) {
     Framebuffer fb = {0};
 
     glCreateFramebuffers(1, &fb.handle);
@@ -519,9 +291,16 @@ Framebuffer create_framebuffer_extended(Texture color, Texture depth) {
 }
 
 Framebuffer create_framebuffer(int width, int height) {
-    Texture color = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, false);
-    Texture depth = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, false);
-    return create_framebuffer_extended(color, depth);
+    Texture color = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 1);
+    Texture depth = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 1);
+    return create_framebuffer_from_textures(color, depth);
+}
+
+Framebuffer create_framebuffer_multisample(int width, int height, int samples) {
+    Texture_Type type = TEXTURE_TYPE_2D;
+    Texture color = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, type, samples);
+    Texture depth = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, type, samples);
+    return create_framebuffer_from_textures(color, depth);
 }
 
 Framebuffer create_framebuffer_from_texture(const Texture texture) {
@@ -537,28 +316,10 @@ Framebuffer create_framebuffer_from_texture(const Texture texture) {
    return result;
 }
 
-
-
-inline void destroy_texture(Texture texture) {
-   glDeleteTextures(1, &texture.handle);
-}
-
-inline void blit_framebuffer_to_swapchain_src_and_dst_non_dsa(
-   const Framebuffer framebuffer,
-   int src_x0, int src_y0, int src_x1, int src_y1,
-   int dst_x0, int dst_y0, int dst_x1, int dst_y1,
-   GLbitfield mask,
-   GLenum filter
-) {
-   glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer.handle);
-   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // default framebuffer (screen)
-
-   glBlitFramebuffer(
-       src_x0, src_y0, src_x1, src_y1,   // source rectangle
-       dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
-       mask,                             // e.g. GL_COLOR_BUFFER_BIT
-       filter                            // e.g. GL_NEAREST or GL_LINEAR
-   );
+i32 current_framebuffer_handle(void) {
+   GLint fb_handle;
+   glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb_handle);
+   return fb_handle;
 }
 
 inline void blit_framebuffer_to_swapchain_src_and_dst(
@@ -568,15 +329,40 @@ inline void blit_framebuffer_to_swapchain_src_and_dst(
     GLbitfield mask,
     GLenum filter
 ) {
-    glBlitNamedFramebuffer(
+   assert_msg(is_valid_framebuffer(framebuffer),
+              tprintf("Invalid framebuffer: format=%d, samples=%d\n",
+                      framebuffer.color.format, framebuffer.color.samples));
+   if (framebuffer.color.samples > 1) {
+      int src_width  = src_x1 - src_x0;
+      int src_height = src_y1 - src_y0;
+
+      int dst_width  = dst_x1 - dst_x0;
+      int dst_height = dst_y1 - dst_y0;
+
+      if (src_width != dst_width || src_height != dst_height) {
+         printf("[Error] Blitting MSAA framebuffer with mismatched dimensions (%dx%d vs %dx%d).\n", src_width, src_height, dst_width, dst_height);
+         return;
+      }
+      if (filter != GL_NEAREST) {
+         printf("[Warning] Attempting to blit multisampled framebuffer with GL_LINEAR — only GL_NEAREST is allowed for MSAA blits.\n");
+      }
+
+      if (mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) {
+         printf("[Warning] Attempting to blit depth/stencil from multisampled framebuffer — this is not allowed between different sample counts.\n");
+      }
+
+   }
+
+   glBlitNamedFramebuffer(
        framebuffer.handle,               // src framebuffer
-       0,                                // dst framebuffer (swapchain in this case)
+       0,                                // dst framebuffer (swapchain)
        src_x0, src_y0, src_x1, src_y1,   // source rectangle
        dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
-       mask,                             // e.g. GL_COLOR_BUFFER_BIT
-       filter                            // e.g. GL_NEAREST or GL_LINEAR
-    );
+       mask,                             // GL_COLOR_BUFFER_BIT, etc.
+       filter                            // GL_NEAREST or GL_LINEAR
+   );
 }
+
 
 
 inline void blit_framebuffer_to_swapchain_rect_src_and_dst(
@@ -607,7 +393,7 @@ inline void blit_framebuffer_to_swapchain(const Framebuffer framebuffer) {
 }
 
 inline void blit_framebuffer_to_swapchain_rect(
-    const Framebuffer  framebuffer, const Rectanglei32 dst
+    const Framebuffer framebuffer, const Rectanglei32 dst
 ) {
    int dst_x0 = (GLint)dst.x, dst_y0 = (GLint)dst.y, dst_x1 = (GLint)(dst.x + dst.width), dst_y1 = (GLint)(dst.y + dst.height);
    blit_framebuffer_to_swapchain_src_and_dst(
@@ -618,6 +404,80 @@ inline void blit_framebuffer_to_swapchain_rect(
    );
 }
 
+Framebuffer resolve_multisample_framebuffer(const Framebuffer* msaa_fb) {
+    static Framebuffer static_resolve_fb = {0};
+
+    // Null passed? Use static framebuffer
+    if (!msaa_fb) {
+        if (!is_valid_framebuffer(static_resolve_fb)) {
+            printf("[Error] resolve_multisample_framebuffer: static resolve framebuffer not yet initialized.\n");
+        }
+        return static_resolve_fb;
+    }
+
+    // Validate input framebuffer
+    if (!is_valid_framebuffer(*msaa_fb)) {
+        printf("[Error] resolve_multisample_framebuffer: input framebuffer is not valid.\n");
+        return (Framebuffer){0};
+    }
+
+    const Texture* src = &msaa_fb->color;
+
+    // Not multisampled? Just return the input framebuffer
+    if (src->samples <= 1) {
+        return *msaa_fb;
+    }
+
+    // Create the static resolve framebuffer if not yet done or size mismatch
+    if (!is_valid_framebuffer(static_resolve_fb) ||
+        static_resolve_fb.color.width != src->width ||
+        static_resolve_fb.color.height != src->height) {
+
+        if (is_valid_framebuffer(static_resolve_fb)) {
+            glDeleteFramebuffers(1, &static_resolve_fb.handle);
+            glDeleteTextures(1, &static_resolve_fb.color.handle);
+            glDeleteTextures(1, &static_resolve_fb.depth.handle);
+            static_resolve_fb = (Framebuffer){0};
+        }
+
+        Texture resolved_color = create_texture_extended(
+            src->width, src->height,
+            NULL, src->format,
+            TEXTURE_TYPE_2D, 1
+        );
+
+        Texture resolved_depth = create_texture_extended(
+            src->width, src->height,
+            NULL, TEXTURE_FORMAT_DEPTH24,
+            TEXTURE_TYPE_2D, 1
+        );
+
+        static_resolve_fb = create_framebuffer_from_textures(resolved_color, resolved_depth);
+
+        if (!is_valid_framebuffer(static_resolve_fb)) {
+            printf("[Error] resolve_multisample_framebuffer: failed to create resolve framebuffer.\n");
+            return (Framebuffer){0};
+        }
+    }
+
+    // Blit from MSAA framebuffer to resolved framebuffer
+    glBlitNamedFramebuffer(
+        msaa_fb->handle,
+        static_resolve_fb.handle,
+        0, 0, src->width, src->height,
+        0, 0, src->width, src->height,
+        GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT,
+        GL_NEAREST
+    );
+
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        printf("[Error] glBlitNamedFramebuffer failed during resolve: GL error 0x%X\n", err);
+        return (Framebuffer){0};
+    }
+
+    return static_resolve_fb;
+}
 
 
 
@@ -637,27 +497,6 @@ void draw(const Vertex_Array va, const Shader shader, const Texture texture) {
     // glUniformMatrix4fv(..., glm::value_ptr(mvp));
 
     glDrawElements(GL_TRIANGLES, va.index_count, GL_UNSIGNED_INT, NULL);
-
-    glBindVertexArray(0);
-    glUseProgram(0);
-}
-
-void draw_with_index_buffer(const Vertex_Array va, const Index_Buffer vi, const Shader shader, const Texture texture) {
-    glUseProgram(shader.handle);
-    glBindVertexArray(va.handle);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vi.ibo);
-
-    if (false) {
-       // Bind Texture(s)
-       glActiveTexture(GL_TEXTURE0);
-       glBindTexture(GL_TEXTURE_2D, texture.handle);
-       glUniform1i(glGetUniformLocation(shader.handle, "uTexture"), 0);
-    }
-
-    // MVP would be set here too
-    // glUniformMatrix4fv(..., glm::value_ptr(mvp));
-
-    glDrawElements(GL_TRIANGLES, vi.count, GL_UNSIGNED_INT, NULL);
 
     glBindVertexArray(0);
     glUseProgram(0);

@@ -8,9 +8,16 @@ uniform mat4 view;
 uniform mat4 model;
 uniform mat4 perspective;
 
-uniform vec3 camera_position;
+// uniform vec3 camera_position;
 uniform vec2 spherical;
 uniform float u_time;
+
+layout(std140, binding = 2) uniform Camera {
+    // mat4 view;
+    // mat4 proj;
+    vec3 camera_position;
+    float _pad0; // pad vec3 to 16 bytes
+};
 
 
 out vec3 Normal;
@@ -288,9 +295,9 @@ void main() {
 
       // gl_Position = position;
       // gl_Position = perspective * vec4(position.xy, position.z*-1., position.w);
-      gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
+      // gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
       // WARNING: This function is mostly the same except for some z-fighting shenanigans
-      // gl_Position = perspective_from_fov(position.xyz, fov, aspect, 0.1, 100.);
+      gl_Position = perspective_from_fov(position.xyz, fov, aspect, 0.1, 100.);
       // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
    } else {
       gl_Position = position;

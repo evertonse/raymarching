@@ -20,6 +20,8 @@
 #include "stb_c_lexer.c"
 
 #include "shader.c"
+#include "texture.c"
+#include "buffer.c"
 #include "renderer.c"
 
 #include "assets/all_obj.h"
@@ -108,8 +110,17 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    static Framebuffer fb = {0};
    if (!is_valid_framebuffer(fb)) {
-      fb = create_framebuffer(1600, 800);
+      // fb = create_framebuffer(1600, 800);
+      fb = create_framebuffer_multisample(1600/2, 800/2, 1);
    }
+
+   static Uniform_Buffer ub = {0};
+   if (!is_valid_buffer(ub.buffer)) {
+      isz ub_binding = 2;
+      ub = create_uniform_buffer(size_of(Matrix)*2, ub_binding);
+   }
+   ub.offset = 0; // reset for next frame
+
 
    static Shader shader = shader_invalid;
    static const char *shader_path = "res/shaders/default.glsl";
@@ -134,7 +145,7 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
    static Texture cube_texture = {0};
    if (!is_valid_texture(cube_texture)) {
-      cube_texture = create_texture_from_filepath("res/textures/sand.jpg");
+      cube_texture = create_texture_from_filepath("res/textures/ocean6.png");
    }
 
    // Step 4: Render setup
@@ -160,10 +171,11 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
       // Vector3 direction = spherical_to_cartesian((f32)glfwGetTime(), (f32)glfwGetTime() + PI/2.);
       Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
-      Matrix view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
-      printf("vec3(%f, %f, %f)\n", direction.x, direction.y, direction.z);
+      Matrix  view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
+      // printf("vec3(%f, %f, %f)\n", direction.x, direction.y, direction.z);
       // Matrix view = MatrixViewFromSpherical(camera.position, -camera.rotation.y, -camera.rotation.x);
       glUniformMatrix4fv(view_location, 1, GL_FALSE, MatrixToFloat(view));
+   // Send to GPU
    }
 
    {  // Time uniform
@@ -176,7 +188,9 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
       glUniform2f(spherical_location, camera.rotation.y, camera.rotation.x);
 
       GLint position_location = glGetUniformLocation(shader.handle, "camera_position");
-      glUniform3f(position_location, camera.position.x, camera.position.y, camera.position.z);
+      // push_uniform(&ub, DATA_TYPE_VEC3, &camera.position, 1);
+      // update_buffer(ub.buffer, ub.cpu_mem, ub.offset, 0);
+      // glUniform3f(position_location, camera.position.x, camera.position.y, camera.position.z);
    }
 
    {
@@ -239,18 +253,19 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
    // blit_framebuffer_to_swapchain(fb);
+   {
 
-   Rectanglei32 destination = {
-      .x = 100,
-      .y = 100,
-      .width = 800,
-      .height = 600
-   };
+      Framebuffer fb_resolved = resolve_multisample_framebuffer(&fb);
 
-   blit_framebuffer_to_swapchain_rect(
-       fb,
-       destination
-   );
+      Rectanglei32 destination = {
+         .x = 100,
+         .y = 100,
+         .width = 800,
+         .height = 600
+      };
+
+      blit_framebuffer_to_swapchain_rect(fb_resolved, destination);
+   }
 }
 
 
@@ -606,8 +621,12 @@ int main() {
       exit(EXIT_FAILURE);
    }
 
-   glfwSetWindowAttrib(window, GLFW_FLOATING, true);
+   glfwSetWindowAttrib(window, GLFW_FLOATING, false); // sticky
    glfwSetWindowPos(window, window_x, window_y);
+   // GLFW_CURSOR_HIDDEN GLFW_CURSOR_NORMAL GLFW_CURSOR_DISABLED(fps style) GLFW_CURSOR_CAPTURED(Won't be able to leave window) GLFW_CURSOR_DISABLED
+   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+
 
    glfwSetKeyCallback(window, key_callback);
    glfwSetScrollCallback(window, scroll_callback);
