@@ -86,7 +86,7 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    static Vertex_Array cube_va = {0};
 
 
-#if 1
+#if 0
    static Vertex* gpu_vertices = nullptr;
    gpu_vertices = realloc(gpu_vertices, mesh->vertices_count * size_of(Vertex));
    for (u32 i = 0; i < mesh->vertices_count; ++i) {
@@ -111,7 +111,8 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    static Framebuffer fb = {0};
    if (!is_valid_framebuffer(fb)) {
       // fb = create_framebuffer(1600, 800);
-      fb = create_framebuffer_multisample(1600/2, 800/2, 1);
+      // fb = create_framebuffer_multisample(1600, 800, 16);
+      fb = create_framebuffer_multisample_with_renderbuffers(1600, 800, 16);
    }
 
    static Uniform_Buffer ub = {0};
@@ -187,9 +188,9 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
       GLint spherical_location = glGetUniformLocation(shader.handle, "spherical");
       glUniform2f(spherical_location, camera.rotation.y, camera.rotation.x);
 
-      GLint position_location = glGetUniformLocation(shader.handle, "camera_position");
-      // push_uniform(&ub, DATA_TYPE_VEC3, &camera.position, 1);
-      // update_buffer(ub.buffer, ub.cpu_mem, ub.offset, 0);
+      // GLint position_location = glGetUniformLocation(shader.handle, "camera_position");
+      push_uniform(&ub, DATA_TYPE_VEC3, &camera.position, 1);
+      update_buffer(ub.buffer, ub.cpu_mem, ub.offset, 0);
       // glUniform3f(position_location, camera.position.x, camera.position.y, camera.position.z);
    }
 
@@ -215,8 +216,59 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
          (Vector3){ -1.3f,  1.0f, -1.5f  }
       };
 
+
+
+      static Storage_Buffer sb1 = {0};
+      if (true) {
+         isz binding = 3;
+         isz offset = 0;
+         isz size = mesh->vertices_count*size_of(*mesh->vertices);
+         // bind_buffer_as_type(&va.vb.buffer, BUFFER_TYPE_STORAGE, binding);
+         // glBindBuffer(GL_SHADER_STORAGE_BUFFER, va.vb.buffer.handle);
+         // bind_buffer_slice_as_type(&va.vb.buffer, BUFFER_TYPE_STORAGE, binding, size, offset);
+         // bind_buffer_as_type(&va.ib.buffer, BUFFER_TYPE_STORAGE, binding+1);
+
+         if (sb1.buffer.size == 0) {
+            trace_warn("initialzing storage_buffer\n");
+            sb1 = create_storage_buffer(size, binding, mesh->vertices, false);
+         }
+      }
+
+      static Storage_Buffer sb2 = {0};
+      if (true) {
+         isz binding = 5;
+         isz offset = 0;
+         isz size = mesh->indices_count*size_of(u32);
+         // bind_buffer_as_type(&va.vb.buffer, BUFFER_TYPE_STORAGE, binding);
+         // glBindBuffer(GL_SHADER_STORAGE_BUFFER, va.vb.buffer.handle);
+         // bind_buffer_slice_as_type(&va.vb.buffer, BUFFER_TYPE_STORAGE, binding, size, offset);
+         // bind_buffer_as_type(&va.ib.buffer, BUFFER_TYPE_STORAGE, binding+1);
+
+         if (sb2.buffer.size == 0) {
+            trace_warn("initialzing storage_buffer\n");
+            assert(mesh->indices && mesh->indices_count > 0);
+            sb2 = create_storage_buffer(size, binding, mesh->indices, false);
+         }
+      }
+
       glBindVertexArray(va.handle);
       glBindTextureUnit(4, diffuse_texture.handle); // matches binding = 4
+
+      // bind_buffer_as_type(&va.ib.buffer, BUFFER_TYPE_STORAGE, 5);
+
+      // void bind_buffer_slice_as_type(Buffer* buf, Buffer_Type type, isz binding, isz size, isz offset) {
+      float pica = 69.f;
+
+      static Buffer pica_buffer = {0};
+      if (pica_buffer.handle == 0) {
+         pica_buffer = create_buffer(&pica, size_of(pica));
+      }
+
+      // bind_buffer_slice_as_type(&pica_buffer, BUFFER_TYPE_STORAGE, 3, size_of(pica), 0);
+      // bind_buffer_slice_as_type(&va.vb.buffer, BUFFER_TYPE_STORAGE, 3, mesh->vertices_count*size_of(*mesh->vertices), 0);
+      bind_buffer_as_type(&sb1.buffer, BUFFER_TYPE_STORAGE, 3);
+      bind_buffer_as_type(&sb2.buffer, BUFFER_TYPE_STORAGE, 5);
+
       GLint model_location = glGetUniformLocation(shader.handle, "model");
       for (isz i = 0; i < count_of(positions); i++) {
          if (9 == i ) {
@@ -230,7 +282,8 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
          model = MatrixMultiply(MatrixTranslate(i/2., 0., i/2.), model);
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
-         glDrawElements(GL_TRIANGLES, va.index_count, GL_UNSIGNED_INT, NULL);
+         assert(is_valid_vertex_array(va));
+         glDrawElements(GL_TRIANGLES, va.ib.count, GL_UNSIGNED_INT, NULL);
       }
 
 
@@ -240,9 +293,11 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
          glBindTextureUnit(4, cube_texture.handle);
+         bind_buffer_as_type(&cube_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
 
          glBindVertexArray(cube_va.handle);
-         glDrawElements(GL_TRIANGLES, cube_va.index_count, GL_UNSIGNED_INT, NULL);
+         assert(is_valid_vertex_array(cube_va));
+         glDrawElements(GL_TRIANGLES, cube_va.ib.count, GL_UNSIGNED_INT, NULL);
       }
 
    }
@@ -252,20 +307,20 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    glUseProgram(0);
    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-   // blit_framebuffer_to_swapchain(fb);
-   {
+   Rectanglei32 destination = {
+      .x = 100,
+      .y = 100,
+      .width = 800, .height = 600
+   };
 
-      Framebuffer fb_resolved = resolve_multisample_framebuffer(&fb);
-
-      Rectanglei32 destination = {
-         .x = 100,
-         .y = 100,
-         .width = 800,
-         .height = 600
-      };
-
-      blit_framebuffer_to_swapchain_rect(fb_resolved, destination);
+   Framebuffer fb_resolved = fb;
+   if (fb.color.samples > 1) {
+      // compiler says possible undeifned is not use temp
+      // Framebuffer fb_resolved = resolve_multisample_framebuffer_old(&fb);
+      fb_resolved = resolve_multisample_framebuffer(fb);
+      // blit_framebuffer_to_swapchain(fb_resolved);
    }
+   blit_framebuffer_to_swapchain_rect(fb_resolved, destination);
 }
 
 
@@ -593,9 +648,13 @@ int main() {
    if (!glfwInit())
       exit(EXIT_FAILURE);
 
-   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+   {  // open gl hints
+      glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+      glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+      glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
+      glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+   }
+
    glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
 
    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
@@ -637,6 +696,11 @@ int main() {
    gladLoadGL(glfwGetProcAddress);
    glfwSwapInterval(1);
 
+   int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
+   if (flags & GL_CONTEXT_FLAG_DEBUG_BIT) {
+      enable_error_report();
+   }
+
    compute_shader = create_shader(compute_shader_path, COMPUTE_SHADER);
    if (INVALID_SHADER_HANDLE == compute_shader.handle) {
       fprintf(stderr, "Compute shader failed. Fix it and press 'R' to reload.\n");
@@ -663,12 +727,15 @@ int main() {
 
    print_opengl_resource_limits();
 
+
+
    { // Some expected settings
       glEnable(GL_DEPTH_TEST);
       glEnable(GL_BLEND);
       glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      // glEnable(GL_MULTISAMPLE);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glDisable(GL_MULTISAMPLE);
       glDisable(GL_CULL_FACE);
       // glCullFace(GL_BACK);          // Cull back faces
       glFrontFace(GL_CCW);           // GL_CCW to define front faces as counter-clockwise
@@ -787,8 +854,9 @@ int main() {
 
       // Only blit if windows is not minimized
       if (!window_minized) {
-          blit_framebuffer_to_swapchain(fb);
-          render_mesh_to_framebuffer(&chosen_mesh);
+         blit_framebuffer_to_swapchain(fb);
+         render_mesh_to_framebuffer(&chosen_mesh);
+         // blend_framebuffers();
       }
 
       glfwSwapBuffers(window);

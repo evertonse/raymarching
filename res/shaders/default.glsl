@@ -1,8 +1,10 @@
 #pragma vertex
-#version 420 core
+#version 460 core
+#extension GL_NV_shader_buffer_load : enable
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
+
 
 uniform mat4 view;
 uniform mat4 model;
@@ -15,13 +17,22 @@ uniform float u_time;
 layout(std140, binding = 2) uniform Camera {
     // mat4 view;
     // mat4 proj;
-    vec3 camera_position;
-    float _pad0; // pad vec3 to 16 bytes
+    vec3 camera_position; float _pad0;
+};
+
+// restrict ?
+layout(std430, binding = 3) buffer VertexData {
+   float positions[];
+};
+
+layout(std430, binding = 5) buffer IndexData {
+   float indices[];
 };
 
 
 out vec3 Normal;
 out vec2 TexCoord;
+flat out int Boolean;
 
 mat4 lookat_rh(vec3 eye, vec3 target, vec3 up) {
     // Calculate forward vector (negative Z axis)
@@ -244,14 +255,41 @@ mat2 rotation(float a) {
     return mat2(c, -s, s, c);
 }
 
+vec3 pull_position(int id) {
+   return vec3(
+      positions[id*3 + 0],
+      positions[id*3 + 1],
+      positions[id*3 + 2]
+   );
+
+}
+
 void main() {
-   // float aspect = 1600./800.;
+   // float aspect =1600./800.;
    float aspect = 1600./800.;
    float fov    = PI/3.;
 
+// #define PULLING
+
+#ifdef PULLING
+   vec4 position = vec4(pull_position(gl_VertexID), 1.0);
+#else
+   vec4 position = vec4(position.xyz, 1.0);
+#endif
+
+   float positions_count = positions.length();
+
+   // if (positions_count == (702*(3)) && indices_count == 2) {
+   if (positions_count == (702*(3))) {
+   // if (positions[0] == 69 && positions_count == 1) {
+   // if (positions[0] == 69 && positions_count == 1) {
+      Boolean = 1;
+   } else {
+      Boolean = 0;
+   }
+
    mat4 gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
 
-   vec4 position = vec4(position.xyz, 1.0);
 
    //
    // These are good with simplest perspective
@@ -309,13 +347,17 @@ void main() {
 
 
 #pragma fragment
-#version 420 core
+#version 460 core
 
 in vec3 Normal;
 in vec2 TexCoord;
+flat in int Boolean;
 
-out vec4 FragColor;
+layout(location = 0) out vec4 FragColor; // outputting to the color attachment 0
+
 layout(binding = 4) uniform sampler2D tex;
+
+
 void main() {
 
    vec3  light   = normalize(vec3(2., 1., 1.));
@@ -329,4 +371,9 @@ void main() {
    }
    // FragColor.xyz += vec3(.1, .1, .1);
    FragColor.w = 1.0;
+
+   if (Boolean == 1 ) {
+   // if (positions.length() == 0) {
+      FragColor = vec4(1.0);
+   }
 }

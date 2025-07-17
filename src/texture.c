@@ -169,3 +169,39 @@ void destroy_texture(Texture* texture) {
     glDeleteTextures(1, &texture->handle);
     *texture = (Texture){0};
 }
+
+void update_texture(Texture* tex, int new_width, int new_height, const void* new_data) {
+    assert(tex && tex->handle);
+    assert(new_width <= tex->width && new_height <= tex->height);
+
+    GLenum format = 0, type = GL_UNSIGNED_BYTE;
+    switch (tex->format) {
+        case TEXTURE_FORMAT_RGBA8:     format = GL_RGBA; break;
+        case TEXTURE_FORMAT_RGB8:      format = GL_RGB; break;
+        case TEXTURE_FORMAT_RG8:       format = GL_RG; break;
+        case TEXTURE_FORMAT_R8:        format = GL_RED; break;
+        case TEXTURE_FORMAT_RGBA32F:   format = GL_RGBA; type = GL_FLOAT; break;
+        case TEXTURE_FORMAT_DEPTH24:   format = GL_DEPTH_COMPONENT; type = GL_UNSIGNED_INT; break;
+        default:
+            assert_msg(false, "Unsupported texture format for subimage update");
+            return;
+    }
+
+    // Only works for non-multisampled textures
+    if (tex->samples > 1) {
+        assert_msg(false, "Cannot use SubImage on multisampled textures");
+        return;
+    }
+
+    glTextureSubImage2D(
+        tex->handle,
+        0, // mip level
+        0, 0, // xoffset, yoffset
+        new_width,
+        new_height,
+        format,
+        type,
+        new_data
+    );
+}
+

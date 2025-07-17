@@ -164,53 +164,23 @@ Buffer create_buffer_extended(Buffer_Type type, Buffer_Usage usage, const void *
     return buf;
 }
 
+Buffer create_buffer(const void *data, isz size) {
+    return create_buffer_extended(BUFFER_TYPE_NONE, BUFFER_USAGE_DYNAMIC_READ_WRITE, data,  size, -1);
+}
 
-Buffer create_buffer_extended_old(Buffer_Type type, const void *data, isz size, i64 binding, bool persistent) {
-    Buffer buf = {0};
-    buf.type = type;
-    buf.binding = binding;
-    buf.size = size;
-    buf.is_persistent = persistent;
+Buffer create_buffer_copy(const Buffer *source, Buffer_Usage usage) {
+  assert(source && source->size > 0);
+  Buffer result = {0};
+  result = create_buffer_extended(source->type, usage, NULL,  source->size, source->binding);
+  // Copy data directly on GPU
+  glCopyNamedBufferSubData(source->handle, // Source buffer
+                           result.handle,  // Destination buffer
+                           0,              // Source offset
+                           0,              // Destination offset
+                           source->size    // Size in bytes
+  );
 
-    GLenum target = 0;
-    GLbitfield flags = GL_DYNAMIC_STORAGE_BIT;
-
-    switch (type) {
-    case BUFFER_TYPE_VERTEX:
-    case BUFFER_TYPE_INDEX:
-    case BUFFER_TYPE_NONE:
-    case BUFFER_TYPE_TEXTURE_BUFFER:
-        glCreateBuffers(1, &buf.handle);
-        glNamedBufferStorage(buf.handle, size, data, flags);
-        break;
-
-    case BUFFER_TYPE_UNIFORM:
-    case BUFFER_TYPE_STORAGE: {
-        glCreateBuffers(1, &buf.handle);
-
-        if (persistent) {
-            // https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBufferStorage.xhtml
-            flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
-            glNamedBufferStorage(buf.handle, size, data, flags);
-            buf.mapped_ptr = glMapNamedBufferRange(buf.handle, 0, size, flags);
-        } else {
-            glNamedBufferStorage(buf.handle, size, data, flags);
-        }
-
-        // Optional binding
-        target = (type == BUFFER_TYPE_UNIFORM) ? GL_UNIFORM_BUFFER : GL_SHADER_STORAGE_BUFFER;
-        if (binding != -1) {
-            glBindBufferBase(target, binding, buf.handle);
-        }
-        break;
-    }
-
-    default:
-        assert_msg(0, "Unsupported Buffer_Type");
-        break;
-    }
-
-    return buf;
+  return result;
 }
 
 bool is_valid_buffer(const Buffer b) {
@@ -258,8 +228,10 @@ bool is_valid_vertex_buffer(const Vertex_Buffer vb) {
 
 
 
-void update_buffer(const Buffer buf, const void* data, isz size, isz offset) {
+// Return the index of one position after the last byte written;
+isz update_buffer(const Buffer buf, const void* data, isz size, isz offset) {
     glNamedBufferSubData(buf.handle, offset, size, data);
+    return offset + size;
 }
 
 // FIX gl explosed
@@ -306,7 +278,7 @@ void bind_buffer_as_type(Buffer* buf, Buffer_Type type, i64 binding) {
 }
 
 
-void bind_buffer_range(const Buffer* buf, isz size, isz offset) {
+void bind_buffer_slice(const Buffer* buf, isz size, isz offset) {
     GLenum target = 0;
     switch (buf->type) {
     case BUFFER_TYPE_UNIFORM: target = GL_UNIFORM_BUFFER; break;
@@ -314,6 +286,30 @@ void bind_buffer_range(const Buffer* buf, isz size, isz offset) {
     default: return; // Not bindable
     }
     glBindBufferRange(target, buf->binding, buf->handle, offset, size);
+}
+
+void bind_buffer_slice_as_type(Buffer* buf, Buffer_Type type, isz binding, isz size, isz offset) {
+    if (!buf || buf->handle == 0 || size <= 0) {
+        trace_error("bind_buffer_slice_as_type: Invalid buffer or size.\n");
+        return;
+    }
+
+    GLenum target = 0;
+    switch (type) {
+    case BUFFER_TYPE_UNIFORM:
+        target = GL_UNIFORM_BUFFER;
+        break;
+    case BUFFER_TYPE_STORAGE:
+        target = GL_SHADER_STORAGE_BUFFER;
+        break;
+    default:
+        trace_warn("bind_buffer_slice_as_type: Unsupported buffer type (%d).\n", type);
+        return;
+    }
+
+    glBindBufferRange(target, binding, buf->handle, offset, size);
+    buf->binding = binding;
+    buf->type = type;
 }
 
 
@@ -434,14 +430,14 @@ Storage_Buffer create_storage_buffer(isz size, i64 binding, const void* data, bo
     return result;
 }
 
-Vertex_Buffer create_vertex_buffer(isz vertex_count, isz vertex_size, const void* data) {
+Vertex_Buffer create_vertex_buffer(const void* data, isz vertex_size, isz vertex_count) {
     Vertex_Buffer result = {0};
     isz size = vertex_count * vertex_size;
     result.count = vertex_count;
 
     result.buffer = create_buffer_extended(
         BUFFER_TYPE_VERTEX,
-        BUFFER_USAGE_STATIC,
+        BUFFER_USAGE_DYNAMIC,
         data,
         size,
         -1
@@ -450,10 +446,11 @@ Vertex_Buffer create_vertex_buffer(isz vertex_count, isz vertex_size, const void
     return result;
 }
 
-Index_Buffer create_index_buffer(isz index_count, isz index_size, const void* data) {
+Index_Buffer create_index_buffer(const u32* data, isz index_count) {
     Index_Buffer result = {0};
-    isz size = index_count * index_size;
+    isz size = index_count * size_of(*data);
     result.count = index_count;
+    assert_msg(data, "We're using static memory, that means we can't update it, so we need to set it once, meaning right now!");
 
     result.buffer = create_buffer_extended(
         BUFFER_TYPE_INDEX,

@@ -30,7 +30,11 @@
 - [ ] Infinite drawing no distant shit being culled
 - [ ] AZDO
 - [ ] Bindless textures
-- [ ] MSAA with multisampled textures
 - [ ] MSAA manually
+
+- [x] MSAA with multisampled textures
+- [x] MSAA framebuffer resolving
+- [x] MSAA framebuffer blitting checks
+- [ ] Copy texture into another taking alhpa into account
 - [ ] Update Vertex_Array to use the Buffer api
 
