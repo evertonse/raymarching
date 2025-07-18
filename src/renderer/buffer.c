@@ -196,7 +196,7 @@ bool is_valid_buffer(const Buffer b) {
 }
 
 bool is_valid_uniform_buffer(const Uniform_Buffer ub) {
-    return is_valid_buffer(ub.buffer);
+    return is_valid_buffer(ub.buffer) && ub.cpu_mem;
 }
 
 bool is_valid_storage_buffer(const Storage_Buffer sb) {
@@ -218,11 +218,11 @@ bool is_valid_texture_buffer(const Texture_Buffer tb) {
 #endif
 }
 
-bool is_valid_index_buffer(const Index_Buffer ib) {
+inline bool is_valid_index_buffer(const Index_Buffer ib) {
     return is_valid_buffer(ib.buffer) && ib.count > 0;
 }
 
-bool is_valid_vertex_buffer(const Vertex_Buffer vb) {
+inline bool is_valid_vertex_buffer(const Vertex_Buffer vb) {
     return is_valid_buffer(vb.buffer) && vb.count > 0;
 }
 
@@ -247,6 +247,9 @@ void unmap_buffer(Buffer* buf) {
 
 void destroy_buffer(Buffer* buf) {
     glDeleteBuffers(1, &buf->handle);
+    if (buf->mapped_ptr) {
+        unmap_buffer(buf);
+    }
     *buf = (Buffer){0};
 }
 

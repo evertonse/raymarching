@@ -42,37 +42,39 @@ inline bool is_valid_texture(Texture texture) {
 
 
 Texture create_texture_extended(int width, int height, void *data, Texture_Format format, Texture_Type type, int samples) {
-   Texture result = {0};
-   result.width  = width;
-   result.height = height;
-   result.format = format;
-   result.type   = type;
-   result.samples = samples;
+   Texture result = {
+      .width   = width,
+      .height  = height,
+      .format  = format,
+      .type    = type,
+      .samples = samples
+   };
 
-   GLenum internal_format, gl_format;
-   GLenum data_type = GL_UNSIGNED_BYTE;
-   GLenum compare_mode = 0, compare_func = 0;
-   GLint min_filter = GL_LINEAR, mag_filter = GL_LINEAR;
-   bool buffer_backed = false, mipmapped = false;
+   GLenum data_type       = GL_UNSIGNED_BYTE;
+   GLenum internal_format = 0,         gl_format    = 0;
+   GLenum compare_mode    = 0,         compare_func = 0;
+   GLint  min_filter      = GL_LINEAR, mag_filter   = GL_LINEAR;
+   bool   buffer_backed   = false,     mipmapped    = false;
 
    // Format decoding
    switch (format) {
-      case TEXTURE_FORMAT_RGBA8:      internal_format = GL_RGBA8; gl_format = GL_RGBA; break;
-      case TEXTURE_FORMAT_RGB8:       internal_format = GL_RGB8;  gl_format = GL_RGB;  break;
-      case TEXTURE_FORMAT_RG8:        internal_format = GL_RG8;   gl_format = GL_RG;   break;
-      case TEXTURE_FORMAT_R8:         internal_format = GL_R8;    gl_format = GL_RED;  break;
-      case TEXTURE_FORMAT_RGBA32F:    internal_format = GL_RGBA32F; gl_format = GL_RGBA; data_type = GL_FLOAT; break;
-      case TEXTURE_FORMAT_DEPTH24:    internal_format = GL_DEPTH_COMPONENT24; gl_format = GL_DEPTH_COMPONENT; data_type = GL_UNSIGNED_INT; break;
-      case TEXTURE_FORMAT_SHADOW:     internal_format = GL_DEPTH_COMPONENT24; gl_format = GL_DEPTH_COMPONENT; data_type = GL_UNSIGNED_INT; compare_mode = GL_COMPARE_REF_TO_TEXTURE; compare_func = GL_LEQUAL; break;
+      case TEXTURE_FORMAT_RGBA8:   internal_format = GL_RGBA8;             gl_format = GL_RGBA;            break;
+      case TEXTURE_FORMAT_RGB8:    internal_format = GL_RGB8;              gl_format = GL_RGB;             break;
+      case TEXTURE_FORMAT_RG8:     internal_format = GL_RG8;               gl_format = GL_RG;              break;
+      case TEXTURE_FORMAT_R8:      internal_format = GL_R8;                gl_format = GL_RED;             break;
+      case TEXTURE_FORMAT_RGBA32F: internal_format = GL_RGBA32F;           gl_format = GL_RGBA;            data_type = GL_FLOAT;        break;
+      case TEXTURE_FORMAT_DEPTH24: internal_format = GL_DEPTH_COMPONENT24; gl_format = GL_DEPTH_COMPONENT; data_type = GL_UNSIGNED_INT; break;
+      case TEXTURE_FORMAT_SHADOW:  internal_format = GL_DEPTH_COMPONENT24; gl_format = GL_DEPTH_COMPONENT; data_type = GL_UNSIGNED_INT; compare_mode = GL_COMPARE_REF_TO_TEXTURE; compare_func = GL_LEQUAL; break;
       default: assert_msg(false, "Unsupported texture format"); return result;
    }
 
    // Type decoding
    switch (type) {
-      case TEXTURE_TYPE_BUFFER: buffer_backed = true; break;
-      case TEXTURE_TYPE_2D_MIPMAPPED: mipmapped = true; break;
-      case TEXTURE_TYPE_2D: break;
-      default: assert_msg(false, "Unsupported texture type"); return result;
+      case     TEXTURE_TYPE_BUFFER:       buffer_backed =       true;   break;
+      case     TEXTURE_TYPE_2D_MIPMAPPED: mipmapped     =       true;   break;
+      case     TEXTURE_TYPE_2D: break;
+
+      default: assert_msg(false,"Unsupported  texture type"); return result;
    }
 
    // Create handle
@@ -86,10 +88,11 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
 
    // Allocate storage
    if (buffer_backed) {
-      // Texture buffer storage is done via glTextureBuffer later
+      // This kinda of Texture has its storage associated via glTextureBuffer at some other point in the code
    } else if (samples > 1) {
       glTextureStorage2DMultisample(result.handle, samples, internal_format, width, height, GL_TRUE);
    } else {
+      assert(0 != result.handle);
       glTextureStorage2D(result.handle, 1, internal_format, width, height);
 
       if (data && (format != TEXTURE_FORMAT_DEPTH24 && format != TEXTURE_FORMAT_SHADOW)) {

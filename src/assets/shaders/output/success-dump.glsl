@@ -1,5 +1,29 @@
-#pragma vertex
+
 #version 460 core
+      #ifndef lerp
+         #define lerp mix
+      #endif
+
+      #ifndef PI
+         #define PI 3.14159265358979323846
+      #endif
+
+      #ifndef TAU
+         #define TAU PI * 2.
+      #endif
+
+      #ifndef EPSILON
+         #define EPSILON 0.000001
+      #endif
+
+      #ifndef DEG2RAD
+         #define DEG2RAD (PI/180.0)
+      #endif
+
+      #ifndef RAD2DEG
+         #define RAD2DEG (180.0/PI)
+      #endif
+   
 #extension GL_NV_shader_buffer_load : enable
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
@@ -343,11 +367,32 @@ void main() {
 
    TexCoord = uv;
    Normal   = normal;
-}
-
-
-#pragma fragment
+} 
 #version 460 core
+      #ifndef lerp
+         #define lerp mix
+      #endif
+
+      #ifndef PI
+         #define PI 3.14159265358979323846
+      #endif
+
+      #ifndef TAU
+         #define TAU PI * 2.
+      #endif
+
+      #ifndef EPSILON
+         #define EPSILON 0.000001
+      #endif
+
+      #ifndef DEG2RAD
+         #define DEG2RAD (PI/180.0)
+      #endif
+
+      #ifndef RAD2DEG
+         #define RAD2DEG (180.0/PI)
+      #endif
+   
 
 in vec3 Normal;
 in vec2 TexCoord;
@@ -376,4 +421,4 @@ void main() {
    // if (positions.length() == 0) {
       FragColor = vec4(1.0);
    }
-}
+} 

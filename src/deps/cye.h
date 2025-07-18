@@ -1150,7 +1150,7 @@ void cye__assert_handler(char const *prefix, char const *condition, char const *
 #endif
 
 #ifndef cye_assert
-#   define cye_assert(cond) cye_assert_msg(cond, NULL)
+#   define cye_assert(cond) cye_assert_msg(cond, "")
 #endif
 
 
@@ -5126,6 +5126,9 @@ char *win32_error_message(DWORD err) {
 #define shift           cye_shift
 
 #define assert_msg cye_assert_msg
+#ifdef assert
+#undef assert
+#endif
 #define assert cye_assert
 
 

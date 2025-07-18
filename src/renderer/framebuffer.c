@@ -125,25 +125,25 @@ Framebuffer create_framebuffer_multisample_with_renderbuffers(int width, int hei
 
     // Use dummy textures for compatibility with framebuffer struct
     fb.color = (Texture){
-        .handle = color_rb,
-        .width = width,
-        .height = height,
-        .format = TEXTURE_FORMAT_RGBA8,
-        .type = TEXTURE_TYPE_2D,
+        .handle  = color_rb,
+        .width   = width,
+        .height  = height,
+        .format  = TEXTURE_FORMAT_RGBA8,
+        .type    = TEXTURE_TYPE_2D,
         .samples = samples
     };
 
     fb.depth = (Texture){
-        .handle = depth_rb,
-        .width = width,
-        .height = height,
-        .format = TEXTURE_FORMAT_DEPTH24,
-        .type = TEXTURE_TYPE_2D,
+        .handle  = depth_rb,
+        .width   = width,
+        .height  = height,
+        .format  = TEXTURE_FORMAT_DEPTH24,
+        .type    = TEXTURE_TYPE_2D,
         .samples = samples
     };
 
     GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
-    if (status != GL_FRAMEBUFFER_COMPLETE) {
+    if (GL_FRAMEBUFFER_COMPLETE !=  status) {
         fprintf(stderr, "[ERROR] Multisample framebuffer incomplete: 0x%X\n", status);
         glDeleteFramebuffers(1, &fb.handle);
         fb.handle = 0;
@@ -455,5 +455,10 @@ void blend_framebuffers(const Framebuffer *a, const Framebuffer *b, Framebuffer 
 
    // Render fullscreen triangle
    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+void bind_framebuffer(Framebuffer fb) {
+   glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
+   glViewport(0, 0, fb.color.width, fb.color.height);
 }
 

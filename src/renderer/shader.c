@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include <stdint.h>
 
+#include "./stb_c_lexer.c"
+
 #define INVALID_SHADER_HANDLE U32_MAX
 #define INVALID_SHADER_TYPE  U32_MAX
 
@@ -184,6 +186,11 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
    return true;
 }
 
+inline bool is_valid_shader(Shader shader) {
+    return INVALID_SHADER_HANDLE != shader.handle;
+}
+
+
 Shader create_shader_from_memory(const u8** sources, const Shader_Type* types, usize count) {
    Shader shader = shader_invalid;
 
@@ -330,11 +337,11 @@ Shader create_shader(const char* path, Shader_Type type) {
       }
       trestore(checkpoint);
 
-      write_file("src/shaders/output/success-dump.glsl", ds.data, ds.size);
+      write_file("src/assets/shaders/output/success-dump.glsl", ds.data, ds.size);
       shader_to_paths[result.handle] =  path_offsets;
 
    } else {
-       write_file("src/shaders/output/failed-dump.glsl", ds.data, ds.size);
+       write_file("src/assets/shaders/output/failed-dump.glsl", ds.data, ds.size);
        // Only free on failure because we're gonna use the paths if all succeeds.
        da_free(path_offsets);
    }
@@ -397,8 +404,7 @@ Shader create_shader_single_from_memory_old(u8* source, Shader_Type type) {
    return shader;
 }
 
-
-
+// TODO: Mark time of compilation in the shader itself on top of .time files
 bool shader_needs_reload(Shader shader) {
    GLuint shader_handle = shader.handle;
    if (INVALID_SHADER_HANDLE == shader_handle) {
@@ -445,7 +451,7 @@ Shader create_shader_from_vertex_and_fragment_memory(const char* vs_src, const c
 }
 
 Shader reload_shader(Shader shader) {
-   system("clear"); // HACK XXX
+   system("clear"); // HACK XXX: Trying to clear the whole terminal to not flood with erros
    Shader new_shader = create_shader(shader.path, shader.type);
 
 
@@ -461,52 +467,11 @@ Shader reload_shader(Shader shader) {
    return new_shader;
 }
 
-typedef struct {
-    GLuint handle;
-    GLuint binding_index;
-    GLsizeiptr size;
-    void* mapped_ptr; // For persistent mapped buffer
-} SSBO;
-
-SSBO create_ssbo(GLuint binding_index, GLsizeiptr size, const void* initial_data, bool persistent) {
-    SSBO ssbo = {0};
-    ssbo.binding_index = binding_index;
-    ssbo.size = size;
-
-    glGenBuffers(1, &ssbo.handle);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo.handle);
-
-    if (persistent) {
-        glBufferStorage(GL_SHADER_STORAGE_BUFFER, size, initial_data,
-            GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
-
-        ssbo.mapped_ptr = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, size,
-            GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
-    } else {
-        glBufferData(GL_SHADER_STORAGE_BUFFER, size, initial_data, GL_DYNAMIC_DRAW);
-    }
-
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding_index, ssbo.handle);
-    return ssbo;
+void bind_shader(Shader shader) {
+   if (!is_valid_shader(shader)) {
+      trace_error("Trying to bind an invalid shader!");
+      return;
+   }
+   glUseProgram(shader.handle);
 }
-
-void ssbo_update(SSBO* ssbo, const void* data, GLsizeiptr size) {
-    assert(!ssbo->mapped_ptr && "You can't use ssbo_update on a persistently mapped SSBO");
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo->handle);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, size, data);
-}
-
-void* ssbo_get_mapped_ptr(SSBO* ssbo) {
-    return ssbo->mapped_ptr;
-}
-
-void destroy_ssbo(SSBO* ssbo) {
-    if (ssbo->mapped_ptr) {
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo->handle);
-        glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-    }
-    glDeleteBuffers(1, &ssbo->handle);
-    *ssbo = (SSBO){0};
-}
-
 

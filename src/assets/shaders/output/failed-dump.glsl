@@ -1,6 +1,29 @@
-#pragma vertex
+
 #version 460 core
-#extension GL_NV_shader_buffer_load : enable
+      #ifndef lerp
+         #define lerp mix
+      #endif
+
+      #ifndef PI
+         #define PI 3.14159265358979323846
+      #endif
+
+      #ifndef TAU
+         #define TAU PI * 2.
+      #endif
+
+      #ifndef EPSILON
+         #define EPSILON 0.000001
+      #endif
+
+      #ifndef DEG2RAD
+         #define DEG2RAD (PI/180.0)
+      #endif
+
+      #ifndef RAD2DEG
+         #define RAD2DEG (180.0/PI)
+      #endif
+   
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
@@ -21,14 +44,14 @@ layout(std140, binding = 2) uniform Camera {
 };
 
 // restrict ?
-layout(std430, binding = 3) buffer VertexData {
-   float positions_xyz[];
+layout(std430, binding = 3) readonly buffer VertexData {
+   vec3 positions[];
 };
 
-layout(std430, binding = 5) buffer IndexData {
-   float indices[];
+// restrict ?
+layout(std430, binding = 4) readonly buffer IndexData {
+   int indices[];
 };
-
 
 out vec3 Normal;
 out vec2 TexCoord;
@@ -255,37 +278,23 @@ mat2 rotation(float a) {
     return mat2(c, -s, s, c);
 }
 
-vec3 pull_position(int id) {
-   return vec3(
-      positions_xyz[id*3 + 0],
-      positions_xyz[id*3 + 1],
-      positions_xyz[id*3 + 2]
-   );
-
-}
-
 void main() {
    // float aspect =1600./800.;
    float aspect = 1600./800.;
    float fov    = PI/3.;
+   // vec4 position = vec4(positions[gl_VertexID], positions[gl_VertexID + 1], positions[gl_VertexID + 2], 1.0);
+   // vec4 position = vec4(positions[gl_VertexID + 3], positions[gl_VertexID + 2], positions[gl_VertexID + 1], 1.0);
+   // vec4 position = vec4(positions[indices[gl_VertexID]], 1.0);
+   // vec4 position = vec4(positions[gl_VertexID], 1.);
 
-// #define PULLING
-
-#ifdef PULLING
-   vec4 position = vec4(pull_position(gl_VertexID), 1.0);
-#else
+   // vec4 position = vec4(positions, 1.0);
    vec4 position = vec4(position.xyz, 1.0);
-#endif
+   int positions_count = length(positions);
 
-   float positions_count = positions_xyz.length();
-
-   // if (positions_count == (702*(3)) && indices_count == 2) {
-   if (positions_count == (702*(3))) {
-   // if (positions[0] == 69 && positions_count == 1) {
-   // if (positions[0] == 69 && positions_count == 1) {
-      Boolean = 1;
+   if (positions_count == 39) {
+      Boolean = true;
    } else {
-      Boolean = 0;
+      Boolean = false;
    }
 
    mat4 gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
@@ -343,11 +352,32 @@ void main() {
 
    TexCoord = uv;
    Normal   = normal;
-}
-
-
-#pragma fragment
+} 
 #version 460 core
+      #ifndef lerp
+         #define lerp mix
+      #endif
+
+      #ifndef PI
+         #define PI 3.14159265358979323846
+      #endif
+
+      #ifndef TAU
+         #define TAU PI * 2.
+      #endif
+
+      #ifndef EPSILON
+         #define EPSILON 0.000001
+      #endif
+
+      #ifndef DEG2RAD
+         #define DEG2RAD (PI/180.0)
+      #endif
+
+      #ifndef RAD2DEG
+         #define RAD2DEG (180.0/PI)
+      #endif
+   
 
 in vec3 Normal;
 in vec2 TexCoord;
@@ -356,8 +386,6 @@ flat in int Boolean;
 layout(location = 0) out vec4 FragColor; // outputting to the color attachment 0
 
 layout(binding = 4) uniform sampler2D tex;
-
-
 void main() {
 
    vec3  light   = normalize(vec3(2., 1., 1.));
@@ -372,8 +400,7 @@ void main() {
    // FragColor.xyz += vec3(.1, .1, .1);
    FragColor.w = 1.0;
 
-   if (Boolean == 1 ) {
-   // if (positions.length() == 0) {
-      FragColor = vec4(1.0);
+   if (Boolean) {
+      FragColor.r = 1.0;
    }
-}
+} 

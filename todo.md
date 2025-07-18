@@ -21,9 +21,10 @@
 - [ ] Call back error from opengl howw to setup
 
 # Projection Pipeline
-- [ ] Renderbuffer, SSBO, Uniform buffer objects
-- [ ] Vertex Pulling
-- [ ] All DSA
+- [x] Renderbuffer, SSBO, Uniform buffer objects create and use
+- [x] Vertex Pulling
+- [ ] Vertex Pulling with normal and uvs
+- [x] All DSA
 - [ ] Instancing with uniform and without it
 - [ ] Texture sampling from ssbo is possible?
 - [ ] DrawIndirect
@@ -32,9 +33,22 @@
 - [ ] Bindless textures
 - [ ] MSAA manually
 
+- [ ] Material struct as uniform buffer
+- [ ] Normal inverse transforming
+- [ ] RayGui with no raylib or some other immediate mode
+
+- [ ] Map any texture for usage as image2D
+
+- [ ] init, update, input architecture
+
+- [ ] Load Model fbx and stuff
+- [ ] Cubemap Skybox support
+
 - [x] MSAA with multisampled textures
 - [x] MSAA framebuffer resolving
 - [x] MSAA framebuffer blitting checks
 - [ ] Copy texture into another taking alhpa into account
-- [ ] Update Vertex_Array to use the Buffer api
+- [x] Update Vertex_Array to use the Buffer api
+
+- [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
 

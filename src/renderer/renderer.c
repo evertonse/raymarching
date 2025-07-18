@@ -4,6 +4,14 @@
 #include <string.h>
 
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
+#include "./raymath.c"
+#include "./shader.c"
+#include "./texture.c"
+#include "./buffer.c"
+
+
 typedef struct {
    union {
       f32 position[3];
@@ -46,13 +54,20 @@ typedef struct {
 } Rectanglei32;
 
 
-inline bool is_valid_shader(Shader shader) {
-    return INVALID_SHADER_HANDLE != shader.handle;
-}
-
 
 inline bool is_valid_vertex_array(Vertex_Array va) {
-    if (0 == va.handle || !is_valid_vertex_buffer(va.vb) || !is_valid_index_buffer(va.ib)) {
+    if (0 == va.handle) {
+       trace_info("Vertex Array is has zero handle");
+       return false;
+    }
+
+    if (!is_valid_vertex_buffer(va.vb)) {
+       trace_info("Vertex Array has bad vertex buffer");
+       return false;
+    }
+
+    if (!is_valid_index_buffer(va.ib)) {
+       trace_info("Vertex Array has bad index buffer");
        return false;
     }
 
@@ -108,7 +123,6 @@ Vertex_Array create_vertex_array(const Vertex *vertices, usz vertex_count, const
 Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    Vertex_Array va = {0};
 
-   assert(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count);
    assert(mesh != NULL);
    assert(mesh->vertices != NULL);
    assert(mesh->normals != NULL);
@@ -116,10 +130,7 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    assert(mesh->indices != NULL);
    assert(mesh->vertices_count > 0);
    assert(mesh->indices_count > 0);
-   assert(mesh->vertices_count == mesh->normals_count);
-   assert(mesh->vertices_count == mesh->uvs_count);
-
-
+   assert(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count);
 
    // Calculate sizes
    usz vertex_size = mesh->vertices_count * size_of(Vector3);
@@ -135,7 +146,7 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
 
    isz offset = 0;
 
-   if (false) { // Make first float be the vertices count
+   if (false) { // Make first float be the vertices count. But I don't think we need that even if we're using as storage buffer
       f32 vertex_count = (f32)mesh->vertices_count;
       offset = update_buffer(va.vb.buffer, &vertex_count, size_of(vertex_count), offset); // metadata the first element is
    }
