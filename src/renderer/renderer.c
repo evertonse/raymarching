@@ -362,3 +362,25 @@ void enable_error_report() {
    glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
    glDebugMessageCallback(0, nullptr);
 }
+
+
+void init_renderer(void) {
+   int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
+   if (flags & GL_CONTEXT_FLAG_DEBUG_BIT) {
+      enable_error_report();
+   }
+
+   print_opengl_resource_limits();
+
+   { // Some expected settings
+      glEnable(GL_DEPTH_TEST);
+      glEnable(GL_BLEND);
+      glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glDisable(GL_MULTISAMPLE);
+      glDisable(GL_CULL_FACE);
+      // glCullFace(GL_BACK);          // Cull back faces
+      glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
+   }
+}

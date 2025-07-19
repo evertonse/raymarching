@@ -134,8 +134,50 @@ static void error_callback(int error, const char *description) {
 }
 
 
-static f64 glfwGetScroll(GLFWwindow *window);
+static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+   if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+      // glfwSetWindowShouldClose(window, GLFW_TRUE);
+   }
 
+#if 0
+   if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+      Shader old = compute_shader;
+      compute_shader = reload_shader(compute_shader);
+      printf("reloaded and its broken ? %s\n", INVALID_SHADER_HANDLE == compute_shader.handle ? "yes" : "no");
+      if (old.handle == compute_shader.handle) {
+         title.reload = "(reload failed)";
+      } else {
+         title.reload = "";
+      }
+   }
+#endif
+
+   if (key == GLFW_KEY_C && action == GLFW_RELEASE) {
+      bool sticky = glfwGetWindowAttrib(window, GLFW_FLOATING);
+      glfwSetWindowAttrib(window, GLFW_FLOATING, !sticky);
+
+   }
+}
+
+static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+   if (button == GLFW_MOUSE_BUTTON_LEFT) {
+      if (action == GLFW_PRESS) {
+         mouse_left_pressed = true;
+      } else if (action == GLFW_RELEASE) {
+         mouse_left_pressed = false;
+      }
+   }
+
+   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+      if (action == GLFW_PRESS) {
+         mouse_right_pressed = true;
+      } else if (action == GLFW_RELEASE) {
+         mouse_right_pressed = false;
+      }
+   }
+}
+
+#include "./window.c"
 
 Camera move_camera(GLFWwindow *window, Camera cam) {
 
@@ -221,7 +263,7 @@ Camera move_camera(GLFWwindow *window, Camera cam) {
 
    cam.position = Vector3Add(cam.position, v);
 
-   f64 yoffset = glfwGetScroll(window);
+   f64 yoffset = get_mouse_scroll();
    if (yoffset != 0.0) {
       cam.zoom = 1+yoffset;
    }
@@ -235,56 +277,13 @@ Camera move_camera(GLFWwindow *window, Camera cam) {
    return cam;
 }
 
-static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
-   if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-      // glfwSetWindowShouldClose(window, GLFW_TRUE);
-   }
-
-#if 0
-   if (key == GLFW_KEY_R && action == GLFW_PRESS) {
-      Shader old = compute_shader;
-      compute_shader = reload_shader(compute_shader);
-      printf("reloaded and its broken ? %s\n", INVALID_SHADER_HANDLE == compute_shader.handle ? "yes" : "no");
-      if (old.handle == compute_shader.handle) {
-         title.reload = "(reload failed)";
-      } else {
-         title.reload = "";
-      }
-   }
-#endif
-
-   if (key == GLFW_KEY_C && action == GLFW_RELEASE) {
-      bool sticky = glfwGetWindowAttrib(window, GLFW_FLOATING);
-      glfwSetWindowAttrib(window, GLFW_FLOATING, !sticky);
-
-   }
-}
-
-static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
-   if (button == GLFW_MOUSE_BUTTON_LEFT) {
-      if (action == GLFW_PRESS) {
-         mouse_left_pressed = true;
-      } else if (action == GLFW_RELEASE) {
-         mouse_left_pressed = false;
-      }
-   }
-
-   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-      if (action == GLFW_PRESS) {
-         mouse_right_pressed = true;
-      } else if (action == GLFW_RELEASE) {
-         mouse_right_pressed = false;
-      }
-   }
-}
-
-static void conditionally_change_windows_title(GLFWwindow *window, f64 dt) {
+static void conditionally_change_windows_title(f64 dt) {
    static char fps[512];
    if (dt > 0) {
       int written = snprintf(fps, (sizeof fps / sizeof fps[0]),"%.2f", 1./dt);
       title.fps = fps;
    }
-   bool sticky = glfwGetWindowAttrib(window, GLFW_FLOATING);
+   bool sticky = is_window_sticky();
    if (sticky) {
       title.sticky = "*sticky";
    } else {
@@ -305,106 +304,25 @@ static void conditionally_change_windows_title(GLFWwindow *window, f64 dt) {
    }
    const char *new_title = (const char*)title.mem;
 
-   const char* current_title =  glfwGetWindowTitle(window);
+   const char* current_title =  current_window_title();
    bool please_update =  0 == strcmp(new_title,  current_title);
    if (!please_update) {
-      glfwSetWindowTitle(window, new_title);
+      change_window_title(new_title);
    }
 }
 
-static f64 scroll_offset = 0.0;
-static void scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
-   scroll_offset += yoffset;
-   // printf("xoffset=%f yoffset=%f\n", xoffset, yoffset);
-}
-
-static f64 glfwGetScroll(GLFWwindow *window) {
-   return scroll_offset;
-}
 
 int main() {
-   glfwSetErrorCallback(error_callback);
 
-   if (!glfwInit())
-      exit(EXIT_FAILURE);
+   create_window();
+   init_renderer();
 
-   {  // open gl hints
-      glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-      glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-      glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
-      glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-   }
-
-   glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
-
-   GLFWmonitor *monitor = glfwGetPrimaryMonitor();
-   const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-
-   // Get the maximum resolution
-   const int max_width  = mode->width;
-   const int max_height = mode->height;
-   trace_info("Monitor Width x Height = %d x %d", max_width, max_height);
-
-   int window_width  = max_width / 3.5;                // Half the width of the screen
-   int window_height = max_height / 1.6;               // Half the height of the screen
-
-   int right_padding_from_windows_bar = 67;
-   int window_x = max_width - window_width - right_padding_from_windows_bar;  // 3/4 from the left
-   int window_y = (max_height - window_height) / 2;                      // Centered vertically
-
-   // int width = 1280;
-   // int height = 720;
-
-   GLFWwindow *window = glfwCreateWindow(window_width, window_height, title.base, NULL, NULL);
-   if (!window) {
-      glfwTerminate();
-      exit(EXIT_FAILURE);
-   }
-
-   glfwSetWindowAttrib(window, GLFW_FLOATING, false); // sticky
-   glfwSetWindowPos(window, window_x, window_y);
-   // GLFW_CURSOR_HIDDEN GLFW_CURSOR_NORMAL GLFW_CURSOR_DISABLED(fps style) GLFW_CURSOR_CAPTURED(Won't be able to leave window) GLFW_CURSOR_DISABLED
-   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-
-
-
-   glfwSetKeyCallback(window, key_callback);
-   glfwSetScrollCallback(window, scroll_callback);
-   glfwSetMouseButtonCallback(window, mouse_button_callback);
-
-
-   glfwMakeContextCurrent(window);
-   gladLoadGL(glfwGetProcAddress);
-   glfwSwapInterval(1);
-
-   int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
-   if (flags & GL_CONTEXT_FLAG_DEBUG_BIT) {
-      enable_error_report();
-   }
-
-   print_opengl_resource_limits();
-
-   { // Some expected settings
-      glEnable(GL_DEPTH_TEST);
-      glEnable(GL_BLEND);
-      glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glDisable(GL_MULTISAMPLE);
-      glDisable(GL_CULL_FACE);
-      // glCullFace(GL_BACK);          // Cull back faces
-      glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
-   }
-   ////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-   f64 start_time = glfwGetTime();
+   f64 start_time = time_now();
 
    f64 conditionally_change_windows_title_timer_default = 0.15;
    f64 conditionally_change_windows_title_timer = conditionally_change_windows_title_timer_default;
 
-   f64 previous_time = glfwGetTime();
+   f64 previous_time = time_now();
 
    Camera camera_default = (Camera) {
        .position = cliteral(Vector3){.x = 0, .y = 3.0, .z = -10.0},
@@ -421,19 +339,22 @@ int main() {
 
    bool window_minimized =  false;
 
+   int window_width  = get_window_width();
+   int window_height = get_window_height();
+
    for (isz idx = 0; idx < count_of(apps); idx++) {
       auto app = apps[idx];
-      trace_info("Monitor Width x Height = %d x %d", max_width, max_height);
-      app->window.handle       = window;
+      app->window.handle       = __window.handle;
       app->window.width        = window_width;
       app->window.height       = window_height;
       app->window.is_minimized = window_minimized;
       app->init(app);
    }
 
-   while (!glfwWindowShouldClose(window)) {
-      window_minimized = glfwGetWindowAttrib(window, GLFW_ICONIFIED) == GLFW_TRUE;
-      f64 current_time = glfwGetTime();
+   while (!should_close_window()) {
+      update_window();
+      window_minimized = is_window_minimized();
+      f64 current_time = time_now();
       f64 delta_time = current_time - previous_time; // Time since last frame
 
       f64 elapsed_time = (f32)(current_time - start_time); // Total time since start
@@ -449,16 +370,17 @@ int main() {
       conditionally_change_windows_title_timer -= delta_time;
 
       if (conditionally_change_windows_title_timer <= 0) {
-         conditionally_change_windows_title(window, delta_time);
+         conditionally_change_windows_title(delta_time);
          conditionally_change_windows_title_timer = conditionally_change_windows_title_timer_default;
       }
 
 
 
-      glfwGetFramebufferSize(window, &window_width, &window_height);
+      assert(nullptr != __window.handle);
+      glfwGetFramebufferSize(__window.handle, &window_width, &window_height);
 
       // Camera GO!
-      camera = move_camera(window, camera);
+      camera = move_camera(__window.handle, camera);
 
 
       for (isz idx = 0; idx < count_of(apps); idx++) {
@@ -486,12 +408,10 @@ int main() {
          // blend_framebuffers();
       }
 
-      glfwSwapBuffers(window);
+      glfwSwapBuffers(__window.handle);
       glfwPollEvents();
       previous_time = current_time;
    }
 
-   glfwDestroyWindow(window);
-
-   glfwTerminate();
+   destroy_window();
 }

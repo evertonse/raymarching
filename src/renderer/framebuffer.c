@@ -457,8 +457,38 @@ void blend_framebuffers(const Framebuffer *a, const Framebuffer *b, Framebuffer 
    glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
+// Auto sets the view port, maybe we should make that clear? maybe it doesnt matter we kinda mostly want that.
 void bind_framebuffer(Framebuffer fb) {
    glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
    glViewport(0, 0, fb.color.width, fb.color.height);
 }
+
+void clear_framebuffer_color_indexed(Framebuffer fb, int draw_buffer_index, const float color[4]) {
+    glClearNamedFramebufferfv(fb.handle, GL_COLOR, draw_buffer_index, color);
+}
+
+void clear_framebuffer_color(Framebuffer fb, const float color[4]) {
+    clear_framebuffer_color_indexed(fb, 0, color);
+}
+
+void clear_framebuffer_depth(Framebuffer fb, float depth_value) {
+    glClearNamedFramebufferfv(fb.handle, GL_DEPTH, 0, &depth_value);
+}
+
+void clear_framebuffer(Framebuffer fb) {
+    bool color_valid = is_valid_texture(fb.color);
+    bool depth_valid = is_valid_texture(fb.color);
+
+    assert_msg(is_valid_framebuffer(fb), "Tried to clear a framebuffer that is not valid");
+    assert_msg(color_valid || depth_valid , "Tried to clear a framebuffer that has no textures attached");
+
+    if (depth_valid) {
+        clear_framebuffer_depth(fb, 0);
+    }
+
+    if (color_valid) {
+        clear_framebuffer_color(fb, (float[4]){.1, .1, .1, .5});
+    }
+}
+
 
