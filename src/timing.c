@@ -1,4 +1,3 @@
-#include <GL/gl3w.h> // or glad or appropriate loader
 #include <stdio.h>
 #include <time.h>
 
@@ -9,32 +8,57 @@
 static LARGE_INTEGER freq;
 static BOOL initialized = FALSE;
 
-static double time_sec() {
+static f64 time_sec() {
    if (!initialized) {
       QueryPerformanceFrequency(&freq);
       initialized = TRUE;
    }
    LARGE_INTEGER t;
    QueryPerformanceCounter(&t);
-   return (double)t.QuadPart / (double)freq.QuadPart;
+   return (f64)t.QuadPart / (f64)freq.QuadPart;
 }
 
 #else
 
 #include <time.h>
-static double time_sec() {
+static f64 time_sec() {
    struct timespec ts;
    clock_gettime(CLOCK_MONOTONIC, &ts);
    return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 #endif
 
+inline f64 time_now() {
+   return glfwGetTime();
+}
+
+ // Total time since start
+inline f64 time_elapsed() {
+   return (time_now() - __state.time.start);
+}
+
+inline f64 time_delta() {
+   return __state.time.delta;
+}
+
+
+inline void init_time() {
+   __state.time.start    = time_now();
+   __state.time.previous = __state.time.start;
+}
+
+inline void update_time(void) {
+   f64 current_time = time_now();
+   __state.time.delta = current_time - __state.time.previous; // Time since last frame
+   __state.time.previous = current_time;
+}
+
 // CPU-side FPS counter
 typedef struct {
-   double last_time;
-   double frame_accum;
+   f64 last_time;
+   f64 frame_accum;
    int frame_count;
-   double fps;
+   f64 fps;
 } FPS_Timer;
 
 void fps_timer_init(FPS_Timer *timer) {
@@ -45,8 +69,8 @@ void fps_timer_init(FPS_Timer *timer) {
 }
 
 void fps_timer_update(FPS_Timer *timer) {
-   double current_time = time_sec();
-   double delta = current_time - timer->last_time;
+   f64 current_time = time_sec();
+   f64 delta = current_time - timer->last_time;
    timer->last_time = current_time;
    timer->frame_accum += delta;
    timer->frame_count++;
@@ -64,18 +88,56 @@ typedef struct {
    GLuint query_start;
    GLuint query_end;
    GLuint64 gpu_time_ns;
-   double gpu_time_ms;
+   f64 gpu_time_ms;
    bool active;
 } GPU_Timer;
 
-typedef struct {
-   double value;
-} Milliseconds;
+typedef enum {
+   Type_Invalid,
+   Type_Countdown
+} Type;
 
 typedef struct {
-   Milliseconds default
-   Milliseconds current;
+   u32 magic;                // Unique identifier for type safety
+   const f64 seconds;        // Time to wait
+   f64  seconds_left;        // Remaining time
+   f64  previous_time;       // Time of last update
+   bool repeat;              // Should it reset after triggering?
+   u32 repeat_count;         // How many times it triggered
 } Countdown;
+
+
+Countdown create_countdown(f64 seconds, bool repeat) {
+    return (Countdown){
+        .magic = Type_Countdown,
+        .seconds = seconds,
+        .seconds_left = seconds,
+        .previous_time = time_now(),
+        .repeat = repeat,
+        .repeat_count = 0
+    };
+}
+
+#define assert_countdown_ptr(ptr) \
+    static_assert(_Generic((ptr), Countdown*: 1, default: 0), "Expected Countdown*")
+
+
+#define update_countdown(c, code_block) do {                                  \
+   assert_countdown_ptr(c);                                                   \
+   if ((c)->magic != Type_Countdown) {                                       \
+      trace_error("Invalid Countdown object at %s:%d\n", __FILE__, __LINE__); \
+   }                                                                          \
+   if ((c)->seconds_left <= 0.0) {                                            \
+      code_block;                                                             \
+      (c)->repeat_count++;                                                    \
+      (c)->seconds_left = (c)->repeat ? (c)->seconds : 0.0;                   \
+   } else {                                                                   \
+      f64 _now = time_now();                                                  \
+      f64 _delta = _now - (c)->previous_time;                                 \
+      (c)->seconds_left -= _delta;                                            \
+      (c)->previous_time = _now;                                              \
+   }                                                                          \
+} while(0)
 
 void gpu_timer_init(GPU_Timer *timer) {
    glGenQueries(1, &timer->query_start);
@@ -110,7 +172,7 @@ void gpu_timer_update(GPU_Timer *timer) {
       glGetQueryObjectui64v(timer->query_end, GL_QUERY_RESULT, &end);
 
       timer->gpu_time_ns = end - start;
-      timer->gpu_time_ms = (double)timer->gpu_time_ns / 1e6;
+      timer->gpu_time_ms = (f64)timer->gpu_time_ns / 1e6;
       timer->active = false;
 
       printf("GPU Frame Time: %.3f ms\n", timer->gpu_time_ms);

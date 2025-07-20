@@ -319,7 +319,8 @@ Shader create_shader(const char* path, Shader_Type type) {
          result = create_shader_single_from_memory(ds.data, type);
       } else {
          for (size_t i = 0; i < count; i++) {
-           write_file(tprintf("(%d)type-%d.glsl", count, types[i]), (ZString)sources[i], strlen((ZString)sources[i]));
+            make_dirs("src/assets/shaders/output/ignore/");
+            write_file(tprintf("src/assets/shaders/output/ignore/(%d)type-%d.glsl", count, types[i]), (ZString)sources[i], strlen((ZString)sources[i]));
          }
          result = create_shader_from_memory(sources, types, count);
       }

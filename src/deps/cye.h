@@ -171,7 +171,7 @@
 #   endif
 #endif
 
-#ifndef static_assert
+#ifndef static_assert_old
 
 // Create a maybe valid type
 // Then, use the type by creating a variable, no unused typedef
@@ -183,8 +183,26 @@
 
 #   define static_assert2(cond, line) static_assert3(cond, static_assertion_at_line_##line)
 #   define static_assert1(cond, line) static_assert2(cond, line)
-#   define static_assert(cond)        static_assert1(cond, __LINE__)
+#   define static_assert_old(cond)    static_assert1(cond, __LINE__)
 #endif
+
+#ifndef static_assert
+
+    // If the compiler supports _Static_assert (C11 or later)
+    #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+        #define static_assert(cond, ...) _Static_assert(cond, #cond)
+    #else
+        // Fallback custom implementation
+        #define static_assert3(cond, msg)                               \
+            typedef char static_assertion_##msg[(!!(cond))*2 - 1];      \
+            static static_assertion_##msg static_assertion_use_##msg;
+
+        #define static_assert2(cond, line) static_assert3(cond, static_assertion_at_line_##line)
+        #define static_assert1(cond, line) static_assert2(cond, line)
+        #define static_assert(cond, ...)        static_assert1(cond, __LINE__)
+    #endif
+#endif
+
 
 
 #if defined(__GNUC__) || defined(__GNUG__)

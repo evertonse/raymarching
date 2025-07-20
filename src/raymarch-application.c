@@ -31,10 +31,10 @@ void raymarching_application_init(Raymarching_Application* app) {
    assert(is_valid_framebuffer(app->compute_framebuffer) && is_valid_texture(app->compute_shader_texture));
 }
 
-void raymarching_application_update(Raymarching_Application* app, f64 dt) {
+void raymarching_application_update(Raymarching_Application *app, f64 dt) {
    Camera camera = app->app.camera;
    isz window_width = app->app.window.width, window_height = app->app.window.height;
-   assert(window_width*window_height != 0);
+   assert(window_width * window_height != 0);
    bool minimized = app->app.window.is_minimized;
 
    shader_needs_reload_timer -= app->app.time.delta;
@@ -59,62 +59,55 @@ void raymarching_application_update(Raymarching_Application* app, f64 dt) {
       shader_needs_reload_timer = shader_needs_reload_timer_default;
    }
 
-  if (is_valid_shader(app->compute_shader)) {
-     bind_shader(app->compute_shader);
+   if (is_valid_shader(app->compute_shader)) {
+      bind_shader(app->compute_shader);
 
-    { // Time uniform
-      GLint loc = glGetUniformLocation(app->compute_shader.handle, "iTime");
-      glUniform1f(loc, (f32)app->app.time.elapsed);
-    }
+      { // Time uniform
+         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iTime");
+         glUniform1f(loc, (f32)app->app.time.elapsed);
+      }
 
-    { // Resolution uniform
-      GLint loc = glGetUniformLocation(app->compute_shader.handle, "iResolution");
-      glUniform3f(loc, (f32)app->compute_shader_texture.width,
-                  (f32)app->compute_shader_texture.height,
-                  app->compute_shader_texture.width /
-                      (f32)app->compute_shader_texture.height);
-    }
+      { // Resolution uniform
+         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iResolution");
+         glUniform3f(loc, (f32)app->compute_shader_texture.width, (f32)app->compute_shader_texture.height, app->compute_shader_texture.width / (f32)app->compute_shader_texture.height);
+      }
 
-    { // Position uniform
-      GLint loc = glGetUniformLocation(app->compute_shader.handle, "iPosition");
-      glUniform3f(loc, camera.position.x, camera.position.y, camera.position.z);
-    }
+      { // Position uniform
+         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iPosition");
+         glUniform3f(loc, camera.position.x, camera.position.y, camera.position.z);
+      }
 
-    { // Position uniform
-      GLint loc = glGetUniformLocation(app->compute_shader.handle, "iRotation");
-      glUniform3f(loc, camera.rotation.x, camera.rotation.y, camera.rotation.z);
-    }
+      { // Position uniform
+         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iRotation");
+         glUniform3f(loc, camera.rotation.x, camera.rotation.y, camera.rotation.z);
+      }
 
-    { // Position uniform
-      GLint loc = glGetUniformLocation(app->compute_shader.handle, "iZoom");
-      glUniform1f(loc, camera.zoom);
-    }
+      { // Position uniform
+         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iZoom");
+         glUniform1f(loc, camera.zoom);
+      }
 
-    { // Mouse uniform
-      GLint mouse_loc = glGetUniformLocation(app->compute_shader.handle, "iMouse");
-      f64 mouse_x, mouse_y;
-      glfwGetCursorPos(app->app.window.handle, &mouse_x, &mouse_y);
-      glUniform4f(mouse_loc,
-         (f32)mouse_x, (f32)mouse_y,
-         mouse_left_pressed  ? 1.f : 0.0f,
-         mouse_right_pressed ? 1.f : 0.0f
-      );
-    }
+      { // Mouse uniform
+         GLint mouse_loc = glGetUniformLocation(app->compute_shader.handle, "iMouse");
+         f64 mouse_x, mouse_y;
+         glfwGetCursorPos(app->app.window.handle, &mouse_x, &mouse_y);
+         glUniform4f(mouse_loc, (f32)mouse_x, (f32)mouse_y, is_button_down(BUTTON_MOUSE_LEFT) ? 1.f : 0.0f, is_button_down(BUTTON_MOUSE_RIGHT) ? 1.f : 0.0f);
+      }
 
-    glBindImageTexture(0, app->compute_framebuffer.color.handle, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+      bind_texture_as_image(app->compute_framebuffer.color, 0, TEXTURE_ACCESS_WRITE);
 
-    const GLuint work_group_size = 16;
-    const GLuint work_group_size_x = work_group_size;
-    const GLuint work_group_size_y = work_group_size;
+      const GLuint work_group_size = 16;
+      const GLuint work_group_size_x = work_group_size;
+      const GLuint work_group_size_y = work_group_size;
 
-    GLuint num_groups_x = (app->compute_shader_texture.width + work_group_size_x - 1) / work_group_size_x;
-    GLuint num_groups_y = (app->compute_shader_texture.height + work_group_size_y - 1) / work_group_size_y;
-    glDispatchCompute(num_groups_x, num_groups_y, 1);
-    // Ensure all writes to the image are complete
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+      GLuint num_groups_x = (app->compute_shader_texture.width + work_group_size_x - 1) / work_group_size_x;
+      GLuint num_groups_y = (app->compute_shader_texture.height + work_group_size_y - 1) / work_group_size_y;
+      glDispatchCompute(num_groups_x, num_groups_y, 1);
+      // Ensure all writes to the image are complete
+      glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
-    blit_framebuffer_to_swapchain(app->compute_framebuffer);
-  }
+      blit_framebuffer_to_swapchain(app->compute_framebuffer);
+   }
 }
 
 Raymarching_Application raymarching_application = {

@@ -384,3 +384,6 @@ void init_renderer(void) {
       glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
    }
 }
+
+void shutdown_renderer(void) {
+}

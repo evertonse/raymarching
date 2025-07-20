@@ -18,6 +18,11 @@ typedef enum {
    TEXTURE_TYPE_BUFFER,
 } Texture_Type;
 
+typedef enum {
+   TEXTURE_ACCESS_READ =  1 << 0,
+   TEXTURE_ACCESS_WRITE = 1 << 1,
+} Texture_Access;
+
 typedef struct {
    GLuint handle;
    i32 width;
@@ -207,4 +212,52 @@ void update_texture(Texture* tex, int new_width, int new_height, const void* new
         new_data
     );
 }
+
+void bind_texture_as_image(const Texture texture, usz binding, Texture_Access access) {
+    assert(texture.handle != 0);
+
+    if (texture.type == TEXTURE_TYPE_BUFFER) {
+        trace_error("%s: Cannot bind buffer textures as images.\n", __func__);
+        return;
+    }
+
+    if (texture.samples > 1) {
+        trace_error("%s: Multisample textures cannot be bound as image units.\n", __func__);
+        return;
+    }
+
+    GLenum format = 0;
+
+    switch (texture.format) {
+        case TEXTURE_FORMAT_RGBA32F: format = GL_RGBA32F; break;
+        case TEXTURE_FORMAT_RGBA8:   format = GL_RGBA8;   break;
+        case TEXTURE_FORMAT_RGB8:    format = GL_RGB8;    break;
+        case TEXTURE_FORMAT_RG8:     format = GL_RG8;     break;
+        case TEXTURE_FORMAT_R8:      format = GL_R8;      break;
+
+        default:
+            trace_error("%s: Unsupported or invalid format for image binding (%d).\n", __func__, texture.format);
+            return;
+    }
+    GLenum gl_access = GL_READ_ONLY; // default
+    if ((access & TEXTURE_ACCESS_READ) && (access & TEXTURE_ACCESS_WRITE)) {
+        gl_access = GL_READ_WRITE;
+    } else if (access & TEXTURE_ACCESS_WRITE) {
+        gl_access = GL_WRITE_ONLY;
+    } else if (access & TEXTURE_ACCESS_READ) {
+        gl_access = GL_READ_ONLY;
+    } else {
+        trace_warn("%s: No valid access flags set, defaulting to read only.\n", __func__);
+    }
+
+    int level = 0, layer = 0;
+    bool is_layered = GL_FALSE;
+    glBindImageTexture(binding, texture.handle, level, is_layered, layer, gl_access, format);
+
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        trace_error("[OpenGL Error] glBindImageTexture failed (0x%X) for binding=%u, format=%d, access=%d\n", err, binding, texture.format, access);
+    }
+}
+
 

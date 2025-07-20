@@ -1,163 +1,59 @@
 // We're taking this from raylib and assuming all matches glfw. But we didnt check all
-typedef enum {
-   INPUT_NONE             = 0,
-   BUTTON_APOSTROPHE      = 39,       // Key: '
-   BUTTON_COMMA           = 44,       // Key: ,
-   BUTTON_MINUS           = 45,       // Key: -
-   BUTTON_PERIOD          = 46,       // Key: .
-   BUTTON_SLASH           = 47,       // Key: /
-   BUTTON_0               = 48,       // Key: 0
-   BUTTON_1               = 49,       // Key: 1
-   BUTTON_2               = 50,       // Key: 2
-   BUTTON_3               = 51,       // Key: 3
-   BUTTON_4               = 52,       // Key: 4
-   BUTTON_5               = 53,       // Key: 5
-   BUTTON_6               = 54,       // Key: 6
-   BUTTON_7               = 55,       // Key: 7
-   BUTTON_8               = 56,       // Key: 8
-   BUTTON_9               = 57,       // Key: 9
-   BUTTON_SEMICOLON       = 59,       // Key: ;
-   BUTTON_EQUAL           = 61,       // Key: =
-   BUTTON_A               = 65,       // Key: A | a
-   BUTTON_B               = 66,       // Key: B | b
-   BUTTON_C               = 67,       // Key: C | c
-   BUTTON_D               = 68,       // Key: D | d
-   BUTTON_E               = 69,       // Key: E | e
-   BUTTON_F               = 70,       // Key: F | f
-   BUTTON_G               = 71,       // Key: G | g
-   BUTTON_H               = 72,       // Key: H | h
-   BUTTON_I               = 73,       // Key: I | i
-   BUTTON_J               = 74,       // Key: J | j
-   BUTTON_K               = 75,       // Key: K | k
-   BUTTON_L               = 76,       // Key: L | l
-   BUTTON_M               = 77,       // Key: M | m
-   BUTTON_N               = 78,       // Key: N | n
-   BUTTON_O               = 79,       // Key: O | o
-   BUTTON_P               = 80,       // Key: P | p
-   BUTTON_Q               = 81,       // Key: Q | q
-   BUTTON_R               = 82,       // Key: R | r
-   BUTTON_S               = 83,       // Key: S | s
-   BUTTON_T               = 84,       // Key: T | t
-   BUTTON_U               = 85,       // Key: U | u
-   BUTTON_V               = 86,       // Key: V | v
-   BUTTON_W               = 87,       // Key: W | w
-   BUTTON_X               = 88,       // Key: X | x
-   BUTTON_Y               = 89,       // Key: Y | y
-   BUTTON_Z               = 90,       // Key: Z | z
-   BUTTON_LEFT_BRACKET    = 91,       // Key: [
-   BUTTON_BACKSLASH       = 92,       // Key: '\'
-   BUTTON_RIGHT_BRACKET   = 93,       // Key: ]
-   BUTTON_GRAVE           = 96,       // Key: `
-   // Function keys
-   BUTTON_SPACE           = 32,       // Key: Space
-   BUTTON_ESCAPE          = 256,      // Key: Esc
-   BUTTON_ENTER           = 257,      // Key: Enter
-   BUTTON_TAB             = 258,      // Key: Tab
-   BUTTON_BACKSPACE       = 259,      // Key: Backspace
-   BUTTON_INSERT          = 260,      // Key: Ins
-   BUTTON_DELETE          = 261,      // Key: Del
-   BUTTON_RIGHT           = 262,      // Key: Cursor right
-   BUTTON_LEFT            = 263,      // Key: Cursor left
-   BUTTON_DOWN            = 264,      // Key: Cursor down
-   BUTTON_UP              = 265,      // Key: Cursor up
-   BUTTON_PAGE_UP         = 266,      // Key: Page up
-   BUTTON_PAGE_DOWN       = 267,      // Key: Page down
-   BUTTON_HOME            = 268,      // Key: Home
-   BUTTON_END             = 269,      // Key: End
-   BUTTON_CAPS_LOCK       = 280,      // Key: Caps lock
-   BUTTON_SCROLL_LOCK     = 281,      // Key: Scroll down
-   BUTTON_NUM_LOCK        = 282,      // Key: Num lock
-   BUTTON_PRINT_SCREEN    = 283,      // Key: Print screen
-   BUTTON_PAUSE           = 284,      // Key: Pause
-   BUTTON_F1              = 290,      // Key: F1
-   BUTTON_F2              = 291,      // Key: F2
-   BUTTON_F3              = 292,      // Key: F3
-   BUTTON_F4              = 293,      // Key: F4
-   BUTTON_F5              = 294,      // Key: F5
-   BUTTON_F6              = 295,      // Key: F6
-   BUTTON_F7              = 296,      // Key: F7
-   BUTTON_F8              = 297,      // Key: F8
-   BUTTON_F9              = 298,      // Key: F9
-   BUTTON_F10             = 299,      // Key: F10
-   BUTTON_F11             = 300,      // Key: F11
-   BUTTON_F12             = 301,      // Key: F12
-   BUTTON_LEFT_SHIFT      = 340,      // Key: Shift left
-   BUTTON_LEFT_CONTROL    = 341,      // Key: Control left
-   BUTTON_LEFT_ALT        = 342,      // Key: Alt left
-   BUTTON_LEFT_SUPER      = 343,      // Key: Super left
-   BUTTON_RIGHT_SHIFT     = 344,      // Key: Shift right
-   BUTTON_RIGHT_CONTROL   = 345,      // Key: Control right
-   BUTTON_RIGHT_ALT       = 346,      // Key: Alt right
-   BUTTON_RIGHT_SUPER     = 347,      // Key: Super right
-   BUTTON_KB_MENU         = 348,      // Key: KB menu
-   // Keypad keys
-   BUTTON_KP_0            = 320,      // Key: Keypad 0
-   BUTTON_KP_1            = 321,      // Key: Keypad 1
-   BUTTON_KP_2            = 322,      // Key: Keypad 2
-   BUTTON_KP_3            = 323,      // Key: Keypad 3
-   BUTTON_KP_4            = 324,      // Key: Keypad 4
-   BUTTON_KP_5            = 325,      // Key: Keypad 5
-   BUTTON_KP_6            = 326,      // Key: Keypad 6
-   BUTTON_KP_7            = 327,      // Key: Keypad 7
-   BUTTON_KP_8            = 328,      // Key: Keypad 8
-   BUTTON_KP_9            = 329,      // Key: Keypad 9
-   BUTTON_KP_DECIMAL      = 330,      // Key: Keypad .
-   BUTTON_KP_DIVIDE       = 331,      // Key: Keypad /
-   BUTTON_KP_MULTIPLY     = 332,      // Key: Keypad *
-   BUTTON_KP_SUBTRACT     = 333,      // Key: Keypad -
-   BUTTON_KP_ADD          = 334,      // Key: Keypad +
-   BUTTON_KP_ENTER        = 335,      // Key: Keypad Enter
-   BUTTON_KP_EQUAL        = 336,      // Key: Keypad =
-   // Android key buttons
-   BUTTON_BACK            = 4,        // Key: Android back button
-   BUTTON_MENU            = 5,        // Key: Android menu button
-   BUTTON_VOLUME_UP       = 24,       // Key: Android volume up button
-   BUTTON_VOLUME_DOWN     = 25,        // Key: Android volume down button
 
-   BUTTON_MOUSE_LEFT    = 400,       // Mouse button left
-   BUTTON_MOUSE_RIGHT   = 401,       // Mouse button right
-   BUTTON_MOUSE_MIDDLE  = 402,       // Mouse button middle (pressed wheel)
-   BUTTON_MOUSE_SIDE    = 403,       // Mouse button side (advanced mouse device)
-   BUTTON_MOUSE_EXTRA   = 404,       // Mouse button extra (advanced mouse device)
-   BUTTON_MOUSE_FORWARD = 405,       // Mouse button forward (advanced mouse device)
-   BUTTON_MOUSE_BACK    = 406,       // Mouse button back (advanced mouse device)
-} Button;
+static void window_mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+   auto current = &__state.button.current[BUTTON_MOUSE_BEGIN-button];
+   if     (action == GLFW_RELEASE) *current = BUTTON_IS_UP;
+   else if(action == GLFW_PRESS)   *current = BUTTON_IS_DOWN;
+   else if(action == GLFW_REPEAT)  *current = BUTTON_IS_DOWN;
+}
 
+static void window_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+   int button = key;
 
-static struct {
-  GLFWwindow  *handle;
-  GLFWmonitor *monitor;
-  const GLFWvidmode *mode;
-  struct {
-     f64 start;
-     f64 previous;
-     f64 delta;
-  } time;
-  f64 scroll_offset;
-} __window = {0};
+   auto current = &__state.button.current[BUTTON_MOUSE_BEGIN-button];
+   if     (action == GLFW_RELEASE) *current = BUTTON_IS_UP;
+   else if(action == GLFW_PRESS)   *current = BUTTON_IS_DOWN;
+   else if(action == GLFW_REPEAT)  *current = BUTTON_IS_DOWN;
+
+#if 0
+   if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+      Shader old = compute_shader;
+      compute_shader = reload_shader(compute_shader);
+      printf("reloaded and its broken ? %s\n", INVALID_SHADER_HANDLE == compute_shader.handle ? "yes" : "no");
+      if (old.handle == compute_shader.handle) {
+         title.reload = "(reload failed)";
+      } else {
+         title.reload = "";
+      }
+   }
+#endif
+
+   if (key == GLFW_KEY_C && action == GLFW_RELEASE) {
+      bool sticky = glfwGetWindowAttrib(window, GLFW_FLOATING);
+      glfwSetWindowAttrib(window, GLFW_FLOATING, !sticky);
+   }
+}
 
 static void window_scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
-   __window.scroll_offset += yoffset;
+   __state.scroll_offset += yoffset;
 }
 
 f64 get_mouse_scroll() {
-   return __window.scroll_offset;
+   return __state.scroll_offset;
 }
 
-inline f64 time_now() {
-   return glfwGetTime();
+// TODO: Make the error be tracable throught aligning current line number with the shader file
+// If is from glad
+static void window_error_callback(int error, const char *description) {
+   fprintf(stderr, "Error (%d): %s", error, description);
 }
 
-void create_window(void) {
-
-   __window.time.start    = time_now();
-   __window.time.previous = __window.time.start;
-
+void init_window(void) {
    if (!glfwInit())
       exit(EXIT_FAILURE);
 
    {  // open gl hints
-      glfwSetErrorCallback(error_callback);
+      glfwSetErrorCallback(window_error_callback);
       glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
       glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
       glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
@@ -166,10 +62,10 @@ void create_window(void) {
 
    glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
 
-   __window.monitor = glfwGetPrimaryMonitor();
-   __window.mode = glfwGetVideoMode(__window.monitor);
-   const int max_width  = __window.mode->width;
-   const int max_height = __window.mode->height;
+   __state.window.monitor = glfwGetPrimaryMonitor();
+   __state.window.mode    = glfwGetVideoMode(__state.window.monitor);
+   const int max_width  = __state.window.mode->width;
+   const int max_height = __state.window.mode->height;
 
    int window_width  = max_width / 3.5;                // Half the width of the screen
    int window_height = max_height / 1.6;               // Half the height of the screen
@@ -181,21 +77,21 @@ void create_window(void) {
    // int width = 1280;
    // int height = 720;
 
-   __window.handle = glfwCreateWindow(window_width, window_height, title.base, NULL, NULL);
-   if (!__window.handle) {
+   __state.window.handle = glfwCreateWindow(window_width, window_height, title.base, NULL, NULL);
+   if (!__state.window.handle) {
       glfwTerminate();
       exit(EXIT_FAILURE);
    }
-   auto window = __window.handle;
+   auto window = __state.window.handle;
 
    glfwSetWindowAttrib(window, GLFW_FLOATING, false); // sticky
    glfwSetWindowPos(window, window_x, window_y);
    // GLFW_CURSOR_HIDDEN GLFW_CURSOR_NORMAL GLFW_CURSOR_DISABLED(fps style) GLFW_CURSOR_CAPTURED(Won't be able to leave window) GLFW_CURSOR_DISABLED
    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
-   glfwSetKeyCallback(window, key_callback);
+   glfwSetKeyCallback(window, window_key_callback);
    glfwSetScrollCallback(window, window_scroll_callback);
-   glfwSetMouseButtonCallback(window, mouse_button_callback);
+   glfwSetMouseButtonCallback(window, window_mouse_button_callback);
 
 
    glfwMakeContextCurrent(window);
@@ -204,43 +100,30 @@ void create_window(void) {
 
 }
 
-void update_window(void) {
-   f64 current_time = time_now();
-   __window.time.delta = current_time - __window.time.previous; // Time since last frame
-   __window.time.previous = time_now();
-}
 
-f64 elapsed_time() {
-   return (time_now() - __window.time.start); // Total time since start
-}
-
-f64 delta_time() {
-   return __window.time.delta;
-}
-
-void destroy_window(void) {
-   glfwDestroyWindow(__window.handle);
+inline void shutdown_window(void) {
+   glfwDestroyWindow(__state.window.handle);
    glfwTerminate();
 }
 
-void swap_window_buffers(void) {
-   glfwSwapBuffers(__window.handle);
+inline void swap_window_buffers(void) {
+   glfwSwapBuffers(__state.window.handle);
 }
 
-void pool_window_events(void) {
+inline void pool_window_events(void) {
    glfwPollEvents();
 }
 
 Vector2 window_size() {
    int window_width, window_height;
-   glfwGetFramebufferSize(__window.handle, &window_width, &window_height);
+   glfwGetFramebufferSize(__state.window.handle, &window_width, &window_height);
    return (Vector2){(f32)window_width, (f32)window_height};
 }
 
 
 int get_window_height() {
    int width, height;
-   glfwGetFramebufferSize(__window.handle, &width, &height);
+   glfwGetFramebufferSize(__state.window.handle, &width, &height);
 
    (void)width;
 
@@ -249,73 +132,83 @@ int get_window_height() {
 
 int get_window_width() {
    int width, height;
-   glfwGetFramebufferSize(__window.handle, &width, &height);
+   glfwGetFramebufferSize(__state.window.handle, &width, &height);
    (void)height;
    return width;
 }
 
 Vector2 get_screen_resolution() {
-   __window.mode = glfwGetVideoMode(__window.monitor);
-   const int max_width  = __window.mode->width;
-   const int max_height = __window.mode->height;
+   __state.window.mode = glfwGetVideoMode(__state.window.monitor);
+   const int max_width  = __state.window.mode->width;
+   const int max_height = __state.window.mode->height;
    return (Vector2){(f32)max_width, (f32)max_height};
 }
 
 bool should_close_window(void) {
-   return glfwWindowShouldClose(__window.handle);
+   return glfwWindowShouldClose(__state.window.handle);
 }
 
 void close_window(void) {
-   glfwSetWindowShouldClose(__window.handle, GLFW_TRUE);
+   glfwSetWindowShouldClose(__state.window.handle, GLFW_TRUE);
 }
 
 
 inline bool is_button_pressed(Button input) {
-   if (input > 400) {
-      return glfwGetMouseButton(__window.handle, input) == GLFW_PRESS;
+   if (input >= BUTTON_MOUSE_LEFT) {
+      return glfwGetMouseButton(__state.window.handle, input-BUTTON_MOUSE_LEFT) == GLFW_PRESS;
    }
-   return glfwGetKey(__window.handle, input) == GLFW_PRESS;
+   return glfwGetKey(__state.window.handle, input) == GLFW_PRESS;
 }
 
 inline bool is_button_released(Button input) {
-   if (input > 400) {
-      return glfwGetMouseButton(__window.handle, input) == GLFW_RELEASE;
+   if (input >= BUTTON_MOUSE_LEFT) {
+      return glfwGetMouseButton(__state.window.handle,  input-BUTTON_MOUSE_LEFT) == GLFW_RELEASE;
    }
-   return glfwGetKey(__window.handle, input) == GLFW_RELEASE;
+   return glfwGetKey(__state.window.handle, input) == GLFW_RELEASE;
+}
 
+inline bool is_button_down(Button input) {
+   return __state.button.current[input] == BUTTON_IS_DOWN;
+}
+
+inline bool is_button_up(Button input) {
+   return __state.button.current[input] == BUTTON_IS_UP;
 }
 
 inline Vector2 cursor_position() {
    f64 pos_x, pos_y;
-   glfwGetCursorPos(__window.handle, &pos_x, &pos_y);
+   glfwGetCursorPos(__state.window.handle, &pos_x, &pos_y);
    return (Vector2){(f32)pos_x, (f32)pos_y};
 }
 
 
 void maximize_window(void) {
-    if (glfwGetWindowAttrib(__window.handle, GLFW_RESIZABLE) == GLFW_TRUE) {
-        glfwMaximizeWindow(__window.handle);
+    if (glfwGetWindowAttrib(__state.window.handle, GLFW_RESIZABLE) == GLFW_TRUE) {
+        glfwMaximizeWindow(__state.window.handle);
     }
 }
 
 void minimize_window(void) {
-    glfwIconifyWindow(__window.handle);
+    glfwIconifyWindow(__state.window.handle);
 }
 
 inline bool is_window_minimized() {
-   return glfwGetWindowAttrib(__window.handle, GLFW_ICONIFIED) == GLFW_TRUE;
+   return glfwGetWindowAttrib(__state.window.handle, GLFW_ICONIFIED) == GLFW_TRUE;
 }
 
 inline bool is_window_sticky() {
-   return glfwGetWindowAttrib(__window.handle, GLFW_FLOATING);
+   return glfwGetWindowAttrib(__state.window.handle, GLFW_FLOATING);
 }
 
-void change_window_title(ZString new_title) {
-   glfwSetWindowTitle(__window.handle, new_title);
+inline void change_window_title(ZString new_title) {
+   glfwSetWindowTitle(__state.window.handle, new_title);
 }
 
 const char* current_window_title() {
-   return glfwGetWindowTitle(__window.handle);
+   return glfwGetWindowTitle(__state.window.handle);
 }
 
-
+inline void update_window(void) {
+   swap_window_buffers();
+   pool_window_events();
+}
