@@ -358,6 +358,8 @@ layout(location = 0) out vec4 FragColor; // outputting to the color attachment 0
 layout(binding = 4) uniform sampler2D tex;
 
 
+#include "./brdf/blinn-phong.glsl"
+
 void main() {
 
    vec3  light   = normalize(vec3(2., 1., 1.));

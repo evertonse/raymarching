@@ -129,7 +129,20 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
                start = lexer.parse_point; end = start;
                ds_write(ds, "\n"); // More readable in case of outputting to a file
 
-               if (!pre_process_shader(include_path, ds, path_offets, offset_compute, offset_fragment, offset_vertex)) {
+               const char* resolved_path = nullptr;
+
+               {
+                  auto checkpoint = tsave();
+                  if (strlen(lexer.string) >= 2 && include_path[0] == '.' && include_path[1] == PATH_SEPARATOR_CHAR) {
+                     resolved_path = tprintf("%s%s", path_dir_of(path), &include_path[1]);
+                     trace_debug("Realtive path from #include = %s", resolved_path);
+                  } else {
+                     resolved_path = include_path;
+                  }
+                  trestore(checkpoint);
+               }
+
+               if (!pre_process_shader(resolved_path, ds, path_offets, offset_compute, offset_fragment, offset_vertex)) {
                   assert_msg(false, "TODO handle pre_process_shader failure");
                   return false;
                }
@@ -277,7 +290,10 @@ Shader create_shader_single_from_memory(u8* source, Shader_Type type) {
    const u8 *sources[] = {source};
    const Shader_Type types[] = {type};
    assert(count_of(sources) == count_of(types));
-   return create_shader_from_memory(sources, types, count_of(sources));
+
+   Shader result = create_shader_from_memory(sources, types, count_of(sources));
+   result.type = type;
+   return result;
 }
 
 // Create and preprocess and compile the shader
@@ -474,5 +490,36 @@ void bind_shader(Shader shader) {
       return;
    }
    glUseProgram(shader.handle);
+}
+
+void dispatch_compute_shader(const Shader shader, u32 groups_x, u32 groups_y, u32 groups_z) {
+    assert(is_valid_shader(shader));
+    assert(shader.type == SHADER_TYPE_COMPUTE);
+    glUseProgram(shader.handle);
+    glDispatchCompute(groups_x, groups_y, groups_z);
+}
+
+void shader_image_acess_barrier() {
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+}
+
+void upload_uniform_mat4(const Shader* shader, const char* name, const Matrix* value) {
+    GLint loc = glGetUniformLocation(shader->handle, name);
+    glUniformMatrix4fv(loc, 1, GL_FALSE, (const float*)value);
+}
+
+void upload_uniform_vec3(const Shader* shader, const char* name, const Vector3* value) {
+    GLint loc = glGetUniformLocation(shader->handle, name);
+    glUniform3f(loc, value->x, value->y, value->z);
+}
+
+void upload_uniform_float(const Shader* shader, const char* name, float value) {
+    GLint loc = glGetUniformLocation(shader->handle, name);
+    glUniform1f(loc, value);
+}
+
+void upload_uniform_sampler2D(const Shader* shader, const char* name, int binding) {
+    GLint loc = glGetUniformLocation(shader->handle, name);
+    glUniform1i(loc, binding);
 }
 

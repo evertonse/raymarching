@@ -45,11 +45,11 @@ void main() {
 // Some options to test out, just uncomment and press F
 
 // #include "src/shaders/shadertoy/Hearts.glsl"
-// #include "./src/shaders/shadertoy/ray-marching-primitives.glsl"
-#include "./src/assets/shaders/shadertoy/March.glsl"
+// #include "src/shaders/shadertoy/ray-marching-primitives.glsl"
+#include "src/assets/shaders/shadertoy/March.glsl"
 
-// #include "./src/shaders/shadertoy/orthographic-raymarching.glsl"
+// #include "src/shaders/shadertoy/orthographic-raymarching.glsl"
 
-// #include "./src/shaders/shadertoy/2D.glsl"
-// #include "./src/shaders/shadertoy/soft_shadow_variation.glsl"
+// #include "src/shaders/shadertoy/2D.glsl"
+// #include "src/shaders/shadertoy/soft_shadow_variation.glsl"
 // #include "src/shaders/shadertoy/twinkling-tunnel.glsl"

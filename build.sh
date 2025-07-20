@@ -96,8 +96,8 @@ build() {
     [ -f "$glfw_obj" ] || $cc rglfw.c -o $glfw_obj -c -lc -lm -O3
     popd
 
-    # -std=c23                                  \
     # -std=c99                                  \
+    # -std=c23                                  \
     $cc -Isrc                                     \
         -Wpedantic                                \
         src/main.c                                \

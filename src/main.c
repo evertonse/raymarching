@@ -165,7 +165,7 @@ int main() {
    init_renderer();
    init_time();
 
-   f64 start_time    = time_now();
+   f64 start_time = time_now();
 
 
    Countdown window_title_countdown = create_countdown(0.15, true);

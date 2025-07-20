@@ -27,7 +27,7 @@ void raymarching_application_init(Raymarching_Application* app) {
 
    app->compute_shader_texture = create_texture(app->app.window.width, app->app.window.height);
    app->compute_framebuffer = create_framebuffer_from_texture(app->compute_shader_texture);
-   trace_info("texture=%d\n", app->compute_shader_texture);
+   trace_info("Compute texture handle =%d\n", app->compute_shader_texture.handle);
    assert(is_valid_framebuffer(app->compute_framebuffer) && is_valid_texture(app->compute_shader_texture));
 }
 
@@ -102,9 +102,9 @@ void raymarching_application_update(Raymarching_Application *app, f64 dt) {
 
       GLuint num_groups_x = (app->compute_shader_texture.width + work_group_size_x - 1) / work_group_size_x;
       GLuint num_groups_y = (app->compute_shader_texture.height + work_group_size_y - 1) / work_group_size_y;
-      glDispatchCompute(num_groups_x, num_groups_y, 1);
+      dispatch_compute_shader(app->compute_shader, num_groups_x, num_groups_y, 1);
       // Ensure all writes to the image are complete
-      glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+      shader_image_acess_barrier();
 
       blit_framebuffer_to_swapchain(app->compute_framebuffer);
    }

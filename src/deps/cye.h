@@ -59,16 +59,19 @@
 #endif
 #    if defined(PLATFORM_MINGW)
 #        include <fcntl.h>
+#       define PATH_SEPARATOR "/"
+#       define END_OF_LINE "\n"
+#       define PATH_SEPARATOR_CHAR '/'
 #    else
+#        define PATH_SEPARATOR "\\"
+#        define END_OF_LINE "\r\n"
+#        define PATH_SEPARATOR_CHAR '\\'
 #        define stat _stat
 #        define utimbuf _utimbuf
 #        define utime _utime
 #    endif
 #    define ENV_SEPARATOR ";"
 #    define ENV_SEPARATOR_CHAR ';'
-#    define PATH_SEPARATOR "\\"
-#    define END_OF_LINE "\r\n"
-#    define PATH_SEPARATOR_CHAR '\\'
 #    if !defined(PATH_MAX)
 #        define PATH_MAX MAX_PATH
 #    endif

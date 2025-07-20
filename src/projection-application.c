@@ -436,9 +436,9 @@ void render_mesh_to_framebuffer(const Mesh *mesh) {
    }
 
    // Step 7: Cleanup
-   glBindVertexArray(0);
-   glUseProgram(0);
-   glBindFramebuffer(GL_FRAMEBUFFER, 0);
+   // glBindVertexArray(0);
+   // glUseProgram(0);
+   // glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
    Rectanglei32 destination = {
       .x = 100,
