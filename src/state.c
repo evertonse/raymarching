@@ -133,22 +133,27 @@ enum {
 
 
 static struct {
-  struct {
-     GLFWwindow  *handle;
-     GLFWmonitor *monitor;
-     const GLFWvidmode *mode;
-  } window;
+   struct {
+      GLFWwindow  *handle;
+      GLFWmonitor *monitor;
+      const GLFWvidmode *mode;
+      bool initialized;
+   } window;
 
-  struct {
-     f64 start;
-     f64 previous;
-     f64 delta;
-  } time;
+   struct {
+      f64 start;
+      f64 previous;
+      f64 delta;
+   } time;
 
-  struct {
-     int previous[BUTTON_MAX_VALUE];
-     int current [BUTTON_MAX_VALUE];
-  } button;
+   struct {
+      int previous[BUTTON_MAX_VALUE];
+      int current [BUTTON_MAX_VALUE];
+   } button;
 
-  f64 scroll_offset;
+   struct {
+      bool initialized;
+   } renderer;
+
+   f64 scroll_offset;
 } __state = {0};

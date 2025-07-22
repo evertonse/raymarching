@@ -1,5 +1,6 @@
-#include "raymath.h"
 #include <stdio.h>
+
+#include "./raymath.c"
 
 #define GLFW_INCLUDE_NONE
 #include "GLFW/glfw3.h"
@@ -14,9 +15,10 @@
 #undef unreachable
 #include "cye.h"
 
-#include "renderer/renderer.c"
-#include "assets/all_obj.h"
+#include "./state.c"
+#include "./timing.c"
 
+#include "renderer/renderer.c"
 
 typedef struct {
    struct {
@@ -39,43 +41,9 @@ static Window_Title title = {
    .zero = 0 // Mark the end
 };
 
-// Macro to define a mesh from OBJ data
-#define DEFINE_MESH(prefix, ext)                          \
-   static Mesh prefix##_mesh = {                          \
-       .vertices       = (Vector3*)prefix##_objVerts,     \
-       .normals        = (Vector3*)prefix##_objNormals,   \
-       .uvs            = (Vector2*)prefix##_objTexCoords, \
-       .indices        = (u32*)prefix##_objIndexes,       \
-                                                          \
-       .vertices_count = prefix##_objVertsCount,          \
-       .uvs_count      = prefix##_objTexCoordsCount,      \
-       .normals_count  = prefix##_objNormalsCount,        \
-       .indices_count  = prefix##_objIndexesCount         \
-   };                                                     \
-   static char *prefix##_texture_path = "res/textures/" #prefix ext
-
-
-DEFINE_MESH(bamboo, ".jpg");
-DEFINE_MESH(enemy, ".png");
-DEFINE_MESH(tiger, "_yellow.png");
-DEFINE_MESH(horse, ".png");
-
-static Mesh cube_mesh = {
-   .vertices       = (Vector3*)cube_objVerts,
-   .normals        = (Vector3*)cube_objNormals,
-   .uvs            = (Vector2*)cube_objTexCoords,
-   .indices        = (u32*)cube_objIndexes,
-
-   .vertices_count = cube_objVertsCount,
-   .uvs_count      = cube_objTexCoordsCount,
-   .normals_count  = cube_objNormalsCount,
-   .indices_count  = cube_objIndexesCount
-};
-
-#include "./state.c"
-#include "./timing.c"
 #include "./window.c"
 #include "./camera.c"
+#include "./gui.c"
 
 static Camera camera = {0};
 
@@ -87,7 +55,6 @@ typedef struct {
    struct {
       GLFWwindow *handle; // Why abstract ? I'm not gonna add anything to it besides "making it ours" bleh
       int  width, height;
-      bool is_minimized;
    } window;
 
    struct {
@@ -183,8 +150,6 @@ int main() {
    // Application* apps[] = {(Application*)&projection_application};
    // Application* apps[] = {(Application*)&raymarching_application};
 
-   bool window_minimized =  false;
-
    int window_width  = get_window_width();
    int window_height = get_window_height();
 
@@ -193,7 +158,6 @@ int main() {
       app->window.handle       = __state.window.handle;
       app->window.width        = window_width;
       app->window.height       = window_height;
-      app->window.is_minimized = window_minimized;
       app->init(app);
    }
 
@@ -201,10 +165,6 @@ int main() {
       update_window();
       update_time();
       camera = move_camera(camera); // Update Camera
-
-      window_minimized = is_window_minimized();
-      f64 current_time = time_now();
-
       // TODO: Timed operations struct instead
 
       update_countdown(&window_title_countdown, conditionally_change_windows_title(time_delta()));
@@ -220,10 +180,8 @@ int main() {
             .current  = time_now(),
             .delta    = time_delta(),
          };
-         app->window.width        = window_width;
-         app->window.height       = window_height;
-         app->window.is_minimized = window_minimized;
-
+         app->window.width  = window_width;
+         app->window.height = window_height;
          app->update(app, time_delta());
       }
 

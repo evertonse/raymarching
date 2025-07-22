@@ -22,9 +22,11 @@
 
 # Projection Pipeline
 - [x] Renderbuffer, SSBO, Uniform buffer objects create and use
-- [x] Vertex Pulling
+- [x] Vertex Pulling positions
 - [ ] Vertex Pulling with normal and uvs
 - [x] All DSA
+- [ ] Light Shader showing a ball as the light position
+- [ ] Make Shader reloadable even if its from memory (using its handle to create a file to mark time of creation)
 - [ ] Instancing with uniform and without it
 - [ ] Texture sampling from ssbo is possible?
 - [ ] DrawIndirect
@@ -35,11 +37,12 @@
 
 - [ ] Material struct as uniform buffer
 - [ ] Normal inverse transforming
-- [ ] RayGui with no raylib or some other immediate mode
 
-- [ ] Map any texture for usage as image2D
+- [ ] (nuklear has been chosen) Now setup gui.c. RayGui with no raylib or some other immediate mode
 
-- [ ] init, update, input architecture
+- [x] Map any texture for usage as image2D
+
+- [x] init, update, input architecture
 
 - [ ] Load Model fbx and stuff
 - [ ] Cubemap Skybox support
@@ -49,6 +52,10 @@
 - [x] MSAA framebuffer blitting checks
 - [ ] Copy texture into another taking alhpa into account
 - [x] Update Vertex_Array to use the Buffer api
+
+- [ ] Fix Shader reaload lag
+
+- [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
 
 - [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
 

@@ -6,10 +6,11 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
-#include "./raymath.c"
 #include "./shader.c"
+#include "./mesh.c"
 #include "./texture.c"
 #include "./buffer.c"
+#include "./nuklear.c"
 
 
 typedef struct {
@@ -34,17 +35,6 @@ typedef struct {
     Index_Buffer ib;
 } Vertex_Array;
 
-typedef struct {
-   Vector3 *vertices;
-   Vector3 *normals;
-   Vector2 *uvs;
-   u32     *indices;
-
-   u32 vertices_count;
-   u32 uvs_count;
-   u32 normals_count;
-   u32 indices_count;
-} Mesh;
 
 typedef struct {
     i32 x;                // Rectangle top-left corner position x
@@ -80,11 +70,6 @@ inline bool is_valid_vertex_array(Vertex_Array va) {
     #endif
 }
 
-// Mesh
-inline bool is_valid_mesh(Mesh mesh) {
-    return mesh.vertices != NULL && mesh.indices != NULL &&
-           mesh.vertices_count > 0 && mesh.indices_count > 0;
-}
 
 // Rectanglei32
 inline bool is_valid_rectangle(Rectanglei32 r) {
@@ -130,7 +115,7 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    assert(mesh->indices != NULL);
    assert(mesh->vertices_count > 0);
    assert(mesh->indices_count > 0);
-   assert(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count);
+   assert_msg(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count, "vertices=%d normals=%d uvs=%d", mesh->vertices_count,mesh->normals_count, mesh->uvs_count);
 
    // Calculate sizes
    usz vertex_size = mesh->vertices_count * size_of(Vector3);
@@ -184,6 +169,10 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    va.ib = create_index_buffer(mesh->indices, mesh->indices_count);
    glVertexArrayElementBuffer(va.handle, va.ib.buffer.handle);
    return va;
+}
+
+void bind_vertex_array(const Vertex_Array va) {
+   glBindVertexArray(va.handle);
 }
 
 #include "framebuffer.c"
@@ -365,6 +354,8 @@ void enable_error_report() {
 
 
 void init_renderer(void) {
+   assert_msg(__state.renderer.initialized == false, "Renderer initialized twice?");
+   __state.renderer.initialized  = true;
    int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
    if (flags & GL_CONTEXT_FLAG_DEBUG_BIT) {
       enable_error_report();

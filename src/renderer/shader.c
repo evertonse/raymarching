@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -421,6 +420,98 @@ Shader create_shader_single_from_memory_old(u8* source, Shader_Type type) {
    return shader;
 }
 
+// TODO: Move this faster implementation to cye.h
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_MINGW)
+
+int needs_rebuild_from_paths(ZString output_path, ZString *input_paths, usz input_paths_count) {
+  WIN32_FILE_ATTRIBUTE_DATA out_attr;
+  if (!GetFileAttributesExA(output_path, GetFileExInfoStandard, &out_attr)) {
+    if (GetLastError() == ERROR_FILE_NOT_FOUND)
+      return 1;
+    return -1;
+  }
+  ULONGLONG out_time =
+      ((ULONGLONG)out_attr.ftLastWriteTime.dwHighDateTime << 32) |
+      out_attr.ftLastWriteTime.dwLowDateTime;
+
+  for (usz i = 0; i < input_paths_count; ++i) {
+    WIN32_FILE_ATTRIBUTE_DATA in_attr;
+    if (!GetFileAttributesExA(input_paths[i], GetFileExInfoStandard,
+                              &in_attr)) {
+      return -1;
+    }
+    ULONGLONG in_time =
+        ((ULONGLONG)in_attr.ftLastWriteTime.dwHighDateTime << 32) |
+        in_attr.ftLastWriteTime.dwLowDateTime;
+    if (in_time > out_time)
+      return 1;
+  }
+
+  return 0;
+}
+
+#elif defined(PLATFORM_LINUX)
+int needs_rebuild_from_paths(ZString output_path, ZString *input_paths, usz input_paths_count) {
+   struct stat out_stat;
+   if (stat(output_path, &out_stat) < 0) {
+       if (errno == ENOENT) return 1;
+       return -1;
+   }
+
+   for (usz i = 0; i < input_paths_count; ++i) {
+       struct stat in_stat;
+       if (stat(input_paths[i], &in_stat) < 0) return -1;
+       if (in_stat.st_mtime > out_stat.st_mtime) return 1;
+   }
+
+   return 0;
+}
+#else
+#   error "Platform not supported"
+#endif
+
+
+// TODO: Keep only one version either 1 or 2, and test it on linux when the time comes (long way from now 2025-07-22)
+int needs_rebuild_from_paths2(ZString output_path, ZString *input_paths, usz input_paths_count) {
+// Output timestamp
+#if defined(_WIN32)
+  WIN32_FILE_ATTRIBUTE_DATA od;
+  if (!GetFileAttributesExA(output_path, GetFileExInfoStandard, &od)) {
+    if (GetLastError() == ERROR_FILE_NOT_FOUND)
+      return 1;
+    return -1;
+  }
+  FILETIME *ot = &od.ftLastWriteTime;
+#else
+  struct stat sb;
+  if (stat(output_path, &sb) < 0) {
+    if (errno == ENOENT)
+      return 1;
+    return -1;
+  }
+#endif
+
+  for (usz i = 0; i < input_paths_count; i++) {
+    ZString ip = input_paths[i];
+#if defined(_WIN32)
+    WIN32_FILE_ATTRIBUTE_DATA id;
+    if (!GetFileAttributesExA(ip, GetFileExInfoStandard, &id)) {
+      return -1;
+    }
+    FILETIME *it = &id.ftLastWriteTime;
+    // Compare 64-bit values
+    if (*((unsigned long long *)it) > *((unsigned long long *)ot))
+      return 1;
+#else
+    if (stat(ip, &sb) < 0)
+      return -1;
+    if (sb.st_mtime > (time_t)sb.st_mtime)
+      return 1;
+#endif
+  }
+  return 0;
+}
+
 // TODO: Mark time of compilation in the shader itself on top of .time files
 bool shader_needs_reload(Shader shader) {
    GLuint shader_handle = shader.handle;
@@ -442,6 +533,21 @@ bool shader_needs_reload(Shader shader) {
    // We always save and .time files based on first_path
    TString time_path = tprintf("%s.time", path_stem(first_path));
 
+#if 1
+   ZString* resolved_paths = (ZString*)talloc(paths.count * size_of(ZString));
+   for (usz i = 0; i < paths.count; i++) {
+       resolved_paths[i] = (char*)all_unique_paths.data + paths.items[i];
+   }
+
+   if (needs_rebuild_from_paths(time_path, resolved_paths, paths.count)) {
+      trace_debug("Yes, we need reload based on paths for: %s", time_path);
+      return_defer(result = true);
+   } else {
+       trace_debug("No reload needed for: %s", time_path);
+   }
+
+#else
+   profile_begin();
    for (usz idx = 0; idx < paths.count; idx++) {
       char* curr_path = (char*)all_unique_paths.data + paths.items[idx];
       if (needs_rebuild(time_path, curr_path)) {
@@ -451,6 +557,8 @@ bool shader_needs_reload(Shader shader) {
          trace_debug("No we don't need reload, time_path=%s curr_path=%s", time_path, curr_path);
       }
    }
+   profile_end("after loop");
+#endif
 
 defer:
    trestore(checkpoint);
@@ -503,23 +611,55 @@ void shader_image_acess_barrier() {
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
-void upload_uniform_mat4(const Shader* shader, const char* name, const Matrix* value) {
-    GLint loc = glGetUniformLocation(shader->handle, name);
-    glUniformMatrix4fv(loc, 1, GL_FALSE, (const float*)value);
+
+static GLint get_cached_uniform_location(GLuint program, const char* name) {
+    // You can bump this up or make it dynamic if needed
+    #define MAX_UNIFORM_CACHE 512
+    typedef struct {
+        GLuint program;
+        const char* name;
+        GLint location;
+    } UniformCache;
+
+    static UniformCache cache[MAX_UNIFORM_CACHE];
+    static int count = 0;
+
+    for (int i = 0; i < count; ++i) {
+        if (cache[i].program == program && strcmp(cache[i].name, name) == 0) {
+            return cache[i].location;
+        }
+    }
+
+    GLint location = glGetUniformLocation(program, name);
+    if (count < MAX_UNIFORM_CACHE) {
+        cache[count++] = (UniformCache){ program, name, location };
+    }
+
+    return location;
 }
 
-void upload_uniform_vec3(const Shader* shader, const char* name, const Vector3* value) {
-    GLint loc = glGetUniformLocation(shader->handle, name);
-    glUniform3f(loc, value->x, value->y, value->z);
+void upload_uniform_mat4(const Shader shader, const char* name, const Matrix value) {
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniformMatrix4fv(loc, 1, GL_FALSE, MatrixToFloat(value));
 }
 
-void upload_uniform_float(const Shader* shader, const char* name, float value) {
-    GLint loc = glGetUniformLocation(shader->handle, name);
-    glUniform1f(loc, value);
+void upload_uniform_vec3(const Shader shader, const char* name, const Vector3* value) {
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniform3f(loc, value->x, value->y, value->z);
 }
 
-void upload_uniform_sampler2D(const Shader* shader, const char* name, int binding) {
-    GLint loc = glGetUniformLocation(shader->handle, name);
-    glUniform1i(loc, binding);
+void upload_uniform_float(const Shader shader, const char* name, float value) {
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniform1f(loc, value);
 }
 
+void upload_uniform_sampler2D(const Shader shader, const char* name, int binding) {
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniform1i(loc, binding);
+}
+
+void upload_uniform_bool(const Shader shader, const char* name, bool value) {
+    // TODO: Make something like this work GLint loc = get_cached_uniform_location(shader.handle, name);
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniform1i(loc, value ? 1 : 0);
+}

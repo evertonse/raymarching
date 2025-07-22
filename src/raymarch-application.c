@@ -35,7 +35,7 @@ void raymarching_application_update(Raymarching_Application *app, f64 dt) {
    Camera camera = app->app.camera;
    isz window_width = app->app.window.width, window_height = app->app.window.height;
    assert(window_width * window_height != 0);
-   bool minimized = app->app.window.is_minimized;
+   bool minimized = is_window_minimized();
 
    shader_needs_reload_timer -= app->app.time.delta;
    // Resize texture only if need and is not minimized

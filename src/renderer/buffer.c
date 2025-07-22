@@ -234,6 +234,7 @@ isz update_buffer(const Buffer buf, const void* data, isz size, isz offset) {
     return offset + size;
 }
 
+
 // FIX gl explosed
 void* map_buffer(Buffer* buf, GLbitfield access) {
    buf->mapped_ptr = glMapNamedBuffer(buf->handle, access);

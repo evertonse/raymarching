@@ -24,34 +24,40 @@
          #define RAD2DEG (180.0/PI)
       #endif
    
-#extension GL_NV_shader_buffer_load : enable
+
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
-
-
-uniform mat4 view;
-uniform mat4 model;
-uniform mat4 perspective;
-
-// uniform vec3 camera_position;
-uniform vec2 spherical;
-uniform float u_time;
-
 layout(std140, binding = 2) uniform Camera {
     // mat4 view;
     // mat4 proj;
     vec3 camera_position; float _pad0;
+    vec3 camera_direction; float _pad1;
 };
 
-// restrict ?
+layout(std140, binding = 4) uniform Ub_Data {
+    mat4 model;
+    // float cx, cy, cz, pad0;
+    vec3 camera_position; float pad0;
+    vec3 light_position;  float pad1;
+    vec3 light_color;     float pad2;
+    float theta, phi; float elapsed_time, delta_time;
+} ub_data;
 layout(std430, binding = 3) buffer VertexData {
    float positions_xyz[];
 };
-
 layout(std430, binding = 5) buffer IndexData {
    float indices[];
 };
+
+uniform mat4 view;
+uniform mat4 model;
+uniform mat4 perspective;
+uniform bool is_light;
+
+// uniform vec3 camera_position;
+uniform vec2 spherical;
+uniform float u_time;
 
 
 out vec3 Normal;
@@ -324,6 +330,10 @@ void main() {
    vec3 translation = vec3(-36.55, -10.55, 50.50);
    float scale      = 12.3;
 
+   if (is_light) {
+      // scale = 20.3;
+   }
+
    if (true) { // do perspective
 
       { // Model to World
@@ -340,11 +350,14 @@ void main() {
          // mat4 view = view_from_spherical(vec3(0., 0., 0.), 0, 0.5);
 
          vec3 eye = vec3(30., 10., 0.);
-         eye = camera_position*2;
+         // eye = camera_position*2;
+         // eye = vec3(ub_data.cx, ub_data.cy, ub_data.cz)*5;
+         eye = ub_data.camera_position*5;
          vec3 direction = vec3(0., 0., 1.);
-         direction.xz *= rotation(sin(u_time)*(PI/4.));
          direction = spherical_to_cartesian(-spherical.y, spherical.x + PI/2);
          direction = camera_forward(spherical);
+         // direction.xz *= rotation(sin(ub_data.elapsed_time));
+         // direction = camera_forward(spherical);
          mat4 view = lookat(eye, eye + direction, vec3(0., 1., 0.));
          position = view * position;
       }
@@ -398,27 +411,63 @@ in vec3 Normal;
 in vec2 TexCoord;
 flat in int Boolean;
 
-layout(location = 0) out vec4 FragColor; // outputting to the color attachment 0
+layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
 
 layout(binding = 4) uniform sampler2D tex;
 
+uniform bool is_light;
+layout(std140, binding = 2) uniform Camera {
+    // mat4 view;
+    // mat4 proj;
+    vec3 camera_position; float _pad0;
+    vec3 camera_direction; float _pad1;
+};
+
+layout(std140, binding = 4) uniform Ub_Data {
+    mat4 model;
+    // float cx, cy, cz, pad0;
+    vec3 camera_position; float pad0;
+    vec3 light_position;  float pad1;
+    vec3 light_color;     float pad2;
+    float theta, phi; float elapsed_time, delta_time;
+} ub_data;
+
+vec3 brdf_blinn_phong(vec3 light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha) {
+   // TODO: use half vector instead
+   vec3 wi = -normalize(light_direction);
+   vec3 wo = -normalize(view_direction);
+   vec3 r  = -reflect(wi, normal);
+   vec3 n  =  normalize(normal);
+
+   vec3 ambient_color = diffuse_color * specular_color * alpha;
+
+   float ambient_intesity  = 0.1;
+   float diffuse_intesity  = 0.1;
+   float specular_intesity = 0.2;
+
+   return  (diffuse_intesity  * (diffuse_color  * max(0, dot(wi, n))))
+         + (specular_intesity * (specular_color * pow(max(0, dot(r, wo)), alpha)))
+         + (ambient_intesity  * ambient_color);
+}
 
 void main() {
+   vec3 light_color     = vec3(1.0, 1.0, 1.0);
+   vec3 light_direction = normalize(vec3(2., 1., 1.));
 
-   vec3  light   = normalize(vec3(2., 1., 1.));
-   float percent = max(0.3, dot(Normal, light));
    FragColor     = texture(tex, TexCoord);
-
-   // FragColor = vec4(0.2, 0.3, 0.2, 1.0)*2.;
-
-   if (true) {
-      FragColor *= percent;
-   }
-   // FragColor.xyz += vec3(.1, .1, .1);
    FragColor.w = 1.0;
 
    if (Boolean == 1 ) {
    // if (positions.length() == 0) {
       FragColor = vec4(1.0);
    }
+
+   if (is_light) {
+      // FragColor = vec4(light_color, 1.0);
+      FragColor = vec4(1.,0., 0., 1.0);
+   }
+
+#if 0
+   FragColor = brdf_blinn_phong(light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha);
+#endif
 } 

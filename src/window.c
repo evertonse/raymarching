@@ -97,6 +97,7 @@ void init_window(void) {
    glfwMakeContextCurrent(window);
    gladLoadGL(glfwGetProcAddress);
    glfwSwapInterval(1);
+   __state.window.initialized = true;
 
 }
 

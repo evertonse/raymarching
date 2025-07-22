@@ -1,6 +1,29 @@
 #!/bin/sh
 
-set -xe
+set -e
+# Store timer state globally
+__profile_start_s=""
+__profile_start_ns=""
+
+profile_start() {
+    __profile_start_s=$(date +%s)
+    __profile_start_ns=$(date +%N 2>/dev/null)
+}
+
+profile_end() {
+    local end_s=$(date +%s)
+    local end_ns=$(date +%N 2>/dev/null)
+
+    if [ -n "$__profile_start_ns" ] && [ "$__profile_start_ns" != "$__profile_start_s" ]; then
+        local elapsed=$(awk -v s1="$__profile_start_s" -v n1="$__profile_start_ns" -v s2="$end_s" -v n2="$end_ns" \
+            'BEGIN { print (s2 - s1) + (n2 - n1)/1e9 }')
+        echo "⏱️ Elapsed: ${elapsed}s"
+    else
+        local elapsed=$((end_s - __profile_start_s))
+        echo "⏱️ Elapsed: ${elapsed}s (low precision)"
+    fi
+}
+
 
 stack=""
 pushd() {
@@ -90,24 +113,40 @@ build() {
     flag_catch_bugs="$flag_catch_bugs -Wcast-align -Wdisabled-optimization -Wduplicated-cond -Wformat=2"
     # flag_catch_bugs="$flag_catch_bugs -Wcast-qual -Wduplicated-branches"
     # flag_catch_bugs="$flag_catch_bugs -Wlogical-op -Wmissing-include-dirs -Wnull-dereference -Woverloaded-virtual -Wpointer-arith -Wshadow -Wswitch-enum -Wvla"
+    # Replace -O3 with -O1 or -Og for dev speed
+
+    # -fno-rtti for cpp
+    # For debugging
+    # flags="$debug_flags"
+
+    # `-march=native` this flag bugs out
+    # `-pipe` to speed up intermediate file transfer between compiler stages
+    flags="-pipe -static -O0 -ffast-math -fno-exceptions $flag_catch_bugs"
+
+    flags="-O0 $flag_catch_bugs"
 
 
     pushd ./src/deps/glfw/
     [ -f "$glfw_obj" ] || $cc rglfw.c -o $glfw_obj -c -lc -lm -O3
     popd
 
+    profile_start
+
+    # perf stat
     # -std=c99                                  \
     # -std=c23                                  \
-    $cc -Isrc                                     \
-        -Wpedantic                                \
-        src/main.c                                \
-        src/deps/glfw/$glfw_obj                   \
-        -o $bin                                   \
-        -Isrc/deps/                               \
-        -Isrc/deps/glfw/glfw/include/             \
-        -lm -lgdi32 -luser32                      \
-        $flag_catch_bugs                          \
-        -O3 -static
+    set -x
+    $cc -Isrc                    \
+        src/main.c                         \
+        src/deps/glfw/$glfw_obj            \
+        -o $bin                            \
+        -Isrc/deps/                        \
+        -Isrc/deps/glfw/glfw/include/      \
+        -lm -lgdi32 -luser32               \
+        $flags
+    set +x
+
+    profile_end
 
 }
 

@@ -203,7 +203,7 @@ void update_texture(Texture* tex, int new_width, int new_height, const void* new
 
     glTextureSubImage2D(
         tex->handle,
-        0, // mip level
+        0,    // mip level
         0, 0, // xoffset, yoffset
         new_width,
         new_height,
@@ -211,6 +211,11 @@ void update_texture(Texture* tex, int new_width, int new_height, const void* new
         type,
         new_data
     );
+}
+
+void bind_texture(const Texture texture, usz binding) {
+   // Access like this: ``layout(binding = binding) uniform sampler2D texturename;``
+   glBindTextureUnit(binding, texture.handle);
 }
 
 void bind_texture_as_image(const Texture texture, usz binding, Texture_Access access) {
