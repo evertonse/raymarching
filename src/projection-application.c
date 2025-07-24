@@ -3,6 +3,7 @@ typedef struct {
    Application app; // must be first
 
    Shader         shader, light_shader;
+   Countdown      shader_countdown_to_reload;
    Vertex_Array   va, cube_va, sphere_va;
    Texture        diffuse_texture, cube_texture;
 
@@ -14,12 +15,54 @@ typedef struct {
 
    Uniform_Buffer ub, ub2;
    struct {
-      Matrix model;
-      Vector3 camera_position; f32 _padding_0;
-      f32 theta, phi; f32 elapsed_time, delta_time;
-   } ub_data;
+      alignas(16) Matrix model;
+      alignas(16) Matrix view;
+      alignas(16) Matrix pespective;
+      alignas(16) Vector3 camera_position; f32 pad0;
+      alignas(16) Vector3 light_position;  f32 pad1;
+      alignas(16) Vector3 light_color;     f32 pad2;
+      alignas(16) f32 theta, phi; f32 elapsed_time, delta_time;
+   } ub_data STD140_ALIGN;
 
 } Projection_Application;
+
+
+
+
+
+void projection_update_shaders(Projection_Application *app) {
+   static const char *shader_paths[] = {
+      "res/shaders/default.glsl",
+      "res/shaders/light.glsl",
+   };
+
+   Shader *shader_slots[] = {
+      &app->shader,
+      &app->light_shader
+   };
+
+   for (int i = 0; i < count_of(shader_slots); ++i) {
+      Shader *s = shader_slots[i];
+      const char *path = shader_paths[i];
+
+      bool want_reload = shader_needs_reload(*s);
+
+      bool valid = is_valid_shader(*s);
+
+      if (!valid || want_reload) {
+         if (valid && want_reload) {
+            *s = reload_shader(*s);
+         } else {
+            *s = create_shader(path, 0);
+         }
+
+         if (!is_valid_shader(*s)) {
+            trace_error("Shader %s failed to compile", path);
+            return;
+         }
+      }
+   }
+}
 
 
 void projection_init(Projection_Application *app) {
@@ -27,6 +70,9 @@ void projection_init(Projection_Application *app) {
    app->cube_va     = create_vertex_array_from_mesh(&cube_mesh);
    app->sphere_mesh = generate_sphere_mesh(0.5, 32, 32);
    app->sphere_va   = create_vertex_array_from_mesh(&app->sphere_mesh);
+   projection_update_shaders(app);
+
+   app->shader_countdown_to_reload = create_countdown(0.12, true);
 
    app->destination = (Rectanglei32) {
       .x = 100,
@@ -65,79 +111,54 @@ void projection_init(Projection_Application *app) {
 }
 
 
-void projection_update_shaders(Projection_Application *app) {
-   static const char *shader_paths[] = {
-      "res/shaders/default.glsl",
-      "res/shaders/light.glsl",
-   };
-
-   Shader *shader_slots[] = {
-      &app->shader,
-      &app->light_shader
-   };
-
-   for (int i = 0; i < count_of(shader_slots); ++i) {
-      Shader *s = shader_slots[i];
-      const char *path = shader_paths[i];
-
-      bool want_reload = shader_needs_reload(*s);
-
-      bool valid = is_valid_shader(*s);
-
-      if (!valid || want_reload) {
-         if (valid && want_reload) {
-            *s = reload_shader(*s);
-         } else {
-            *s = create_shader(path, 0);
-         }
-
-         if (!is_valid_shader(*s)) {
-            trace_error("Shader %s failed to compile", path);
-            return;
-         }
-      }
-   }
-}
-
-
 void projection_update(Projection_Application *app, f64 dt) {
 
    app->ub.offset = 0; // reset for next frame
-   // if (!is_valid_shader(app->shader)) {
-      projection_update_shaders(app);
-   // }
+
+   {  //  Update the main uniform buffer
+      Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
+      Matrix  view      = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
+      app->ub_data = (typeof(app->ub_data)) {
+         .model           = MatrixIdentity(),
+         .pespective      = MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0),
+         .view            = view,
+         .camera_position = camera.position,
+         .light_position  = {1.0f,  100.f, 3.0f},
+         .light_color     = {0.89f, 0.85f, 1.0f},
+         .theta           = camera.rotation.x,
+         .phi             = camera.rotation.y,
+         .elapsed_time    = time_elapsed(),
+         .delta_time      = time_delta()
+      };
+
+      isz ub_offset = update_buffer(app->ub2.buffer, &app->ub_data, size_of(app->ub_data), 0);
+   }
+
+
+   update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
 
    bind_framebuffer(app->fb);
    {
       glEnable(GL_DEPTH_TEST);
-      glClearColor(0.2f, 0.2f, 0.3f, 0.0f);
+      //
+      // TODO: use these and measure time
+      // clear_framebuffer_depth();
+      // clear_framebuffer_color();
+      //
+      glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-   }
-
-   // Light
-   bind_shader(app->shader);
-   {
-      Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
-      Matrix  view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
-      upload_uniform_mat4(app->shader, "view", view);
-
-      upload_uniform_bool(app->shader, "is_light", true);
-      glBindVertexArray(app->sphere_va.handle);
-      glDrawElements(GL_TRIANGLES, app->sphere_va.ib.count, GL_UNSIGNED_INT, NULL);
    }
 
    // Wireframe mode
    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
    // back to its default using glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-   // Step 5: Set MVP (identity for simplicity)
    Shader shader = app->shader;
    bind_shader(shader);
    {
       upload_uniform_bool(shader, "is_light", false);
 
       GLint view_location = glGetUniformLocation(shader.handle, "view");
-
       // Vector3 direction = spherical_to_cartesian((f32)glfwGetTime(), (f32)glfwGetTime() + PI/2.);
       Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
       Matrix  view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
@@ -160,17 +181,6 @@ void projection_update(Projection_Application *app, f64 dt) {
       push_uniform(&app->ub, DATA_TYPE_VEC3, &camera.position, 1);
       update_buffer(app->ub.buffer, app->ub.cpu_mem, app->ub.offset, 0);
 
-      app->ub_data = (typeof(app->ub_data)) {
-         .model = MatrixIdentity(),
-         .camera_position = camera.position,
-         .theta = camera.rotation.x,
-         .phi   = camera.rotation.y,
-         .elapsed_time = time_elapsed(),
-         .delta_time   = time_delta()
-      };
-
-      isz ub_offset = update_buffer(app->ub2.buffer, &app->ub_data, size_of(app->ub_data), 0);
-      // glUniform3f(position_location, camera.position.x, camera.position.y, camera.position.z);
    }
 
    {
@@ -224,26 +234,51 @@ void projection_update(Projection_Application *app, f64 dt) {
       // bind_buffer_slice_as_type(&pica_buffer, BUFFER_TYPE_STORAGE, 3, size_of(pica), 0);
       // bind_buffer_slice_as_type(&va.vb.buffer, BUFFER_TYPE_STORAGE, 3, mesh->vertices_count*size_of(*mesh->vertices), 0);
       bind_buffer_as_type(&sb1.buffer, BUFFER_TYPE_STORAGE, 3);
+      // Vector3 scale    = gui_vector3("Model Scale");
+      static f32 scale_single    =  12.4;
+      static f32 rotation_single =  0;
+      gui_float("Model Scale", &scale_single);
+      gui_float("Model Rotation", &rotation_single);
+      if (is_button_pressed(BUTTON_R)) {
+
+         f32 scale_single    =  12.4;
+         f32 rotation_single =  0;
+         camera = (typeof(camera)){0};
+         camera.position.y = 3.f; // just a bit off the ground
+         camera.position.z = -3.f; // just a bit behind both near plane
+      }
 
       GLint model_location = glGetUniformLocation(shader.handle, "model");
       for (isz i = 0; i < count_of(positions); i++) {
-         if (9 == i ) {
+         Vector3 position = positions[i];
+         (void)position;
+         if (9 == i) {
             break;
          }
 
-         Vector3 position = positions[i];
-         // Matrix model = MatrixRotate((Vector3){0., (float)(i % 2 == 0)*1., 1.}, (f32)glfwGetTime() / 10.);
-         Matrix  model = MatrixRotate((Vector3){ 1., 1., 1.}, i);
-         // model = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), model);
-         model = MatrixMultiply(MatrixTranslate(i/2., 0., i/2.), model);
+
+         position = (Vector3){i* scale_single * 2., 0., 0.};
+         // Vector3 scale = vector3_gui();
+         // Vector3 scale = { 12.3f, 12.3f, 12.3f };
+         auto translation_matrix = MatrixTranslate(position.x, position.y, position.z);
+         auto scale_matrix       = MatrixScale(scale_single, scale_single, scale_single);
+         auto rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, rotation_single);
+
+         Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
+
+         isz ub_offset = update_buffer(app->ub2.buffer, MatrixToFloat(model), size_of(app->ub_data.model), offset_of(typeof(app->ub_data), model));
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
          assert(is_valid_vertex_array(app->va));
          glDrawElements(GL_TRIANGLES, app->va.ib.count, GL_UNSIGNED_INT, NULL);
       }
 
+      // Vector2 position = cursor_position();
+      // Vector3Unproject(Vector3 screen_, Matrix projection, Matrix view);
+
 
       upload_uniform_bool(app->shader, "is_light", true);
+
       glBindVertexArray(app->sphere_va.handle);
       glDrawElements(GL_TRIANGLES, app->sphere_va.ib.count, GL_UNSIGNED_INT, NULL);
 

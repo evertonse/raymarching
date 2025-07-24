@@ -406,6 +406,8 @@ Texture_Buffer create_texture_buffer(
 }
 
 
+
+#define STD140_ALIGN __attribute__((aligned(16)))
 Uniform_Buffer create_uniform_buffer(isz size, i64 binding) {
     Uniform_Buffer result = {0};
 

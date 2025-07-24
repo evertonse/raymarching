@@ -6,7 +6,7 @@ layout(std140, binding = 2) uniform Camera {
 };
 
 layout(std140, binding = 4) uniform Ub_Data {
-    mat4 model;
+    mat4 model, view, perspective;
     // float cx, cy, cz, pad0;
     vec3 camera_position; float pad0;
     vec3 light_position;  float pad1;

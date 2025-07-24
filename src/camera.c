@@ -153,30 +153,44 @@ Camera move_camera(Camera cam) {
    v.z = 0;
 
    Vector3 forward = Vector3RotateByAxisAngle((Vector3){0., 0., 1.}, (Vector3){0., 1., 0.}, -cam.rotation.y);
-   Vector3 right   = Vector3CrossProduct(forward, (Vector3){0., 1., 0.});
-   forward = Vector3Normalize(forward);
-   right   = Vector3Normalize(right);
+   Vector3 right   = cross(forward, (Vector3){0., 1., 0.});
+   forward = normalize(forward);
+   right   = normalize(right);
+
+   Vector3 up = normalize(cross(right, forward));
 
 
-   const f32 c = 0.14;
+   f32 speed = 20.20f ;
    if (is_button_pressed(BUTTON_W)) {
-      v = Vector3Add(v, forward);
+      v = add(v, forward);
    }
 
    if (is_button_pressed(BUTTON_S)) {
-      v = Vector3Subtract(v, forward);
+      v = sub(v, forward);
    }
 
    if (is_button_pressed(BUTTON_A)) {
-      v = Vector3Add(v, right);
+      v = add(v, right);
    }
 
    if (is_button_pressed(BUTTON_D)) {
-      v = Vector3Subtract(v, right);
+      v = sub(v, right);
    }
 
-   v = Vector3Normalize(v);
-   v = Vector3Scale(v, c);
+   if (is_button_pressed(BUTTON_SPACE)) {
+      v = sub(v, Vector3Scale(up, -1));
+   }
+
+   if (is_button_pressed(BUTTON_LEFT_CONTROL)) {
+      v = sub(v, up);
+   }
+
+   if (is_button_pressed(BUTTON_SHIFT)) {
+      speed *= 2;
+   }
+
+   v = normalize(v);
+   v = mul(v, (speed * time_delta()));
 
    cam.position = Vector3Add(cam.position, v);
 

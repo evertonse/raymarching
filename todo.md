@@ -37,8 +37,9 @@
 
 - [ ] Material struct as uniform buffer
 - [ ] Normal inverse transforming
+- [ ] uniform buffers for most thing, model matrices shall be send Storage Buffer
 
-- [ ] (nuklear has been chosen) Now setup gui.c. RayGui with no raylib or some other immediate mode
+- [x] (nuklear has been chosen) Now setup gui.c. RayGui with no raylib or some other immediate mode
 
 - [x] Map any texture for usage as image2D
 
@@ -53,9 +54,8 @@
 - [ ] Copy texture into another taking alhpa into account
 - [x] Update Vertex_Array to use the Buffer api
 
-- [ ] Fix Shader reaload lag
-
-- [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
+- [x] Fix Shader reaload lag
+- [ ] C
 
 - [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
 

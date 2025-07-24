@@ -80,10 +80,15 @@ typedef enum {
    BUTTON_F10             = 299,      // Key: F10
    BUTTON_F11             = 300,      // Key: F11
    BUTTON_F12             = 301,      // Key: F12
+   BUTTON_SHIFT           = 340,      // Key: Shift left
    BUTTON_LEFT_SHIFT      = 340,      // Key: Shift left
+
+   BUTTON_CONTROL         = 341,      // Key: Control left
    BUTTON_LEFT_CONTROL    = 341,      // Key: Control left
+
    BUTTON_LEFT_ALT        = 342,      // Key: Alt left
    BUTTON_LEFT_SUPER      = 343,      // Key: Super left
+
    BUTTON_RIGHT_SHIFT     = 344,      // Key: Shift right
    BUTTON_RIGHT_CONTROL   = 345,      // Key: Control right
    BUTTON_RIGHT_ALT       = 346,      // Key: Alt right

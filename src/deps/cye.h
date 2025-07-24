@@ -5118,7 +5118,9 @@ char *win32_error_message(DWORD err) {
 
 #define clamp        cye_clamp
 #define lerp         cye_lerp
+#ifndef normalize
 #define normalize    cye_normalize
+#endif
 #define remap        cye_remap
 #define wrap         cye_wrap
 #define float_equals cye_float_equals

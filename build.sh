@@ -121,6 +121,26 @@ build() {
 
     # `-march=native` this flag bugs out
     # `-pipe` to speed up intermediate file transfer between compiler stages
+    # -Wextra and -Wall: essential.
+    # -Wfloat-equal: useful because usually testing floating-point numbers for equality is bad.
+    # -Wundef: warn if an uninitialized identifier is evaluated in an #if directive.
+    # -Wshadow: warn whenever a local variable shadows another local variable, parameter or global variable or whenever a built-in function is shadowed.
+    # -Wpointer-arith: warn if anything depends upon the size of a function or of void.
+    # -Wcast-align: warn whenever a pointer is cast such that the required alignment of the target is increased. For example, warn if a char * is cast to an int * on machines where integers can only be accessed at two- or four-byte boundaries.
+    # -Wstrict-prototypes: warn if a function is declared or defined without specifying the argument types.
+    # -Wstrict-overflow=5: warns about cases where the compiler optimizes based on the assumption that signed overflow does not occur. (The value 5 may be too strict, see the manual page.)
+    # -Wwrite-strings: give string constants the type const char[length] so that copying the address of one into a non-const char * pointer will get a warning.
+    # -Waggregate-return: warn if any functions that return structures or unions are defined or called.
+    # -Wcast-qual: warn whenever a pointer is cast to remove a type qualifier from the target type*.
+    # -Wswitch-default: warn whenever a switch statement does not have a default case*.
+    # -Wswitch-enum: warn whenever a switch statement has an index of enumerated type and lacks a case for one or more of the named codes of that enumeration*.
+    # -Wconversion: warn for implicit conversions that may alter a value*.
+    # -Wunreachable-code: warn if the compiler detects that code will never be executed*.
+    # Those marked * sometimes give too many spurious warnings, so I use them on as-needed basis.
+    # --coverage instruments the branches and calls in the program and creates a coverage notes file, so that when the program is run coverage data is produced that can be formatted by the gcov program to help analysing test coverage.
+    # -fsanitize={address,thread,undefined} enables the AddressSanitizer, ThreadSanitizer and UndefinedBehaviorSanitizer code sanitizers, respectively. These instrument the program to check for various sorts of errors at runtime.
+    # Previously this answer also mentioned -ftrapv, however this functionality has been superseded by -fsanitize=signed-integer-overflow which is one of the sanitizers enabled by -fsanitize=undefined.
+    # https://gcc.gnu.org/onlinedocs/gcc/Option-Summary.html
     flags="-pipe -static -O0 -ffast-math -fno-exceptions $flag_catch_bugs"
 
     flags="-O0 $flag_catch_bugs"

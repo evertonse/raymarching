@@ -1,4 +1,4 @@
-/*
+/* MODIFIED
  * Nuklear - 1.32.0 - public domain
  * no warrenty implied; use at your own risk.
  * authored from 2015-2016 by Micha Mettke
@@ -69,7 +69,7 @@ NK_API void                 nk_glfw3_device_create(struct nk_glfw* glfw);
 
 NK_API void                 nk_glfw3_char_callback(GLFWwindow *win, unsigned int codepoint);
 NK_API void                 nk_glfw3_key_callback(GLFWwindow *win, int key, int scancode, int action, int mods);
-NK_API void                 nk_gflw3_scroll_callback(GLFWwindow *win, double xoff, double yoff);
+NK_API void                 nk_glfw3_scroll_callback(GLFWwindow *win, double xoff, double yoff);
 NK_API void                 nk_glfw3_mouse_button_callback(GLFWwindow *win, int button, int action, int mods);
 
 #endif
@@ -293,11 +293,22 @@ nk_glfw3_render(struct nk_glfw* glfw, enum nk_anti_aliasing AA, int max_vertex_b
         {
             if (!cmd->elem_count) continue;
             glBindTexture(GL_TEXTURE_2D, (GLuint)cmd->texture.id);
-            glScissor(
-                (GLint)(cmd->clip_rect.x * glfw->fb_scale.x),
-                (GLint)((glfw->height - (GLint)(cmd->clip_rect.y + cmd->clip_rect.h)) * glfw->fb_scale.y),
-                (GLint)(cmd->clip_rect.w * glfw->fb_scale.x),
-                (GLint)(cmd->clip_rect.h * glfw->fb_scale.y));
+            const bool original_implementation = false;
+            if (original_implementation) {
+                glScissor(
+                    (GLint)(cmd->clip_rect.x * glfw->fb_scale.x),
+                    (GLint)((glfw->height - (GLint)(cmd->clip_rect.y + cmd->clip_rect.h)) * glfw->fb_scale.y),
+                    (GLint)(cmd->clip_rect.w * glfw->fb_scale.x),
+                    (GLint)(cmd->clip_rect.h * glfw->fb_scale.y));
+            } else {
+                GLint x = (GLint)(cmd->clip_rect.x * glfw->fb_scale.x);
+                GLint y = (GLint)((glfw->height - (GLint)(cmd->clip_rect.y + cmd->clip_rect.h)) * glfw->fb_scale.y);
+                GLint w = (GLint)(cmd->clip_rect.w * glfw->fb_scale.x);
+                GLint h = (GLint)(cmd->clip_rect.h * glfw->fb_scale.y);
+                if (w > 0 && h > 0) {
+                    glScissor(x, y, w, h);
+                }
+            }
             glDrawElements(GL_TRIANGLES, (GLsizei)cmd->elem_count, GL_UNSIGNED_SHORT, (const void*) offset);
             offset += cmd->elem_count * sizeof(nk_draw_index);
         }
@@ -366,7 +377,7 @@ nk_glfw3_key_callback(GLFWwindow *win, int key, int scancode, int action, int mo
 }
 
 NK_API void
-nk_gflw3_scroll_callback(GLFWwindow *win, double xoff, double yoff)
+nk_glfw3_scroll_callback(GLFWwindow *win, double xoff, double yoff)
 {
     struct nk_glfw* glfw = (struct nk_glfw *)glfwGetWindowUserPointer(win);
     (void)xoff;
@@ -421,7 +432,7 @@ nk_glfw3_init(struct nk_glfw* glfw, GLFWwindow *win, enum nk_glfw_init_state ini
     glfwSetWindowUserPointer(win, glfw);
     glfw->win = win;
     if (init_state == NK_GLFW3_INSTALL_CALLBACKS) {
-        glfwSetScrollCallback(win, nk_gflw3_scroll_callback);
+        glfwSetScrollCallback(win, nk_glfw3_scroll_callback);
         glfwSetCharCallback(win, nk_glfw3_char_callback);
         glfwSetKeyCallback(win, nk_glfw3_key_callback);
         glfwSetMouseButtonCallback(win, nk_glfw3_mouse_button_callback);

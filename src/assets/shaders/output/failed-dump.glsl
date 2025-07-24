@@ -36,11 +36,12 @@ layout(std140, binding = 2) uniform Camera {
 };
 
 layout(std140, binding = 4) uniform Ub_Data {
-    mat4  model;
-    float cx, cy, cz, pad0;
-    vec3 c; float pad0;
-    float theta, phi;
-    float elapsed_time, pad1;
+    mat4 model, perspective;
+    // float cx, cy, cz, pad0;
+    vec3 camera_position; float pad0;
+    vec3 light_position;  float pad1;
+    vec3 light_color;     float pad2;
+    float theta, phi; float elapsed_time, delta_time;
 } ub_data;
 layout(std430, binding = 3) buffer VertexData {
    float positions_xyz[];
@@ -61,7 +62,6 @@ uniform float u_time;
 
 out vec3 Normal;
 out vec2 TexCoord;
-flat out int Boolean;
 
 mat4 lookat_rh(vec3 eye, vec3 target, vec3 up) {
     // Calculate forward vector (negative Z axis)
@@ -307,16 +307,6 @@ void main() {
 #endif
 
    float positions_count = positions_xyz.length();
-
-   // if (positions_count == (702*(3)) && indices_count == 2) {
-   if (positions_count == (702*(3))) {
-   // if (positions[0] == 69 && positions_count == 1) {
-   // if (positions[0] == 69 && positions_count == 1) {
-      Boolean = 1;
-   } else {
-      Boolean = 0;
-   }
-
    mat4 gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
 
 
@@ -351,7 +341,7 @@ void main() {
          vec3 eye = vec3(30., 10., 0.);
          // eye = camera_position*2;
          // eye = vec3(ub_data.cx, ub_data.cy, ub_data.cz)*5;
-         eye = ub_data.c*5;
+         eye = ub_data.camera_position*5;
          vec3 direction = vec3(0., 0., 1.);
          direction = spherical_to_cartesian(-spherical.y, spherical.x + PI/2);
          direction = camera_forward(spherical);
@@ -423,11 +413,12 @@ layout(std140, binding = 2) uniform Camera {
 };
 
 layout(std140, binding = 4) uniform Ub_Data {
-    mat4  model;
-    float cx, cy, cz, pad0;
-    vec3 c; float pad0;
-    float theta, phi;
-    float elapsed_time, pad1;
+    mat4 model, perspective;
+    // float cx, cy, cz, pad0;
+    vec3 camera_position; float pad0;
+    vec3 light_position;  float pad1;
+    vec3 light_color;     float pad2;
+    float theta, phi; float elapsed_time, delta_time;
 } ub_data;
 
 vec3 brdf_blinn_phong(vec3 light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha) {
@@ -462,7 +453,7 @@ void main() {
 
    if (is_light) {
       // FragColor = vec4(light_color, 1.0);
-      FragColor = vec4(1.,0., 0., 1.0);
+      FragColor = vec4(ub_data.light_color, 1.0);
    }
 
 #if 0

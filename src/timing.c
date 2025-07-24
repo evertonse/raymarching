@@ -90,7 +90,7 @@ typedef enum {
 
 typedef struct {
    u32 magic;                // Unique identifier for type safety
-   const f64 seconds;        // Time to wait
+   f64 seconds;        // Time to wait
    f64  seconds_left;        // Remaining time
    f64  previous_time;       // Time of last update
    bool repeat;              // Should it reset after triggering?

@@ -56,3 +56,73 @@ Matrix MatrixViewFromSpherical(Vector3 position, float theta, float phi) {
    Matrix view = MatrixMultiply(rotate, translate);
    return view;
 }
+
+
+#define add(a, b) _Generic((a), \
+    Vector3: Vector3Add, \
+    Matrix: MatrixAdd \
+)((a), (b))
+
+#define sub(a, b) _Generic((a), \
+    Vector3: Vector3Subtract, \
+    Matrix:  MatrixSubtract \
+)((a), (b))
+
+
+// NOTE: We're forced to use default in all cases from second deep generic because mingwgcc got confused
+// Now using 'default:' to handle all cases is fine but we can't use a compile time error. This can't be used because somethin something expression or whatever.
+// now we're forced to do them things in runtime asserts
+#define COMPILE_ERROR_TYPE_UNSUPPORTED ((void)assert_msg(0, "Unsupported case"), *(int*)0)
+// #define COMPILE_ERROR_TYPE_UNSUPPORTED ((void)_Static_assert(0, "Unsupported multiplication types"), *(int*)0)
+
+#define mul(a, b) _Generic(((a)),                              \
+    Vector3: _Generic(((b)),                                   \
+        int:     Vector3Scale,                                 \
+        float:   Vector3Scale,                                 \
+        double:  Vector3Scale,                                 \
+        Vector3: Vector3Multiply,                              \
+        default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
+    ),                                                         \
+    Matrix: _Generic(((b)),                                    \
+        Matrix:  MatrixMultiplySwapped,                        \
+        default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
+    ),                                                         \
+    int: _Generic(((b)),                                       \
+        Vector3: Vector3ScaleSwapped,                          \
+        default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
+    ),                                                         \
+    float: _Generic(((b)),                                     \
+        Vector3: Vector3ScaleSwapped,                          \
+        default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
+    ),                                                         \
+    double: _Generic(((b)),                                    \
+        Vector3: Vector3ScaleSwapped,                          \
+        default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
+    )                                                          \
+)(((a)), ((b)))
+
+
+#define dot(a, b) _Generic((a), \
+    Vector3: Vector3DotProduct \
+)((a), (b))
+
+#define cross(a, ...) \
+    _Generic(((a)), Vector3: Vector3CrossProduct)(((a)), ((__VA_ARGS__)))
+
+
+// #define normalize(a) Vector3Normalize(a)
+
+#define normalize(a) _Generic((a), \
+    Vector3: Vector3Normalize \
+)((a))
+
+
+// Note: MatrixMultiply(a, b) returns b * a in raymath; we pass (b, a) to invert.
+static inline Matrix MatrixMultiplySwapped(Matrix a, Matrix b) {
+   return MatrixMultiply(b, a);
+}
+
+static inline Vector3 Vector3ScaleSwapped(double scalar, Vector3 vec) {
+   return Vector3Scale(vec, scalar);
+}
+

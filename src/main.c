@@ -1,6 +1,5 @@
 #include <stdio.h>
 
-#include "./raymath.c"
 
 #define GLFW_INCLUDE_NONE
 #include "GLFW/glfw3.h"
@@ -13,6 +12,10 @@
 #define CYE_IMPLEMENTATION
 #undef assert
 #undef unreachable
+#undef normalize
+
+#include "./raymath.c"
+
 #include "cye.h"
 
 #include "./state.c"
@@ -131,6 +134,7 @@ int main() {
    init_window();
    init_renderer();
    init_time();
+   init_gui();
 
    f64 start_time = time_now();
 
@@ -163,9 +167,22 @@ int main() {
 
    while (!should_close_window()) {
       update_window();
+      // DONE: Timed operations struct instead
       update_time();
       camera = move_camera(camera); // Update Camera
-      // TODO: Timed operations struct instead
+      update_gui();
+
+      Framebuffer default_framebuffer = {
+         .handle = 0,
+         .color = {
+            .width  = get_window_width(),
+            .height = get_window_height()
+         },
+         .depth = {
+            .width  = get_window_width(),
+            .height = get_window_height()
+         },
+      };
 
       update_countdown(&window_title_countdown, conditionally_change_windows_title(time_delta()));
 
@@ -182,13 +199,25 @@ int main() {
          };
          app->window.width  = window_width;
          app->window.height = window_height;
+         /* setup global state */
+         glEnable(GL_BLEND);
+         glBlendEquation(GL_FUNC_ADD);
+         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+         glDisable(GL_CULL_FACE);
+         glEnable(GL_DEPTH_TEST);
+         glEnable(GL_SCISSOR_TEST);
+         // glActiveTexture(GL_TEXTURE0);
          app->update(app, time_delta());
       }
+
+
+      render_gui(default_framebuffer);
 
       // swap_window_buffers();
       // pool_window_events();
    }
 
+   shutdown_gui();
    shutdown_window();
    shutdown_renderer();
 }

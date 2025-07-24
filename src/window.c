@@ -121,6 +121,10 @@ Vector2 window_size() {
    return (Vector2){(f32)window_width, (f32)window_height};
 }
 
+void* platform_window_handle() {
+   return __state.window.handle;
+}
+
 
 int get_window_height() {
    int width, height;
