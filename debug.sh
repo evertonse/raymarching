@@ -3,7 +3,8 @@ set -xe
 pwsh=$(wslpath 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe')
 # $bin -noe -c "&{Import-Module """C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"""; Enter-VsDevShell dffc9763}"
 exe_name='main.exe'
-exe_dir=$(wslpath -w "$(pwd)")
+# exe_dir=$(wslpath -w "$(pwd)")
+exe_dir=$(wslpath -w "/mnt/c/Dev/code/GPUCompute/")
 exe_path="$exe_dir/$exe_name"
 
 cmds=

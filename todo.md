@@ -22,9 +22,14 @@
 
 # Projection Pipeline
 - [x] Renderbuffer, SSBO, Uniform buffer objects create and use
+
 - [x] Vertex Pulling positions
 - [ ] Vertex Pulling with normal and uvs
+
+- [ ] Use Persistent Buffer for uniforms
+
 - [x] All DSA
+
 - [ ] Light Shader showing a ball as the light position
 - [ ] Make Shader reloadable even if its from memory (using its handle to create a file to mark time of creation)
 - [ ] Instancing with uniform and without it
@@ -51,11 +56,11 @@
 - [x] MSAA with multisampled textures
 - [x] MSAA framebuffer resolving
 - [x] MSAA framebuffer blitting checks
-- [ ] Copy texture into another taking alhpa into account
+- [ ] Copy texture into another taking alpha into account
 - [x] Update Vertex_Array to use the Buffer api
 
 - [x] Fix Shader reaload lag
-- [ ] C
+- [ ] Mix what you wrote in raymath.c with handmade_math to get the best of both (has to fix naming conv)
 
 - [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
 

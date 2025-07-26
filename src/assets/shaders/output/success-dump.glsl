@@ -43,6 +43,11 @@ layout(std140, binding = 4) uniform Ub_Data {
     vec3 light_color;     float pad2;
     float theta, phi; float elapsed_time, delta_time;
 } ub_data;
+
+
+layout(std140, binding = 5) uniform Ub_Data_Buffer {
+    vec4 random_data;
+} ub_data_buffer;
 // You can call positions_xyz.lenght() to get the the count of positions 
 layout(std430, binding = 3) buffer VertexData {
    float positions_xyz[];
@@ -364,6 +369,7 @@ void main() {
 
    position = ub_data.model*position;
 
+
    if (length(position.xyz) < 10.) {
       special = 1;
       // position = matrix_translation(translation)*matrix_rotation(vec3(1.), PI/2.) * matrix_scale(vec3(scale))*model*position;
@@ -457,6 +463,11 @@ layout(std140, binding = 4) uniform Ub_Data {
     float theta, phi; float elapsed_time, delta_time;
 } ub_data;
 
+
+layout(std140, binding = 5) uniform Ub_Data_Buffer {
+    vec4 random_data;
+} ub_data_buffer;
+
 vec3 brdf_blinn_phong(vec3 light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha) {
    // TODO: use half vector instead
    vec3 wi = -normalize(light_direction);
@@ -490,6 +501,15 @@ void main() {
    if (special == 1) {
       // FragColor = vec4(light_color, 1.0);
       FragColor.r = 1.0;
+   }
+
+   vec4 rand = ub_data_buffer.random_data;
+   if (rand.x == 69.) {
+      FragColor.g = 1.0;
+   }
+
+   if (rand.x == 68.) {
+      FragColor.b = 1.0;
    }
 
 

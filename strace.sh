@@ -77,7 +77,7 @@ fi
 echo "Tracing build process..."
 
 # Run the build command under strace
-strace -f -e trace=execve -o "$STRACE_LOG" sh -c "$FUNCTION_NAME" 2>/dev/null
+strace -f -e trace=execve -o "$STRACE_LOG" sh -c "$FUNCTION_NAME" "$@" 2>/dev/null
 
 if [ $? -ne 0 ]; then
     echo "Build failed" >&2

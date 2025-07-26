@@ -9,13 +9,13 @@
 
 
 
-#define CYE_IMPLEMENTATION
+
 #undef assert
 #undef unreachable
 #undef normalize
-
 #include "./raymath.c"
 
+#define CYE_IMPLEMENTATION
 #include "cye.h"
 
 #include "./state.c"

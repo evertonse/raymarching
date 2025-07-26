@@ -133,17 +133,17 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
 
    if (false) { // Make first float be the vertices count. But I don't think we need that even if we're using as storage buffer
       f32 vertex_count = (f32)mesh->vertices_count;
-      offset = update_buffer(va.vb.buffer, &vertex_count, size_of(vertex_count), offset); // metadata the first element is
+      offset = update_buffer(&va.vb.buffer, &vertex_count, size_of(vertex_count), offset); // metadata the first element is
    }
 
    isz positions_offset = offset;
-   offset = update_buffer(va.vb.buffer, mesh->vertices, vertex_size, offset);
+   offset = update_buffer(&va.vb.buffer, mesh->vertices, vertex_size, offset);
 
    isz normals_offset = offset;
-   offset = update_buffer(va.vb.buffer, mesh->normals,  normal_size, offset);
+   offset = update_buffer(&va.vb.buffer, mesh->normals,  normal_size, offset);
 
    isz uvs_offset = offset;
-   offset = update_buffer(va.vb.buffer, mesh->uvs,      uv_size,     offset);
+   offset = update_buffer(&va.vb.buffer, mesh->uvs,      uv_size,     offset);
 
 
    // Link VBO to VAO (positions)
@@ -366,10 +366,10 @@ void init_renderer(void) {
    { // Some expected settings
       glEnable(GL_DEPTH_TEST);
       glEnable(GL_BLEND);
+      glEnable(GL_MULTISAMPLE);
       glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glDisable(GL_MULTISAMPLE);
       glDisable(GL_CULL_FACE);
       // glCullFace(GL_BACK);          // Cull back faces
       glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise

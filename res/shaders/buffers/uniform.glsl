@@ -13,3 +13,8 @@ layout(std140, binding = 4) uniform Ub_Data {
     vec3 light_color;     float pad2;
     float theta, phi; float elapsed_time, delta_time;
 } ub_data;
+
+
+layout(std140, binding = 5) uniform Ub_Data_Buffer {
+    vec4 random_data;
+} ub_data_buffer;

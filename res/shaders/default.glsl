@@ -85,6 +85,7 @@ void main() {
 
    position = ub_data.model*position;
 
+
    if (length(position.xyz) < 10.) {
       special = 1;
       // position = matrix_translation(translation)*matrix_rotation(vec3(1.), PI/2.) * matrix_scale(vec3(scale))*model*position;
@@ -161,6 +162,15 @@ void main() {
    if (special == 1) {
       // FragColor = vec4(light_color, 1.0);
       FragColor.r = 1.0;
+   }
+
+   vec4 rand = ub_data_buffer.random_data;
+   if (rand.x == 69.) {
+      FragColor.g = 1.0;
+   }
+
+   if (rand.x == 68.) {
+      FragColor.b = 1.0;
    }
 
 

@@ -14,6 +14,7 @@ typedef struct {
    Mesh           sphere_mesh;
 
    Uniform_Buffer ub, ub2;
+   Buffer buffer;
    struct {
       alignas(16) Matrix model;
       alignas(16) Matrix view;
@@ -30,6 +31,7 @@ typedef struct {
 
 
 
+// __attribute__((overloadable)) // TOOD Check this out on clang
 void projection_update_shaders(Projection_Application *app) {
    static const char *shader_paths[] = {
       "res/shaders/default.glsl",
@@ -70,6 +72,7 @@ void projection_init(Projection_Application *app) {
    app->cube_va     = create_vertex_array_from_mesh(&cube_mesh);
    app->sphere_mesh = generate_sphere_mesh(0.5, 32, 32);
    app->sphere_va   = create_vertex_array_from_mesh(&app->sphere_mesh);
+
    projection_update_shaders(app);
 
    app->shader_countdown_to_reload = create_countdown(0.12, true);
@@ -89,6 +92,7 @@ void projection_init(Projection_Application *app) {
    app->ub  = create_uniform_buffer(size_of(Matrix)*2, ub_binding);
    app->ub2 = create_uniform_buffer(size_of(app->ub_data), ub_binding + 2);
    free(app->ub2.cpu_mem);
+   app->buffer = create_buffer_extended(BUFFER_TYPE_UNIFORM, BUFFER_USAGE_PERSISTENT, nullptr, size_of(app->ub_data), 5);
 
    app->shader = shader_invalid;
 
@@ -105,6 +109,7 @@ void projection_init(Projection_Application *app) {
       && is_valid_texture(app->cube_texture)
       && is_valid_uniform_buffer(app->ub)
       && is_valid_uniform_buffer(app->ub2)
+      && is_valid_buffer(app->buffer)
       ,"Something wanst valid upon creation"
    );
 
@@ -113,11 +118,15 @@ void projection_init(Projection_Application *app) {
 
 void projection_update(Projection_Application *app, f64 dt) {
 
+   static GLsync sync = nullptr;
+   // wait_sync_point(sync);
+   // sync = sync_point(sync);
    app->ub.offset = 0; // reset for next frame
 
    {  //  Update the main uniform buffer
       Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
       Matrix  view      = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
+
       app->ub_data = (typeof(app->ub_data)) {
          .model           = MatrixIdentity(),
          .pespective      = MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0),
@@ -131,7 +140,11 @@ void projection_update(Projection_Application *app, f64 dt) {
          .delta_time      = time_delta()
       };
 
-      isz ub_offset = update_buffer(app->ub2.buffer, &app->ub_data, size_of(app->ub_data), 0);
+      update_buffer(&app->ub2,    &app->ub_data, size_of(app->ub_data), 0);
+      // glFinish();
+
+      *(Vector4*)app->buffer.mapped_ptr = (Vector4){69.0, 70., 71., 72.};
+      // update_buffer(&app->buffer, &app->ub_data, size_of(app->ub_data), 0);
    }
 
 
@@ -179,7 +192,7 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       // GLint position_location = glGetUniformLocation(shader.handle, "camera_position");
       push_uniform(&app->ub, DATA_TYPE_VEC3, &camera.position, 1);
-      update_buffer(app->ub.buffer, app->ub.cpu_mem, app->ub.offset, 0);
+      update_buffer(&app->ub.buffer, app->ub.cpu_mem, app->ub.offset, 0);
 
    }
 
@@ -260,17 +273,25 @@ void projection_update(Projection_Application *app, f64 dt) {
          position = (Vector3){i* scale_single * 2., 0., 0.};
          // Vector3 scale = vector3_gui();
          // Vector3 scale = { 12.3f, 12.3f, 12.3f };
-         auto translation_matrix = MatrixTranslate(position.x, position.y, position.z);
-         auto scale_matrix       = MatrixScale(scale_single, scale_single, scale_single);
-         auto rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, rotation_single);
+         Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
+         Matrix scale_matrix       = MatrixScale(scale_single, scale_single, scale_single);
+         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, rotation_single);
 
          Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
 
-         isz ub_offset = update_buffer(app->ub2.buffer, MatrixToFloat(model), size_of(app->ub_data.model), offset_of(typeof(app->ub_data), model));
+         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->ub_data.model), offset_of(typeof(app->ub_data), model));
+         // update_buffer(&app->buffer, MatrixToFloat(model), size_of(app->ub_data.model), offset_of(typeof(app->ub_data), model));
+         // glFinish();
+
+         *(Vector4*)app->buffer.mapped_ptr = (Vector4){68.0, 70., 71., 72.};
+         // isz _ = update_buffer_mapped_ptr(app->ub2, MatrixToFloat(model), size_of(app->ub_data.model), offset_of(typeof(app->ub_data), model));
+         bind_buffer_as_type(&app->ub2.buffer, BUFFER_TYPE_UNIFORM, 4);
+         bind_buffer_as_type(&app->buffer,     BUFFER_TYPE_UNIFORM, 5);
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
          assert(is_valid_vertex_array(app->va));
          glDrawElements(GL_TRIANGLES, app->va.ib.count, GL_UNSIGNED_INT, NULL);
+
       }
 
       // Vector2 position = cursor_position();

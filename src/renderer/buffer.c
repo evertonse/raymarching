@@ -39,8 +39,8 @@ typedef struct {
    isz   size;
    u32   binding;    // Binding point      for      ub/SSBO
    void* mapped_ptr; // For     persistent mappings or regular old-ass mapping
-   bool is_persistent;
-   Buffer_Type type;
+   Buffer_Usage usage;
+   Buffer_Type  type;
 } Buffer;
 
 
@@ -85,6 +85,7 @@ Buffer create_buffer_extended(Buffer_Type type, Buffer_Usage usage, const void *
     buf.type = type;
     buf.binding = binding;
     buf.size = size;
+    buf.usage = usage;
     buf.mapped_ptr = NULL;
 
     GLbitfield storage_flags = 0;
@@ -183,6 +184,42 @@ Buffer create_buffer_copy(const Buffer *source, Buffer_Usage usage) {
   return result;
 }
 
+// You do this by creating a fence object. This is a token in the command stream that you can test to see if it has been completed. 
+// Since the stream is an ordered list, if the fence has completed, then every command issued before that fence was issued has also completed.
+// Sync objects have a specific type, which defines their signaling behavior. Currently, there is only one type: fences.
+GLsync sync_point(GLsync sync) {
+   if (sync) {
+      glDeleteSync(sync);
+   }
+   // The only available value for condition GL_SYNC_GPU_COMMANDS_COMPLETE
+   // Currently, the flags field has no possible parameters; it should be 0. The field exists in case of future extensions to this functionality.
+   sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+   assert(glIsSync(sync) == GL_TRUE);
+   return sync;
+}
+
+void wait_sync_point(GLsync sync) {
+   if (sync == nullptr) {
+      return;
+   }
+   static constexpr isz max_tries = 800;
+   static constexpr usz timeout_ns = 1;
+   GLenum wait = 0;
+   for (isz idx = 0; idx < max_tries; idx++) {
+      // This function will not return until one of two things happens: the sync object parameter becomes signaled, or a number of nanoseconds greater than or equal to the timeout parameter passes
+      wait = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, timeout_ns);
+      if (wait == GL_ALREADY_SIGNALED || wait == GL_CONDITION_SATISFIED) {
+         trace_okay("We ball we this (wait == GL_ALREADY_SIGNALED || wait == GL_CONDITION_SATISFIED)");
+         return;
+      } else if (wait == GL_TIMEOUT_EXPIRED) {
+         // trace_warn("Client Wait timedout (set to %d nanoseconds).", timeout_ns);
+      } else if (wait == GL_WAIT_FAILED) {
+         trace_warn("Client Wait Failed");
+      }
+   }
+   trace_warn("Client Wait surpassed max tries (%d) each with a timeout of %d ns.", max_tries, timeout_ns);
+}
+
 bool is_valid_buffer(const Buffer b) {
 #if 1 || defined(DEBUG)
     if (b.handle == 0) return false;
@@ -229,8 +266,34 @@ inline bool is_valid_vertex_buffer(const Vertex_Buffer vb) {
 
 
 // Return the index of one position after the last byte written;
-isz update_buffer(const Buffer buf, const void* data, isz size, isz offset) {
+isz update_buffer_(const Buffer buf, const void* data, isz size, isz offset) {
     glNamedBufferSubData(buf.handle, offset, size, data);
+    return offset + size;
+}
+
+isz update_buffer_mapped_ptr(const Buffer buf, const void* data, isz size, isz offset) {
+    // Optional: Add bounds checking if you store buffer size in Buffer struct
+    #ifdef DEBUG
+    if (offset + size > buf.size) {
+        // Handle error - could assert, return error code, etc.
+        assert(0 && "Buffer write would exceed bounds");
+        return offset; // Return unchanged offset on error
+    }
+    #endif
+    memcpy((char*)buf.mapped_ptr + offset, data, size);
+    return offset + size;
+}
+
+isz update_buffer(const void* buffer, const void* data, isz size, isz offset) {
+    const Buffer *buf = buffer;
+    assert(buf);
+
+    if (buf->mapped_ptr) {
+        assert(buf->usage == BUFFER_USAGE_PERSISTENT);
+        memcpy((char*)buf->mapped_ptr + offset, data, size);
+    } else {
+        glNamedBufferSubData(buf->handle, offset, size, data);
+    }
     return offset + size;
 }
 

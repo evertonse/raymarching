@@ -5143,7 +5143,12 @@ char *win32_error_message(DWORD err) {
 
 // Consider using logging instead ? Maybe not
 #define todo            cye_todo
-#define unreachable     cye_unreachable
+
+#if defined(unreachable)
+#   undef unreachable
+#   define unreachable     cye_unreachable
+#endif
+
 #define panic           cye_panic
 #define not_implemented cye_not_implemented
 #define shift           cye_shift

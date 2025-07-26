@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
 # Store timer state globally
@@ -20,7 +20,7 @@ profile_end() {
         echo "⏱️ Elapsed: ${elapsed}s"
     else
         local elapsed=$((end_s - __profile_start_s))
-        echo "⏱️ Elapsed: ${elapsed}s (low precision)"
+        echo "⏱️ Elapsed: $1 ${elapsed}s (low precision)"
     fi
 }
 
@@ -43,36 +43,31 @@ popd() {
         echo "Directory stack is empty"
         return 1
     fi
-    
 
-    #
     # Syntax ${variable<symbol>pattern}:
     #   <symbol> = # Removes the shortest match of pattern from the beginning of variable.
     #   <symbol> = ##            longest  match            from the beginning
     #   <symbol> = %             shortest match            from the end
     #   <symbol> = %%            longest  match            from the end
-    #
 
     # Extract the first word (top directory)
     top="${stack%% *}"
-
     #   Remove the first word from the stack
     stack="${stack#* }"
 
     cd "$top" || return 1
 }
+# --------------------------------------------------------------------------- #
 
-dirs() {
-    echo "Current directory stack: $stack"
-}
 
+WINDOWS_DESTINATION_DIR='C:\Dev\code\GPUCompute'
 
 config_gcc_linux() {
     cc='gcc'
     glfw_obj=rglfw.o
     bin='main.bin'
     pbd=''
-    debug_flags="-g -ggdb"
+    flags_debug="-g -ggdb"
 }
 
 config_mingw() {
@@ -81,70 +76,99 @@ config_mingw() {
     glfw_obj=rglfw.obj
     bin='main.exe'
     pbd='main.pdb'
-    debug_flags="-g --for-linker --pdb=\"$pbd\""
+
+    # TODO: Need to change debug compilation directory in mingw
+    flags_debug="-g --for-linker --pdb=\"$pbd\""
+}
+
+config_clang_from_linux_to_windows() {
+    cc='clang --target=x86_64-w64-windows-gnu' # Also valid: 'x86_64-windows-gnu' but don't know the difference
+    cxx='clang++ --target=x86_64-w64-windows-gnu'
+    glfw_obj=rglfw.obj
+    bin='main.exe'
+    pbd='main.pdb'
+
+    #
+    # Here we're trying to get clang to generated .pdb files for debugging
+    # See: https://handmade.network/p/71/c-ode-clap/forums/t/3596-expected_date_for_windows_dwarf_support
+    # First iteration was something like this: clang.exe -fuse-ld=lld.exe -g -gcodeview -Wl,/debug,/pdb:test.pdb
+    #
+    # NOTE: its important to set a 'debug-compile-dir' to the working directory you intend to launch the program.
+    # This allows the debugger find your source code from the debug information otherwise it'll point to files where it was first built
+    # which if they don't match the debbuger wont find it.
+    #
+    flags_debug="-v -fdebug-macro -fdebug-prefix-map=$(pwd)=$WINDOWS_DESTINATION_DIR -fdebug-compilation-dir=$WINDOWS_DESTINATION_DIR -fuse-ld=lld -g -gcodeview -gcodeview-command-line -gcolumn-info -Xlinker -pdb="
+
+    #
+    # NOTE: WinDbg "works" with dwarf-5 embed-source. Flags would be:
+      # flags_debug="-g -gdwarf-5 -gembed-source -fdebug-compilation-dir=$WINDOWS_DESTINATION_DIR"
+    # But can try other versions just in case flags_debug="-g -gmodules -gdwarf-3"
+    #
 }
 
 build() {
     # From: https://carlpearson.net/post/20220301-gcc-flags/
-    #     -Wall: turns on many warnings, but not "all."
-    #     -Wextra: turns on even more warnings, but still not all.
-    #     -Wpedantic: Issue all the warnings demanded by strict ISO C++.
-    #     -Wcast-align: warn whenever a pointer is cast such that the required alignment is increased (char* -> int*).
+    # And https://gcc.gnu.org/onlinedocs/gcc/Option-Summary.html
+    # -Wpedantic: Issue all the warnings demanded by strict ISO C++.
+    # -Wcast-align: warn whenever a pointer is cast such that the required alignment is increased (char* -> int*).
+    # -Wdisabled-optimization: warn if a requested optimization pass is disabled (e.g. code is too large, has some other feature that makes g++ give up).
     #     -Wcast-qual: warn when qualifier (const) is cast away, or introduces a qualifier in an unsafe way.
-    #     -Wdisabled-optimization: warn if a requested optimization pass is disabled (e.g. code is too large, has some other feature that makes g++ give up).
-    #     -Wduplicated-branches: warn if if-else branches have identical bodies.
-    #     -Wduplicated-cond: warn about duplicated conditions in an if-else-if chain.
-    #     -Wformat=2: same as -Wformat -Wformat-nonliteral -Wformat-security -Wformat-y2k. make sure printf-style function arguments match their format strings.
+    # -Wformat=2: same as -Wformat -Wformat-nonliteral -Wformat-security -Wformat-y2k. make sure printf-style function arguments match their format strings.
     #     -Wlogical-op: warn about suspicious use of logical operators, i.e. contexts where bitwise is more likely.
-    #     -Wmissing-include-dirs: warn if a user-supplied include dir does not exist.
     #     -Wnull-dereference: warn if paths that dereference a null pointer are detected.
-    #     -Woverloaded-virtual: warn when a function declaration hides virtual functions from a base class
     #     -Wpointer-arith: warn about sizeof for function types or void.
     #     -Wshadow: warn about variable shadowing and global function shadowing.
     #     -Wswitch-enum: warn when a switch on an enum type is missing one of the enums.
+    # -Wswitch-default: warn whenever a switch statement does not have a default case*.
     #     -Wvla: warn about using variable-length arrays.
-    #
-
-
-    flag_nowarn='-Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -fwrapv -fno-strict-aliasing'
-    flag_basic='-Wall -Wextra -Wpedantic -Werror'
-    # flag_sanitize='-fsanitize=undefined'
-    flag_catch_bugs="$flag_nowarn $flag_basic $flag_sanitize"
-    flag_catch_bugs="$flag_catch_bugs -Wcast-align -Wdisabled-optimization -Wduplicated-cond -Wformat=2"
-    # flag_catch_bugs="$flag_catch_bugs -Wcast-qual -Wduplicated-branches"
-    # flag_catch_bugs="$flag_catch_bugs -Wlogical-op -Wmissing-include-dirs -Wnull-dereference -Woverloaded-virtual -Wpointer-arith -Wshadow -Wswitch-enum -Wvla"
-    # Replace -O3 with -O1 or -Og for dev speed
-
-    # -fno-rtti for cpp
-    # For debugging
-    # flags="$debug_flags"
-
-    # `-march=native` this flag bugs out
-    # `-pipe` to speed up intermediate file transfer between compiler stages
-    # -Wextra and -Wall: essential.
-    # -Wfloat-equal: useful because usually testing floating-point numbers for equality is bad.
+    #     -fno-rtti for cpp only, you know what it means
+    #     -Wfloat-equal: useful because usually testing floating-point numbers for equality is bad.
     # -Wundef: warn if an uninitialized identifier is evaluated in an #if directive.
-    # -Wshadow: warn whenever a local variable shadows another local variable, parameter or global variable or whenever a built-in function is shadowed.
-    # -Wpointer-arith: warn if anything depends upon the size of a function or of void.
-    # -Wcast-align: warn whenever a pointer is cast such that the required alignment of the target is increased. For example, warn if a char * is cast to an int * on machines where integers can only be accessed at two- or four-byte boundaries.
     # -Wstrict-prototypes: warn if a function is declared or defined without specifying the argument types.
-    # -Wstrict-overflow=5: warns about cases where the compiler optimizes based on the assumption that signed overflow does not occur. (The value 5 may be too strict, see the manual page.)
+    # -Wstrict-overflow=5: warns about cases where the compiler optimizes based on the assumption that signed overflow does not occur (famous UB with big discussion when gcc implemented this). (The value 5 may be too strict, see the manual page.)
     # -Wwrite-strings: give string constants the type const char[length] so that copying the address of one into a non-const char * pointer will get a warning.
     # -Waggregate-return: warn if any functions that return structures or unions are defined or called.
-    # -Wcast-qual: warn whenever a pointer is cast to remove a type qualifier from the target type*.
-    # -Wswitch-default: warn whenever a switch statement does not have a default case*.
-    # -Wswitch-enum: warn whenever a switch statement has an index of enumerated type and lacks a case for one or more of the named codes of that enumeration*.
-    # -Wconversion: warn for implicit conversions that may alter a value*.
-    # -Wunreachable-code: warn if the compiler detects that code will never be executed*.
-    # Those marked * sometimes give too many spurious warnings, so I use them on as-needed basis.
-    # --coverage instruments the branches and calls in the program and creates a coverage notes file, so that when the program is run coverage data is produced that can be formatted by the gcov program to help analysing test coverage.
-    # -fsanitize={address,thread,undefined} enables the AddressSanitizer, ThreadSanitizer and UndefinedBehaviorSanitizer code sanitizers, respectively. These instrument the program to check for various sorts of errors at runtime.
-    # Previously this answer also mentioned -ftrapv, however this functionality has been superseded by -fsanitize=signed-integer-overflow which is one of the sanitizers enabled by -fsanitize=undefined.
-    # https://gcc.gnu.org/onlinedocs/gcc/Option-Summary.html
-    flags="-pipe -static -O0 -ffast-math -fno-exceptions $flag_catch_bugs"
 
-    flags="-O0 $flag_catch_bugs"
+    # Annoying warnings removed
+    flags_no_warn='-Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -Wno-unknown-warning-option -Wno-unused-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-keyword-macro -Wno-unused-variable -Wno-self-assign'
 
+    # Collection of decently extra extra warnings
+    flags_ub='-fwrapv -fno-strict-aliasing -ftrapv'
+    flags_sanitize='-fsanitize=undefined'
+
+    # Everybody does some implicit conversion on purpose of compares floats to zero, cant use this.
+    flags_warn_conversions="-Wfloat-equal -Wconversion"
+
+    # If we use -Wformat=2 then it wont allow runtime format strings which we use
+    flags_warn1='-Wdisabled-optimization -Wduplicated-cond -Wformat=1 -Wvla -Wstrict-overflow=5'
+    flags_warn2="-Wlogical-op -Wnull-dereference -Wpointer-arith -Woverloaded-virtual"
+
+    # Shadowing is done a lot, cant use
+    flags_warn_shadow="-Wshadow "
+
+    # These are nice but can't use it because of vendors
+    flags_warn_switch='-Wswitch-default -Wswitch-enum'
+    # Also cant use because of vendors
+    flags_warn_cast='-Wcast-qual -Wcast-align'
+
+    flags_warn="-Wall -Wextra -Werror $flags_no_warn $flags_ub $flags_warn1 $flags_warn2"
+
+
+
+    case "$1" in
+        release)
+            echo "Configuring for release"
+            flags="-static -pipe -static -O3 -ffast-math -fno-exceptions"
+            ;;
+        debug)
+            echo "Configuring for debug"
+            flags="-static -O0 $flags_debug $flags_warn"
+            ;;
+        *)
+            echo "Configuring for dev speed"
+            flags="-O0 -ferror-limit=8 $flags_warn"
+            ;;
+    esac
 
     pushd ./src/deps/glfw/
     [ -f "$glfw_obj" ] || $cc rglfw.c -o $glfw_obj -c -lc -lm -O3
@@ -152,19 +176,36 @@ build() {
 
     profile_start
 
-    # perf stat
-    # -std=c99                                  \
-    # -std=c23                                  \
+    # Language standard with GNU extensions
+    # -std=c99
+    # -std=c23
+    std_flags="-std=gnu2x"  # GNU-extended C23 (equivalent to -std=gnu23)
+
+    # Enable all C23 features and GNU extensions
+    extension_flags="-fms-extensions -fgnuc-version=13 -fgnu-keywords"
+
+    # Enable specific C23 features
+    # c23_features="-fdeclspec -fblocks -fcoroutines-ts -fdouble-square-bracket-attributes"
+    c23_features="-fdeclspec -fblocks -fcoroutines "
+    c23_full="-fchar8_t -fexperimental-new-constant-interpreter"
+    win_extras="-fms-compatibility -fdelayed-template-parsing -fms-extensions"
+
+    # flags="$flags $c23_features $extension_flags $std_flags"
+    # flags="$flags $std_flags $c23_features $c23_full"
+    flags="$flags $std_flags"
+
     set -x
     $cc -Isrc                    \
+        $flags \
         src/main.c                         \
         src/deps/glfw/$glfw_obj            \
         -o $bin                            \
         -Isrc/deps/                        \
         -Isrc/deps/glfw/glfw/include/      \
-        -lm -lgdi32 -luser32               \
-        $flags
+        -lm -lgdi32 -luser32
+
     set +x
+    # -lkernel32 -lwinmm
 
     profile_end
 
@@ -187,12 +228,78 @@ create_zip() {
 }
 
 
-config_mingw
-build
+# config_mingw
+config_clang_from_linux_to_windows
 
-if [ "$1" = "run" ]; then
-    ./$bin
-fi
+# --------------------------
+# Environment Detection
+# --------------------------
 
-create_zip raymarch
+sync_to_windows() {
+    local exclude_patterns=(
+        --exclude='.git'
+        --exclude='*.zip'
+        --exclude='.cache'
+        --exclude='*.obj'
+    )
+    echo "Syncing files to Windows..."
+
+    profile_start
+    rsync -r "${exclude_patterns[@]}" --size-only ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
+    profile_end "Syncing files into directory $WINDOWS_DESTINATION_DIR"
+}
+
+on_wsl() {
+    grep -qEi "(Microsoft|WSL)" /proc/version
+}
+
+
+start_debugger() {
+    local debugger_path='C:\Dev\tools\raddbg\raddbg.exe'
+    local debugger="$(wslpath "$debugger_path")"
+    local target_dir="$(wslpath "$WINDOWS_DESTINATION_DIR")"
+    echo "Starting debugger $debugger from $target_dir..."
+    cd "$target_dir" && "$debugger" "$1" # Pass in the executable
+}
+
+main() {
+    case "$1" in
+        dev)
+            build
+            ./"$bin"
+            ;;
+        build)
+            build "build"
+            ;;
+        release)
+            build "release"
+            ./"$bin"
+            ;;
+        zip)
+            build "release"
+            create_zip raymarch
+            ;;
+        run)
+            build "release"
+            ;;
+        debug)
+            if ! on_wsl; then
+                echo "Debugging is only supported on WSL"
+                exit 1
+            fi
+
+            build "debug"
+            sync_to_windows
+            start_debugger $bin
+            ;;
+        *)
+            echo "Usage: $0 {build|run|debug}"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
+
+# rsync -r --exclude='.git' --exclude='*.zip' --exclude='.cache' --exclude='*.obj' --size-only ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
 
