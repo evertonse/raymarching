@@ -28,21 +28,39 @@
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
-layout(std140, binding = 2) uniform Camera {
+layout(std140, binding = 2) uniform Camera2 {
     // mat4 view;
     // mat4 proj;
     vec3 camera_position; float _pad0;
     vec3 camera_direction; float _pad1;
+} camera;
+
+struct Light {
+    vec3 position; float pad0;
+    vec3 ambient;  float pad1;
+    vec3 diffuse;  float pad2;
+    vec3 specular; float pad4;
 };
 
-layout(std140, binding = 4) uniform Ub_Data {
-    mat4 model, perspective;
-    // float cx, cy, cz, pad0;
-    vec3 camera_position; float pad0;
-    vec3 light_position;  float pad1;
-    vec3 light_color;     float pad2;
-    float theta, phi; float elapsed_time, delta_time;
-} ub_data;
+struct Camera {
+    vec3  position; float pad0;
+    float theta, phi, pad1, pad2;
+};
+
+
+layout(std140, binding = 4) uniform Per_Frame {
+    mat4 model, view, perspective;
+    Light  light;
+    Camera camera;
+    ve4   time;
+    float elapsed_time, delta_time;
+} per_frame;
+
+
+layout(std140, binding = 5) uniform Ub_Data_Buffer {
+    vec4 random_data;
+} ub_data_buffer;
+// You can call positions_xyz.lenght() to get the the count of positions
 layout(std430, binding = 3) buffer VertexData {
    float positions_xyz[];
 };
@@ -55,45 +73,15 @@ uniform mat4 model;
 uniform mat4 perspective;
 uniform bool is_light;
 
-// uniform vec3 camera_position;
+uniform vec3 camera_position;
 uniform vec2 spherical;
 uniform float u_time;
 
 
+out vec3 Position;
 out vec3 Normal;
 out vec2 TexCoord;
-
-mat4 lookat_rh(vec3 eye, vec3 target, vec3 up) {
-    // Calculate forward vector (negative Z axis)
-    vec3 f = normalize(target - eye);
-    // vec3 zaxis = normalize(target);
-    // Calculate right vector (X axis)
-    vec3 r = normalize(cross(up, f));
-    // Calculate up vector (Y axis)
-    vec3 u = normalize(cross(f, r));
-
-    // Create view matrix (column-major)
-    return mat4(
-       vec4(r, 0.0),
-       vec4(u, 0.0),
-       vec4(f, 0.0),
-       vec4(-dot(r, eye), -dot(u, eye), -dot(f, eye), 1.0)
-    );
-}
-
-mat4 lookat(vec3 eye, vec3 target, vec3 up) {
-    vec3 f = normalize(target - eye);      // forward
-    vec3 r = normalize(cross(up, f));      // right
-    vec3 u = cross(f, r);                  // up (already normalized by previous step)
-
-    // Column-major layout
-    return mat4(
-        vec4(r.x, u.x, f.x, 0.0),
-        vec4(r.y, u.y, f.y, 0.0),
-        vec4(r.z, u.z, f.z, 0.0),
-        vec4(-dot(r, eye), -dot(u, eye), -dot(f, eye), 1.0)
-    );
-}
+out flat int special;
 
 vec3 spherical_to_cartesian(float theta, float phi) {
    // float x = sin(theta) * cos(phi);
@@ -109,42 +97,6 @@ vec3 spherical_to_cartesian(float theta, float phi) {
    float y = -sin(phi) * sin(theta);
    float z =  cos(phi);
    return vec3(x, y, z);
-}
-
-
-mat4 view_from_spherical(vec3 position, float theta, float phi) {
-   vec3 forward = vec3(0.0, 0.0, 1.0);
-   vec3 right   = vec3(1.0, 0.0, 0.0);
-   vec3 up      = vec3(0.0, 1.0, 0.0);
-
-   forward = spherical_to_cartesian(spherical.y, 0.0);
-
-   right   = cross(up, forward);
-   up      = cross(forward, right);
-
-   // forward = normalize(forward);
-   // right   = normalize(right);
-   // up      = normalize(up);
-
-
-   mat4 rotate = mat4(
-      right.x, up.x, forward.x, 0,
-      right.y, up.y, forward.y, 0,
-      right.z, up.z, forward.z, 0,
-      0,       0,    0,         1.0
-   );
-
-   position = camera_position;
-
-   mat4 translate = mat4(
-      1.0,         0.0,         0.0,         0.0,
-      0.0,         1.0,         0.0,         0.0,
-      0.0,         0.0,         1.0,         0.0,
-      -position.x, -position.y, -position.z, 1.0
-   );
-
-   mat4 view = rotate * translate;
-   return view;
 }
 
 float remap(float value, float inputStart, float inputEnd, float outputStart, float outputEnd) {
@@ -169,8 +121,6 @@ float log_remap(float value, float in_min, float in_max, float out_min, float ou
    float log_z = log(z * 9.0 + 1.0) / log(10.0); // range still [0, 1]
    return lerp(out_min, out_max, log_z);
 }
-
-
 
 vec4 perspective_simplest(vec3 position) {
    return vec4(position.xy, position.z*position.z, position.z);
@@ -261,6 +211,119 @@ mat4 perspective_from_fov(float fov_rad, float aspect, float znear, float zfar) 
         0.0,        0.0, (2.0 * zfar * znear) / (znear - zfar),  0.0
     );
 }
+mat4 matrix_translation_row(vec3 translation) {
+    return mat4(
+        1.0, 0.0, 0.0, translation.x,
+        0.0, 1.0, 0.0, translation.y,
+        0.0, 0.0, 1.0, translation.z,
+        0.0, 0.0, 0.0, 1.0
+    );
+}
+
+mat4 matrix_translation(vec3 translationVector) {
+    return mat4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        translationVector.x, translationVector.y, translationVector.z, 1.0
+    );
+}
+
+
+mat4 matrix_scale(vec3 scale) {
+    return mat4(
+        scale.x, 0.0,     0.0,     0.0,
+        0.0,     scale.y, 0.0,     0.0,
+        0.0,     0.0,     scale.z, 0.0,
+        0.0,     0.0,     0.0,     1.0
+    );
+}
+
+mat4 matrix_rotation(vec3 axis, float angle) {
+    // Normalize the axis vector
+    axis = normalize(axis);
+
+    float c = cos(angle);
+    float s = sin(angle);
+    float t = 1.0 - c;
+
+    float x = axis.x;
+    float y = axis.y;
+    float z = axis.z;
+
+    return mat4(
+        t * x * x + c,       t * x * y - s * z,    t * x * z + s * y,    0.0,
+        t * x * y + s * z,   t * y * y + c,        t * y * z - s * x,    0.0,
+        t * x * z - s * y,   t * y * z + s * x,    t * z * z + c,        0.0,
+        0.0,                  0.0,                  0.0,                 1.0
+    );
+}
+mat4 view_from_spherical(vec3 position, float theta, float phi) {
+   vec3 forward = vec3(0.0, 0.0, 1.0);
+   vec3 right   = vec3(1.0, 0.0, 0.0);
+   vec3 up      = vec3(0.0, 1.0, 0.0);
+
+   forward = spherical_to_cartesian(spherical.y, 0.0);
+
+   right   = cross(up, forward);
+   up      = cross(forward, right);
+
+   // forward = normalize(forward);
+   // right   = normalize(right);
+   // up      = normalize(up);
+
+
+   mat4 rotate = mat4(
+      right.x, up.x, forward.x, 0,
+      right.y, up.y, forward.y, 0,
+      right.z, up.z, forward.z, 0,
+      0,       0,    0,         1.0
+   );
+
+   position = camera_position;
+
+   mat4 translate = mat4(
+      1.0,         0.0,         0.0,         0.0,
+      0.0,         1.0,         0.0,         0.0,
+      0.0,         0.0,         1.0,         0.0,
+      -position.x, -position.y, -position.z, 1.0
+   );
+
+   mat4 view = rotate * translate;
+   return view;
+}
+
+mat4 lookat_rh(vec3 eye, vec3 target, vec3 up) {
+    // Calculate forward vector (negative Z axis)
+    vec3 f = normalize(target - eye);
+    // vec3 zaxis = normalize(target);
+    // Calculate right vector (X axis)
+    vec3 r = normalize(cross(up, f));
+    // Calculate up vector (Y axis)
+    vec3 u = normalize(cross(f, r));
+
+    // Create view matrix (column-major)
+    return mat4(
+       vec4(r, 0.0),
+       vec4(u, 0.0),
+       vec4(f, 0.0),
+       vec4(-dot(r, eye), -dot(u, eye), -dot(f, eye), 1.0)
+    );
+}
+
+mat4 lookat(vec3 eye, vec3 target, vec3 up) {
+    vec3 f = normalize(target - eye);      // forward
+    vec3 r = normalize(cross(up, f));      // right
+    vec3 u = cross(f, r);                  // up (already normalized by previous step)
+
+    // Column-major layout
+    return mat4(
+        vec4(r.x, u.x, f.x, 0.0),
+        vec4(r.y, u.y, f.y, 0.0),
+        vec4(r.z, u.z, f.z, 0.0),
+        vec4(-dot(r, eye), -dot(u, eye), -dot(f, eye), 1.0)
+    );
+}
 
 
 vec3 camera_forward(vec2 r) {
@@ -277,7 +340,6 @@ vec3 camera_forward(vec2 r) {
    return normalize(vec3(x, y, z));
 }
 
-
 mat2 rotation(float a) {
     float s = sin(a);
     float c = cos(a);
@@ -292,30 +354,25 @@ vec3 pull_position(int id) {
    );
 
 }
+#define PULLING
+
+const float aspect = 1600./800.;
+const float fov    = PI/3.;
 
 void main() {
-   // float aspect =1600./800.;
-   float aspect = 1600./800.;
-   float fov    = PI/3.;
-
-// #define PULLING
+   special = 0;
 
 #ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
 #else
-   vec4 position = vec4(position.xyz, 1.0);
+   vec4 position = vec4(position.xyz + vec3(10), 1.0);
 #endif
+
+   if (is_light) {
+   }
 
    float positions_count = positions_xyz.length();
    mat4 gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
-
-
-   //
-   // These are good with simplest perspective
-   // vec3 translation = vec3(-.025, -.25, .50);
-   // float scale      = 0.3;
-   //
-
    vec3 translation = vec3(-36.55, -10.55, 50.50);
    float scale      = 12.3;
 
@@ -323,52 +380,58 @@ void main() {
       // scale = 20.3;
    }
 
-   if (true) { // do perspective
-
-      { // Model to World
-         position = model*position;
-         // position.xz   *= rotation(-PI/0.365);
-         position.xyz  *= scale;
-         position.xyz  += translation;
-      }
-
-      {  // World to Camera
-         // position.xz   *= rotation(spherical.x);
-         // position.zy   *= rotation(spherical.y);
-         // position.xzy  -= camera_position;
-         // mat4 view = view_from_spherical(vec3(0., 0., 0.), 0, 0.5);
-
-         vec3 eye = vec3(30., 10., 0.);
-         // eye = camera_position*2;
-         // eye = vec3(ub_data.cx, ub_data.cy, ub_data.cz)*5;
-         eye = ub_data.camera_position*5;
-         vec3 direction = vec3(0., 0., 1.);
-         direction = spherical_to_cartesian(-spherical.y, spherical.x + PI/2);
-         direction = camera_forward(spherical);
-         // direction.xz *= rotation(sin(ub_data.elapsed_time));
-         // direction = camera_forward(spherical);
-         mat4 view = lookat(eye, eye + direction, vec3(0., 1., 0.));
-         position = view * position;
-      }
-
-
-      //
-      // TODO: Make this style of from frustum work with passing an fov, keep the remap solution tho
-      // gl_Position = perspective_from_frustum(position.xyz);
-      //
-
-      // gl_Position = position;
-      // gl_Position = perspective * vec4(position.xy, position.z*-1., position.w);
-      // gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
-      // WARNING: This function is mostly the same except for some z-fighting shenanigans
-      gl_Position = perspective_from_fov(position.xyz, fov, aspect, 0.1, 100.);
-      // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
+   // World position send to next stage
+   position = per_frame.model*position;
+   Position = position.xyz;
+   if (true) {
+      // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
+      Normal = mat3(transpose(inverse(per_frame.model))) * normal; // Apply mat3 to "drop" the translation portion
+      // Normal = ((transpose(inverse(per_frame.model)) * vec4(normal, 0.)).xyz);
    } else {
-      gl_Position = position;
+      Normal = normal.xyz;
    }
 
+
+   if (length(position.xyz) < 10.) {
+      special = 1;
+      // position = matrix_translation(translation)*matrix_rotation(vec3(1.), PI/2.) * matrix_scale(vec3(scale))*model*position;
+      // position =  * per_frame.model*position;
+   }
+   // position = per_frame.model * matrix_rotation(vec3(1.), PI/2.) * position;
+   // position.xyz  *= scale;
+   // position.xyz  += translation;
+   // position.xyz  += translation/2.;
+
+   {  // World to Camera
+      // position.xz   *= rotation(spherical.x);
+      // position.zy   *= rotation(spherical.y);
+      // position.xzy  -= camera_position;
+      // mat4 view = view_from_spherical(vec3(0., 0., 0.), 0, 0.5);
+
+      vec3 eye = per_frame.camera.position;
+      vec3 direction = vec3(0., 0., 1.);
+      direction = spherical_to_cartesian(-spherical.y, spherical.x + PI/2);
+      direction = camera_forward(spherical);
+      // direction.xz *= rotation(sin(per_frame.elapsed_time));
+      // direction = camera_forward(spherical);
+      mat4 view = lookat(eye, eye + direction, vec3(0., 1., 0.));
+      position = view * position;
+   }
+
+
+   //
+   // TODO: Make this style of from frustum work with passing an fov, keep the remap solution tho
+   // gl_Position = perspective_from_frustum(position.xyz);
+   //
+
+   // gl_Position = position;
+   // gl_Position = perspective * vec4(position.xy, position.z*-1., position.w);
+   // gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
+   // WARNING: This function is mostly the same except for some z-fighting shenanigans
+   gl_Position = perspective_from_fov(position.xyz, fov, aspect, 0.1, 100.); // Appears to be infinite in depth
+   // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
+
    TexCoord = uv;
-   Normal   = normal;
 } 
 #version 460 core
       #ifndef lerp
@@ -396,67 +459,194 @@ void main() {
       #endif
    
 
+in vec3 Position;
 in vec3 Normal;
 in vec2 TexCoord;
-flat in int Boolean;
+in flat int special;
+uniform float u_time;
 
 layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
-
-layout(binding = 4) uniform sampler2D tex;
+layout(binding  = 4) uniform sampler2D tex;
 
 uniform bool is_light;
-layout(std140, binding = 2) uniform Camera {
+uniform vec3 camera_position;
+layout(std140, binding = 2) uniform Camera2 {
     // mat4 view;
     // mat4 proj;
     vec3 camera_position; float _pad0;
     vec3 camera_direction; float _pad1;
+} camera;
+
+struct Light {
+    vec3 position; float pad0;
+    vec3 ambient;  float pad1;
+    vec3 diffuse;  float pad2;
+    vec3 specular; float pad4;
 };
 
-layout(std140, binding = 4) uniform Ub_Data {
-    mat4 model, perspective;
-    // float cx, cy, cz, pad0;
-    vec3 camera_position; float pad0;
-    vec3 light_position;  float pad1;
-    vec3 light_color;     float pad2;
-    float theta, phi; float elapsed_time, delta_time;
-} ub_data;
+struct Camera {
+    vec3  position; float pad0;
+    float theta, phi, pad1, pad2;
+};
 
-vec3 brdf_blinn_phong(vec3 light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha) {
+
+layout(std140, binding = 4) uniform Per_Frame {
+    mat4 model, view, perspective;
+    Light  light;
+    Camera camera;
+    ve4   time;
+    float elapsed_time, delta_time;
+} per_frame;
+
+
+layout(std140, binding = 5) uniform Ub_Data_Buffer {
+    vec4 random_data;
+} ub_data_buffer;
+
+vec3 brdf_blinn_phong(
+      vec3 light_direction, vec3 view_direction, vec3 normal,
+      vec3 diffuse_color,       vec3 specular_color,
+      vec3 light_diffuse_color, vec3 light_specular_color, vec3 light_ambient_color,
+      float specular_exponent,  float attenuation
+) {
+
+   vec3 position = Position;
+
    // TODO: use half vector instead
-   vec3 wi = -normalize(light_direction);
-   vec3 wo = -normalize(view_direction);
-   vec3 r  = -reflect(wi, normal);
-   vec3 n  =  normalize(normal);
+   vec3 wi = normalize(light_direction);
+   vec3 wo = normalize(view_direction);
+   vec3 n  = normalize(normal);
 
-   vec3 ambient_color = diffuse_color * specular_color * alpha;
+   vec3 ambient_color = diffuse_color * specular_color;
 
-   float ambient_intesity  = 0.1;
-   float diffuse_intesity  = 0.1;
-   float specular_intesity = 0.2;
+   // Table of materials and constants for ambient: http://devernay.free.fr/cours/opengl/materials.html
+   float ambient_intesity  = attenuation * 0.45 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r);
+   float diffuse_intesity  = attenuation * 0.5;
+   float specular_intesity = attenuation * 0.15;
 
-   return  (diffuse_intesity  * (diffuse_color  * max(0, dot(wi, n))))
-         + (specular_intesity * (specular_color * pow(max(0, dot(r, wo)), alpha)))
-         + (ambient_intesity  * ambient_color);
-}
 
-void main() {
-   vec3 light_color     = vec3(1.0, 1.0, 1.0);
-   vec3 light_direction = normalize(vec3(2., 1., 1.));
+   float specular_term = 0;
 
-   FragColor     = texture(tex, TexCoord);
-   FragColor.w = 1.0;
 
-   if (Boolean == 1 ) {
-   // if (positions.length() == 0) {
-      FragColor = vec4(1.0);
+   const bool use_half_vector = true;
+   if (use_half_vector) {
+      vec3 h = normalize(wo + wi);
+      specular_term = dot(n, h);
+   } else {
+      vec3 r = -reflect(wi, normal);
+      specular_term = dot(r, wo);
    }
 
-   if (is_light) {
-      // FragColor = vec4(light_color, 1.0);
-      FragColor = vec4(ub_data.light_color, 1.0);
+   vec3 diffuse  = light_diffuse_color  * diffuse_color  * max(0, dot(wi, n));
+   vec3 specular = light_specular_color * specular_color * pow(max(0, specular_term), specular_exponent);
+   vec3 ambient  = light_ambient_color  * ambient_color;
+
+   return  (diffuse_intesity  * diffuse)
+         + (specular_intesity * specular)
+         + (ambient_intesity  * ambient);
+}
+
+float n = 10; // 1 100
+float ior = 1.5; // 1 2.5
+bool include_Fresnel = false;
+bool divide_by_NdotL = true;
+
+vec3 BRDF( vec3 L, vec3 V, vec3 N, vec3 X, vec3 Y )
+{
+    vec3 H = normalize(L+V);
+
+    float NdotH = dot(N, H);
+    float VdotH = dot(V, H);
+    float NdotL = dot(N, L);
+    float NdotV = dot(N, V);
+
+    float x = acos(NdotH) * n;
+    float D = exp( -x*x);
+    float G = (NdotV < NdotL) ?
+        ((2*NdotV*NdotH < VdotH) ?
+         2*NdotH / VdotH :
+         1.0 / NdotV)
+        :
+        ((2*NdotL*NdotH < VdotH) ?
+         2*NdotH*NdotL / (VdotH*NdotV) :
+         1.0 / NdotV);
+
+    // fresnel
+    float c = VdotH;
+    float g = sqrt(ior*ior + c*c - 1);
+    float F = 0.5 * pow(g-c,2) / pow(g+c,2) * (1 + pow(c*(g+c)-1,2) / pow(c*(g-c)+1,2));
+
+    float val = NdotH < 0 ? 0.0 : D * G * (include_Fresnel ? F : 1.0);
+
+    if (divide_by_NdotL)
+        val = val / dot(N,L);
+    return vec3(val);
+}
+
+
+vec3 brdf_blinn_phong(
+      vec3 light_direction, vec3 view_direction, vec3 normal,
+      vec3 diffuse_color,       vec3 specular_color,
+      float specular_exponent,  float attenuation
+) {
+   return brdf_blinn_phong(light_direction, view_direction, normal, diffuse_color, specular_color, vec3(1.), vec3(1.), vec3(1.), specular_exponent, attenuation);
+}
+
+
+void main() {
+   vec3 position = Position;
+   vec3 normal   = normalize(Normal);
+
+   vec3 light_direction = normalize(per_frame.light.position - position);
+   vec3 view_direction  = normalize(per_frame.camera.position - position);
+
+   vec3 diffuse_color  = texture(tex, TexCoord).xyz;
+   vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
+
+   float distance_to_light = length(position - per_frame.light.position);
+   float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
+
+   if (special == 1) {
+      FragColor.r = 1.0;
    }
 
 #if 0
-   FragColor = brdf_blinn_phong(light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha);
+   vec4 rand = ub_data_buffer.random_data;
+   if (rand.x == 69.) {
+      FragColor.g = 1.0;
+   }
+
+   if (rand.x == 68.) {
+      FragColor.b = 1.0;
+   }
 #endif
+
+
+   const float max_distance = 40;
+   float attenuation = clamp(max_distance/distance_to_light, 0.20, 1.0);
+   vec3 color =
+      brdf_blinn_phong(
+         light_direction, view_direction, normal,
+         diffuse_color, specular_color,
+         per_frame.light.diffuse, per_frame.light.specular, per_frame.light.ambient,
+         64., attenuation
+      );
+
+   // FragColor = vec4(sin(per_frame.camera.theta), .0, .0, 1.); return;
+   // FragColor = vec4(sin(per_frame.camera.phi), .0, .0, 1.); return;
+   FragColor = vec4(sin(per_frame.elapsed_time), .0, .0, 1.); return;
+   // FragColor = vec4(sin(per_frame.elapsed_time), .0, .0, 1.); return;
+   // FragColor = vec4(sin(0.5), .0, .0, 1.); return;
+   // FragColor = vec4(sin(u_time), .0, .0, 1.); return;
+
+   float attenuation_alpha = clamp(896./distance_to_view, 0.2, 1.0);
+   FragColor = vec4(color , attenuation_alpha);
+
+   // FragColor = vec4(distance_to_view)/1000.;
+
+
+   if (is_light) {
+      // FragColor = vec4(light_color, 1.0);
+      FragColor = vec4(per_frame.light.ambient, 1.0);
+   }
 } 

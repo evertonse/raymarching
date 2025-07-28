@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 
 
 #define GLFW_INCLUDE_NONE
@@ -8,6 +9,9 @@
 #include "glad/gl.h"
 
 
+// NOTE: If not defined, nuklear will try to define itself BUT is crashes when freeing a null which is wrong since stb relys on that behaviour it seems.
+#define STBTT_malloc(x,u)  ((void)(u),malloc(x))
+#define STBTT_free(x,u)    ((void)(u),free(x))
 
 
 #undef assert
@@ -49,6 +53,12 @@ static Window_Title title = {
 #include "./gui.c"
 
 static Camera camera = {0};
+
+constexpr Camera camera_default = {
+    .position = {.x = 100., .y = 4.0, .z = -10.0},
+    .rotation = {.x = 0, .y = 0.0, .z =  0.0 },
+    .zoom = 1.0f
+};
 
 // Values here are read only and are always up to date
 typedef struct {
@@ -141,11 +151,6 @@ int main() {
 
    Countdown window_title_countdown = create_countdown(0.15, true);
 
-   Camera camera_default = {
-       .position = cliteral(Vector3){.x = 0, .y = 3.0, .z = -10.0},
-       .rotation = cliteral(Vector3){.x = 0, .y = 0.0, .z =  0.0 },
-       .zoom = 1.0f
-   };
 
    camera = camera_default;
 
@@ -183,6 +188,8 @@ int main() {
             .height = get_window_height()
          },
       };
+      screen_width  = 1600;
+      screen_height = 800;
 
       update_countdown(&window_title_countdown, conditionally_change_windows_title(time_delta()));
 

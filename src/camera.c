@@ -160,7 +160,7 @@ Camera move_camera(Camera cam) {
    Vector3 up = normalize(cross(right, forward));
 
 
-   f32 speed = 20.20f ;
+   f32 speed = 5*20.20f ;
    if (is_button_pressed(BUTTON_W)) {
       v = add(v, forward);
    }
@@ -186,7 +186,11 @@ Camera move_camera(Camera cam) {
    }
 
    if (is_button_pressed(BUTTON_SHIFT)) {
-      speed *= 2;
+      speed *= 2.5;
+   }
+
+   if (is_button_pressed(BUTTON_C)) {
+      speed *= 0.25;
    }
 
    v = normalize(v);

@@ -12,6 +12,7 @@
 #include "./buffer.c"
 #include "./nuklear.c"
 
+#include "./text.c"
 
 typedef struct {
    union {

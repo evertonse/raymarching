@@ -28,10 +28,6 @@ static void window_key_callback(GLFWwindow *window, int key, int scancode, int a
    }
 #endif
 
-   if (key == GLFW_KEY_C && action == GLFW_RELEASE) {
-      bool sticky = glfwGetWindowAttrib(window, GLFW_FLOATING);
-      glfwSetWindowAttrib(window, GLFW_FLOATING, !sticky);
-   }
 }
 
 static void window_scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
@@ -213,7 +209,15 @@ const char* current_window_title() {
    return glfwGetWindowTitle(__state.window.handle);
 }
 
+void update_on_button(void) {
+   if (is_button_pressed(BUTTON_C)) {
+      bool sticky = is_window_sticky();
+      glfwSetWindowAttrib(__state.window.handle, GLFW_FLOATING, !sticky);
+   }
+}
+
 inline void update_window(void) {
+   update_on_button();
    swap_window_buffers();
    pool_window_events();
 }

@@ -26,7 +26,9 @@
 - [x] Vertex Pulling positions
 - [ ] Vertex Pulling with normal and uvs
 
+- [ ] Accomulated commands and then do one draw_multi_indexed_instanced_indirect, you might be reading a lot of meshes and accumulating, then you much all those vertices into from all meshes accumulated into a single Vertex Buffer and the same for other buffers always remembering and associating the mesh id to int offset into all those buffers to then do pulling from the shader side to decide the correct values (positions, uvs, texture units samples form texure arrays) for the current instance mesh.
 - [ ] Use Persistent Buffer for uniforms
+- [ ] Lear about synchronization
 
 - [x] All DSA
 

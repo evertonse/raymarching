@@ -1,41 +1,27 @@
 #define MAX_FONTS 16
 #define MAX_FONT_SIZES 8
-#define ATLAS_SIZE 4048
+#define ATLAS_SIZE 1024
 #define MAX_GLYPHS 256
 #define MAX_TEXT_LENGTH 1024
-#define OVERSAMPLE_X 2
-#define OVERSAMPLE_Y 2
 
 // For text positioning
 typedef struct {
    float x, y, width, height;
 } Rectangle_Float;
 
-// Glyph info for rect packing
-typedef struct {
-   int codepoint;
-   float advance;
-   int x0, y0, x1, y1; // bitmap bounds
-   float xoff, yoff;   // offset when drawing
-   int bitmap_index;   // index into packed bitmap
-} GlyphInfo;
-
-// Cached font data
 typedef struct {
    stbtt_fontinfo font_info;
    unsigned char *font_data;
    bool loaded;
-   char path[256];
+   char path[256]; // Store path for comparison
 } FontData;
 
-// Font atlas with rect packing
+// Font atlas for specific size
 typedef struct {
    GLuint texture;
-   GlyphInfo glyphs[MAX_GLYPHS];
+   stbtt_bakedchar char_data[MAX_GLYPHS];
    float font_size;
-   float scale;
-   int ascent, descent, line_gap;
-   bool packed;
+   bool baked;
 } FontAtlas;
 
 // Global text renderer state
@@ -48,15 +34,17 @@ static struct {
    GLint u_texture, u_projection, u_text_color, u_char_data, u_char_count;
    GLuint dummy_vao;
 
+   // Texture buffer for character data
    GLuint char_data_buffer;
    GLuint char_data_texture;
 
    bool initialized;
 } g_text_renderer = {0};
 
+// Uses texture buffer instead of uniform arrays
 static const char *vertex_shader_source = "#version 330 core\n"
                                           "uniform mat4 projection;\n"
-                                          "uniform samplerBuffer char_data;\n"
+                                          "uniform samplerBuffer char_data;\n" // Texture buffer with character data
                                           "uniform int char_count;\n"
                                           "\n"
                                           "out vec2 uv;\n"
@@ -71,32 +59,35 @@ static const char *vertex_shader_source = "#version 330 core\n"
                                           "        return;\n"
                                           "    }\n"
                                           "    \n"
-                                          "    vec4 rect = texelFetch(char_data, char_id * 2 + 0);\n"
-                                          "    vec4 uv_rect = texelFetch(char_data, char_id * 2 + 1);\n"
+                                          "    // Fetch character data from texture buffer\n"
+                                          "    // Each character uses 2 texels: [0]=rect(x,y,w,h), [1]=uv(u0,v0,u1,v1)\n"
+                                          "    vec4 rect = texelFetch(char_data, char_id * 2 + 0);\n"    // x, y, width, height\n"
+                                          "    vec4 uv_rect = texelFetch(char_data, char_id * 2 + 1);\n" // u0, v0, u1, v1\n"
                                           "    \n"
+                                          "    // Quad vertices: 0,1,2 = bottom-left triangle, 3,4,5 = top-right triangle\n"
                                           "    vec2 positions[6] = vec2[](\n"
-                                          "        vec2(rect.x, rect.y),\n"
-                                          "        vec2(rect.x + rect.z, rect.y),\n"
-                                          "        vec2(rect.x, rect.y + rect.w),\n"
-                                          "        vec2(rect.x + rect.z, rect.y),\n"
-                                          "        vec2(rect.x + rect.z, rect.y + rect.w),\n"
-                                          "        vec2(rect.x, rect.y + rect.w)\n"
+                                          "        vec2(rect.x, rect.y),                    // 0: bottom-left\n"
+                                          "        vec2(rect.x + rect.z, rect.y),           // 1: bottom-right\n"
+                                          "        vec2(rect.x, rect.y + rect.w),           // 2: top-left\n"
+                                          "        vec2(rect.x + rect.z, rect.y),           // 3: bottom-right\n"
+                                          "        vec2(rect.x + rect.z, rect.y + rect.w),  // 4: top-right\n"
+                                          "        vec2(rect.x, rect.y + rect.w)            // 5: top-left\n"
                                           "    );\n"
                                           "    \n"
                                           "    vec2 uvs[6] = vec2[](\n"
-                                          "        vec2(uv_rect.x, uv_rect.w),\n"
-                                          "        vec2(uv_rect.z, uv_rect.w),\n"
-                                          "        vec2(uv_rect.x, uv_rect.y),\n"
-                                          "        vec2(uv_rect.z, uv_rect.w),\n"
-                                          "        vec2(uv_rect.z, uv_rect.y),\n"
-                                          "        vec2(uv_rect.x, uv_rect.y)\n"
+                                          "        vec2(uv_rect.x, uv_rect.w),              // 0: u0, v1\n"
+                                          "        vec2(uv_rect.z, uv_rect.w),              // 1: u1, v1\n"
+                                          "        vec2(uv_rect.x, uv_rect.y),              // 2: u0, v0\n"
+                                          "        vec2(uv_rect.z, uv_rect.w),              // 3: u1, v1\n"
+                                          "        vec2(uv_rect.z, uv_rect.y),              // 4: u1, v0\n"
+                                          "        vec2(uv_rect.x, uv_rect.y)               // 5: u0, v0\n"
                                           "    );\n"
                                           "    \n"
                                           "    gl_Position = projection * vec4(positions[vertex_id], 0.0, 1.0);\n"
                                           "    uv = uvs[vertex_id];\n"
                                           "}\n";
 
-// accidently auto formatted
+// Fragment shader
 static const char *fragment_shader_source = "#version 330 core\n"
                                             "in vec2 uv;\n"
                                             "uniform sampler2D font_texture;\n"
@@ -125,7 +116,6 @@ static GLuint compile_shader(GLenum type, const char *source) {
    return shader;
 }
 
-// DONT use out apis yet
 static bool create_shader_program() {
    GLuint vertex_shader = compile_shader(GL_VERTEX_SHADER, vertex_shader_source);
    GLuint fragment_shader = compile_shader(GL_FRAGMENT_SHADER, fragment_shader_source);
@@ -152,16 +142,17 @@ static bool create_shader_program() {
    glDeleteShader(vertex_shader);
    glDeleteShader(fragment_shader);
 
+   // Get uniform locations
    g_text_renderer.u_texture = glGetUniformLocation(g_text_renderer.shader_program, "font_texture");
    g_text_renderer.u_projection = glGetUniformLocation(g_text_renderer.shader_program, "projection");
    g_text_renderer.u_text_color = glGetUniformLocation(g_text_renderer.shader_program, "text_color");
    g_text_renderer.u_char_data = glGetUniformLocation(g_text_renderer.shader_program, "char_data");
    g_text_renderer.u_char_count = glGetUniformLocation(g_text_renderer.shader_program, "char_count");
 
-
    return true;
 }
 
+// Load font from file
 static int load_font(const char *font_path) {
    if (g_text_renderer.current_font_count >= MAX_FONTS) {
       return -1;
@@ -181,7 +172,7 @@ static int load_font(const char *font_path) {
    }
 
    fseek(file, 0, SEEK_END);
-   size_t size = ftell(file);
+   usz size = ftell(file);
    fseek(file, 0, SEEK_SET);
 
    FontData *font = &g_text_renderer.fonts[g_text_renderer.current_font_count];
@@ -213,8 +204,8 @@ static int load_font(const char *font_path) {
    return g_text_renderer.current_font_count++;
 }
 
-// Pack font atlas using stb_rect_pack with oversampling
-static FontAtlas *pack_font_atlas(int font_id, float font_size) {
+// Get or create font atlas for specific size
+static FontAtlas *get_font_atlas(int font_id, float font_size) {
    if (font_id < 0 || font_id >= g_text_renderer.current_font_count) {
       return NULL;
    }
@@ -222,7 +213,7 @@ static FontAtlas *pack_font_atlas(int font_id, float font_size) {
    // Find existing atlas for this size
    for (int i = 0; i < MAX_FONT_SIZES; i++) {
       FontAtlas *atlas = &g_text_renderer.atlases[font_id][i];
-      if (atlas->packed && fabs(atlas->font_size - font_size) < 0.1f) {
+      if (atlas->baked && fabs(atlas->font_size - font_size) < 0.1f) {
          return atlas;
       }
    }
@@ -230,7 +221,7 @@ static FontAtlas *pack_font_atlas(int font_id, float font_size) {
    // Find empty slot
    FontAtlas *atlas = NULL;
    for (int i = 0; i < MAX_FONT_SIZES; i++) {
-      if (!g_text_renderer.atlases[font_id][i].packed) {
+      if (!g_text_renderer.atlases[font_id][i].baked) {
          atlas = &g_text_renderer.atlases[font_id][i];
          break;
       }
@@ -241,152 +232,62 @@ static FontAtlas *pack_font_atlas(int font_id, float font_size) {
       return NULL;
    }
 
-   FontData *font = &g_text_renderer.fonts[font_id];
-   atlas->scale = stbtt_ScaleForPixelHeight(&font->font_info, font_size);
-   atlas->font_size = font_size;
-
-   stbtt_GetFontVMetrics(&font->font_info, &atlas->ascent, &atlas->descent, &atlas->line_gap);
-
-   // Prepare rectangle packing
-   stbrp_context pack_context;
-   stbrp_node pack_nodes[MAX_GLYPHS];
-   stbrp_init_target(&pack_context, ATLAS_SIZE, ATLAS_SIZE, pack_nodes, MAX_GLYPHS);
-
-   stbrp_rect pack_rects[MAX_GLYPHS];
-   unsigned char *glyph_bitmaps[MAX_GLYPHS];
-   int glyph_count = 0;
-
-   // Generate glyph data for ASCII 32-127
-   for (int i = 32; i < 128 && glyph_count < MAX_GLYPHS; i++) {
-      int glyph_index = stbtt_FindGlyphIndex(&font->font_info, i);
-      if (glyph_index == 0 && i != 32) continue; // Skip missing glyphs except space
-
-      GlyphInfo *glyph = &atlas->glyphs[glyph_count];
-      glyph->codepoint = i;
-
-      int advance, lsb;
-      stbtt_GetGlyphHMetrics(&font->font_info, glyph_index, &advance, &lsb);
-      glyph->advance = advance * atlas->scale;
-
-      int x0, y0, x1, y1; stbtt_GetGlyphBitmapBoxSubpixel(&font->font_info, glyph_index, atlas->scale * OVERSAMPLE_X, 
-                                      atlas->scale * OVERSAMPLE_Y, 0, 0, &x0, &y0, &x1, &y1);
-
-      int width = x1 - x0;
-      int height = y1 - y0;
-
-      if (width > 0 && height > 0) {
-         // Store glyph bounds
-         glyph->x0 = x0; glyph->y0 = y0;
-         glyph->x1 = x1; glyph->y1 = y1;
-         glyph->xoff = x0 / (float)OVERSAMPLE_X;
-         glyph->yoff = y0 / (float)OVERSAMPLE_Y;
-
-         // Generate oversampled bitmap
-         glyph_bitmaps[glyph_count] = malloc(width * height);
-         if (glyph_bitmaps[glyph_count]) {
-            stbtt_MakeGlyphBitmapSubpixel(&font->font_info, glyph_bitmaps[glyph_count], 
-                                         width, height, width, atlas->scale * OVERSAMPLE_X, 
-                                         atlas->scale * OVERSAMPLE_Y, 0, 0, glyph_index);
-
-            // Setup rect for packing
-            pack_rects[glyph_count].w = width;
-            pack_rects[glyph_count].h = height;
-            pack_rects[glyph_count].id = glyph_count;
-         }
-      } else {
-         glyph_bitmaps[glyph_count] = NULL;
-         pack_rects[glyph_count].w = 0;
-         pack_rects[glyph_count].h = 0;
-         pack_rects[glyph_count].id = glyph_count;
-      }
-
-      glyph->bitmap_index = glyph_count;
-      glyph_count++;
-   }
-
-   // Packing rectangles
-   if (!stbrp_pack_rects(&pack_context, pack_rects, glyph_count)) {
-      printf("Failed to pack font atlas\n");
-      for (int i = 0; i < glyph_count; i++) {
-         if (glyph_bitmaps[i]) free(glyph_bitmaps[i]);
-      }
+   // Create atlas texture
+   unsigned char *bitmap = malloc(ATLAS_SIZE * ATLAS_SIZE);
+   if (!bitmap) {
+      printf("Failed to allocate bitmap memory\n");
       return NULL;
    }
 
-   unsigned char *atlas_bitmap = calloc(ATLAS_SIZE * ATLAS_SIZE, 1);
-   if (!atlas_bitmap) {
-      printf("Failed to allocate atlas bitmap\n");
-      for (int i = 0; i < glyph_count; i++) {
-         if (glyph_bitmaps[i]) free(glyph_bitmaps[i]);
-      }
+   // Initialize bitmap to zero
+   memset(bitmap, 0, ATLAS_SIZE * ATLAS_SIZE);
+
+   // Bake font
+   int result = stbtt_BakeFontBitmap(g_text_renderer.fonts[font_id].font_data, 0, font_size, bitmap, ATLAS_SIZE, ATLAS_SIZE, 32, MAX_GLYPHS - 32, // ASCII 32-255
+                                     atlas->char_data);
+
+   if (result <= 0) {
+      printf("Failed to bake font bitmap\n");
+      free(bitmap);
       return NULL;
-   }
-
-   // Copy glyphs to atlas and downsample
-   for (int i = 0; i < glyph_count; i++) {
-      if (!glyph_bitmaps[i] || !pack_rects[i].was_packed) continue;
-
-      GlyphInfo *glyph = &atlas->glyphs[i];
-      int src_w = glyph->x1 - glyph->x0;
-      int src_h = glyph->y1 - glyph->y0;
-      int dst_x = pack_rects[i].x;
-      int dst_y = pack_rects[i].y;
-
-      // Downsample from oversampled bitmap
-      for (int y = 0; y < src_h / OVERSAMPLE_Y; y++) {
-         for (int x = 0; x < src_w / OVERSAMPLE_X; x++) {
-            int sum = 0;
-            for (int oy = 0; oy < OVERSAMPLE_Y; oy++) {
-               for (int ox = 0; ox < OVERSAMPLE_X; ox++) {
-                  int sx = x * OVERSAMPLE_X + ox;
-                  int sy = y * OVERSAMPLE_Y + oy;
-                  if (sx < src_w && sy < src_h) {
-                     sum += glyph_bitmaps[i][sy * src_w + sx];
-                  }
-               }
-            }
-            atlas_bitmap[(dst_y + y) * ATLAS_SIZE + (dst_x + x)] = sum / (OVERSAMPLE_X * OVERSAMPLE_Y);
-         }
-      }
-
-      // Store UV coordinates (downsampled size)
-      glyph->x0 = dst_x;
-      glyph->y0 = dst_y;
-      glyph->x1 = dst_x + src_w / OVERSAMPLE_X;
-      glyph->y1 = dst_y + src_h / OVERSAMPLE_Y;
-
-      free(glyph_bitmaps[i]);
    }
 
    // Create OpenGL texture
    glGenTextures(1, &atlas->texture);
    glBindTexture(GL_TEXTURE_2D, atlas->texture);
-   glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RED, GL_UNSIGNED_BYTE, atlas_bitmap);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RED, GL_UNSIGNED_BYTE, bitmap);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-   free(atlas_bitmap);
-   atlas->packed = true;
+   free(bitmap);
+
+   atlas->font_size = font_size;
+   atlas->baked = true;
 
    return atlas;
 }
 
-// NOTE: Not using api yet, still experimenting A lot
+// Initialize text renderer
 static void init_text_renderer() {
    if (g_text_renderer.initialized)
       return;
 
+   // Create shader program
    if (!create_shader_program()) {
       printf("Failed to create text shader program\n");
       return;
    }
 
+   // Create a dummy VAO (required by OpenGL core profile)
    glGenVertexArrays(1, &g_text_renderer.dummy_vao);
+
+   // Create texture buffer for character data
    glGenBuffers(1, &g_text_renderer.char_data_buffer);
    glGenTextures(1, &g_text_renderer.char_data_texture);
 
+   // Setup texture buffer (each char needs 2 vec4s: rect + uvs)
    glBindBuffer(GL_TEXTURE_BUFFER, g_text_renderer.char_data_buffer);
    glBufferData(GL_TEXTURE_BUFFER, MAX_TEXT_LENGTH * 2 * 4 * sizeof(float), NULL, GL_DYNAMIC_DRAW);
 
@@ -396,19 +297,9 @@ static void init_text_renderer() {
    g_text_renderer.initialized = true;
 }
 
-static GlyphInfo *find_glyph(FontAtlas *atlas, int codepoint) {
-   for (int i = 0; i < MAX_GLYPHS; i++) {
-      if (atlas->glyphs[i].codepoint == codepoint) {
-         return &atlas->glyphs[i];
-      }
-   }
-   return NULL;
-}
-
-// FIX: Gross.
-float screen_width = 600.0f, screen_height = 400.0f;
-
+// Main text rendering function
 void draw_text_extended(const char *text, float font_size, Rectangle_Float rect) {
+   float screen_width = (float)800, screen_height = 600;
    if (!g_text_renderer.initialized) {
       init_text_renderer();
    }
@@ -416,106 +307,110 @@ void draw_text_extended(const char *text, float font_size, Rectangle_Float rect)
    if (!text || strlen(text) == 0)
       return;
 
+   // Load font
    int font_id = load_font("res/fonts/Alegreya-Regular.ttf");
    if (font_id == -1)
       return;
 
-   FontAtlas *atlas = pack_font_atlas(font_id, font_size);
+   // Get font atlas
+   FontAtlas *atlas = get_font_atlas(font_id, font_size);
    if (!atlas)
       return;
 
+   // Calculate character positions and UVs
    int text_len = strlen(text);
    if (text_len > MAX_TEXT_LENGTH)
       text_len = MAX_TEXT_LENGTH;
 
-   float char_data[MAX_TEXT_LENGTH * 8];
+   float char_data[MAX_TEXT_LENGTH * 8]; // Each char: rect(4) + uvs(4) = 8 floats
    int visible_chars = 0;
 
    float x = rect.x;
-   float y = rect.y + atlas->ascent * atlas->scale;
+   float y = rect.y + font_size; // Baseline adjustment
 
    for (int i = 0; i < text_len; i++) {
       char c = text[i];
 
+      // Handle newlines
       if (c == '\n') {
          x = rect.x;
-         y += (atlas->ascent - atlas->descent + atlas->line_gap) * atlas->scale;
+         y += font_size * 1.2f; // Line spacing
          continue;
       }
 
-      GlyphInfo *glyph = find_glyph(atlas, c);
-      if (!glyph) continue;
+      if (c < 32 || c >= 127)
+         continue; // Skip non-printable chars
 
-      if (glyph->x1 > glyph->x0 && glyph->y1 > glyph->y0) {
-         int base = visible_chars * 8;
+      stbtt_aligned_quad q;
+      stbtt_GetBakedQuad(atlas->char_data, ATLAS_SIZE, ATLAS_SIZE, c - 32, &x, &y, &q, 1);
 
-         float gx = x + glyph->xoff;
-         float gy = y + glyph->yoff;
-         float gw = (glyph->x1 - glyph->x0);
-         float gh = (glyph->y1 - glyph->y0);
+      // Each character uses 8 floats: rect(4) + uvs(4)
+      int base = visible_chars * 8;
 
-         // Character rectangle
-         char_data[base + 0] = gx;
-         char_data[base + 1] = screen_height - gy - gh;
-         char_data[base + 2] = gw;
-         char_data[base + 3] = gh;
+      // Character rectangle (flip Y coordinate for screen space)
+      char_data[base + 0] = q.x0;                 // x
+      char_data[base + 1] = screen_height - q.y1; // y (flipped for screen coordinates)
+      char_data[base + 2] = q.x1 - q.x0;          // width
+      char_data[base + 3] = q.y1 - q.y0;          // height
 
-         // UV coordinates
-         char_data[base + 4] = glyph->x0 / (float)ATLAS_SIZE;
-         char_data[base + 5] = glyph->y0 / (float)ATLAS_SIZE;
-         char_data[base + 6] = glyph->x1 / (float)ATLAS_SIZE;
-         char_data[base + 7] = glyph->y1 / (float)ATLAS_SIZE;
+      // UV coordinates
+      char_data[base + 4] = q.s0; // u0
+      char_data[base + 5] = q.t0; // v0
+      char_data[base + 6] = q.s1; // u1
+      char_data[base + 7] = q.t1; // v1
 
-         visible_chars++;
-      }
-
-      x += glyph->advance;
+      visible_chars++;
    }
 
    if (visible_chars == 0)
       return;
 
+   // Upload character data to texture buffer
    glBindBuffer(GL_TEXTURE_BUFFER, g_text_renderer.char_data_buffer);
    glBufferSubData(GL_TEXTURE_BUFFER, 0, visible_chars * 8 * sizeof(float), char_data);
 
+   // Set up rendering state
    glUseProgram(g_text_renderer.shader_program);
    glBindVertexArray(g_text_renderer.dummy_vao);
 
+   // Bind font texture to unit 0
    glActiveTexture(GL_TEXTURE0);
    glBindTexture(GL_TEXTURE_2D, atlas->texture);
    glUniform1i(g_text_renderer.u_texture, 0);
 
+   // Bind character data texture to unit 1
    glActiveTexture(GL_TEXTURE1);
    glBindTexture(GL_TEXTURE_BUFFER, g_text_renderer.char_data_texture);
    glUniform1i(g_text_renderer.u_char_data, 1);
 
+   // Set other uniforms
    glUniform1i(g_text_renderer.u_char_count, visible_chars);
-   glUniform4f(g_text_renderer.u_text_color, 1.0f, 1.0f, 1.0f, 1.0f);
+   glUniform4f(g_text_renderer.u_text_color, 1.0f, 1.0f, 1.0f, 1.0f); // White text
 
+   // Set projection matrix (orthographic)
    float projection[16] = {2.0f / screen_width, 0, 0, 0, 0, 2.0f / screen_height, 0, 0, 0, 0, -1, 0, -1, -1, 0, 1};
    glUniformMatrix4fv(g_text_renderer.u_projection, 1, GL_FALSE, projection);
 
+   // Enable blending for text
    glEnable(GL_BLEND);
    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+   // Draw all characters in one call
    glDrawArrays(GL_TRIANGLES, 0, visible_chars * 6);
 
    glDisable(GL_BLEND);
 }
 
-void draw_text(const char *text) {
-   float font_size = 24.;
-   draw_text_extended(text, font_size, (Rectangle_Float){50, 50, 150, font_size*2});
-}
+void draw_text(const char *text) { draw_text_extended(text, 24., (Rectangle_Float){50, 50, 400, 60}); }
 
-void shutdown_text_renderer() {
+void cleanup_text_renderer() {
    for (int i = 0; i < g_text_renderer.current_font_count; i++) {
       if (g_text_renderer.fonts[i].loaded) {
          free(g_text_renderer.fonts[i].font_data);
       }
 
       for (int j = 0; j < MAX_FONT_SIZES; j++) {
-         if (g_text_renderer.atlases[i][j].packed) {
+         if (g_text_renderer.atlases[i][j].baked) {
             glDeleteTextures(1, &g_text_renderer.atlases[i][j].texture);
          }
       }
@@ -539,3 +434,4 @@ void shutdown_text_renderer() {
 
    memset(&g_text_renderer, 0, sizeof(g_text_renderer));
 }
+

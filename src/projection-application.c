@@ -1,5 +1,13 @@
 #include "raymath.h"
 typedef struct {
+    Vector3 position; f32 pad0;
+    Vector3 ambient;  f32 pad1;
+    Vector3 diffuse;  f32 pad2;
+    Vector3 specular; f32 pad3;
+} Light;
+
+
+typedef struct {
    Application app; // must be first
 
    Shader         shader, light_shader;
@@ -15,23 +23,26 @@ typedef struct {
 
    Uniform_Buffer ub, ub2;
    Buffer buffer;
+
    struct {
-      alignas(16) Matrix model;
-      alignas(16) Matrix view;
-      alignas(16) Matrix pespective;
-      alignas(16) Vector3 camera_position; f32 pad0;
-      alignas(16) Vector3 light_position;  f32 pad1;
-      alignas(16) Vector3 light_color;     f32 pad2;
-      alignas(16) f32 theta, phi; f32 elapsed_time, delta_time;
-   } ub_data STD140_ALIGN;
+      Matrix model;
+      Matrix view;
+      Matrix pespective;
+
+      Light light;
+
+      struct{
+         Vector3 position; f32 pad0;
+         f32 theta, phi, pad1, pad2; // Spherical Coordinates
+      } camera;
+
+      f32 elapsed_time, delta_time;
+   } per_frame STD140_ALIGN;
 
 } Projection_Application;
 
 
-
-
-
-// __attribute__((overloadable)) // TOOD Check this out on clang
+// __attribute__((overloadable)) // TODO: Check this out on clang extensions plus builtin vecto3 types
 void projection_update_shaders(Projection_Application *app) {
    static const char *shader_paths[] = {
       "res/shaders/default.glsl",
@@ -70,7 +81,7 @@ void projection_update_shaders(Projection_Application *app) {
 void projection_init(Projection_Application *app) {
    app->va          = create_vertex_array_from_mesh(&chosen_mesh);
    app->cube_va     = create_vertex_array_from_mesh(&cube_mesh);
-   app->sphere_mesh = generate_sphere_mesh(0.5, 32, 32);
+   app->sphere_mesh = generate_sphere_mesh(0.5, 2*32, 2*32);
    app->sphere_va   = create_vertex_array_from_mesh(&app->sphere_mesh);
 
    projection_update_shaders(app);
@@ -90,9 +101,9 @@ void projection_init(Projection_Application *app) {
 
    isz ub_binding = 2;
    app->ub  = create_uniform_buffer(size_of(Matrix)*2, ub_binding);
-   app->ub2 = create_uniform_buffer(size_of(app->ub_data), ub_binding + 2);
+   app->ub2 = create_uniform_buffer(size_of(app->per_frame), ub_binding + 2);
    free(app->ub2.cpu_mem);
-   app->buffer = create_buffer_extended(BUFFER_TYPE_UNIFORM, BUFFER_USAGE_PERSISTENT, nullptr, size_of(app->ub_data), 5);
+   app->buffer = create_buffer_extended(BUFFER_TYPE_UNIFORM, BUFFER_USAGE_PERSISTENT, nullptr, size_of(app->per_frame), 5);
 
    app->shader = shader_invalid;
 
@@ -123,29 +134,40 @@ void projection_update(Projection_Application *app, f64 dt) {
    // sync = sync_point(sync);
    app->ub.offset = 0; // reset for next frame
 
+   static Vector3 light_position = {110.0f,  10.f, 4.0f};
+   gui_vector3("Light Position", &light_position);
+
+
    {  //  Update the main uniform buffer
+      auto per_frame = &app->per_frame;
       Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
       Matrix  view      = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
 
-      app->ub_data = (typeof(app->ub_data)) {
+      *per_frame   =  (typeof(app->per_frame)) {
          .model           = MatrixIdentity(),
          .pespective      = MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0),
          .view            = view,
-         .camera_position = camera.position,
-         .light_position  = {1.0f,  100.f, 3.0f},
-         .light_color     = {0.89f, 0.85f, 1.0f},
-         .theta           = camera.rotation.x,
-         .phi             = camera.rotation.y,
+         .light = {
+            .position  = light_position,
+            .ambient     = {0.89f,  0.85f,  0.99f },
+            .diffuse     = {0.99f,  0.85f,  0.80f },
+            .specular    = {0.88f,  0.99f,  0.75f },
+         },
+         .camera = {
+            .position = camera.position,
+            .theta    = camera.rotation.x,
+            .phi      = camera.rotation.y,
+         },
          .elapsed_time    = time_elapsed(),
          .delta_time      = time_delta()
       };
 
-      update_buffer(&app->ub2,    &app->ub_data, size_of(app->ub_data), 0);
-      // glFinish();
+      assert(size_of(typeof(app->per_frame)) == size_of(app->per_frame));
 
+      update_buffer(&app->ub2, &app->per_frame, size_of(app->per_frame), 0);
       *(Vector4*)app->buffer.mapped_ptr = (Vector4){69.0, 70., 71., 72.};
-      // update_buffer(&app->buffer, &app->ub_data, size_of(app->ub_data), 0);
    }
+
 
 
    update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
@@ -169,6 +191,8 @@ void projection_update(Projection_Application *app, f64 dt) {
    Shader shader = app->shader;
    bind_shader(shader);
    {
+      upload_uniform_vec3(shader, "camera_position", &camera.position);
+
       upload_uniform_bool(shader, "is_light", false);
 
       GLint view_location = glGetUniformLocation(shader.handle, "view");
@@ -190,7 +214,6 @@ void projection_update(Projection_Application *app, f64 dt) {
       GLint spherical_location = glGetUniformLocation(shader.handle, "spherical");
       glUniform2f(spherical_location, camera.rotation.y, camera.rotation.x);
 
-      // GLint position_location = glGetUniformLocation(shader.handle, "camera_position");
       push_uniform(&app->ub, DATA_TYPE_VEC3, &camera.position, 1);
       update_buffer(&app->ub.buffer, app->ub.cpu_mem, app->ub.offset, 0);
 
@@ -253,9 +276,8 @@ void projection_update(Projection_Application *app, f64 dt) {
       gui_float("Model Scale", &scale_single);
       gui_float("Model Rotation", &rotation_single);
       if (is_button_pressed(BUTTON_R)) {
-
-         f32 scale_single    =  12.4;
-         f32 rotation_single =  0;
+         scale_single    =  12.4;
+         rotation_single =  0;
          camera = (typeof(camera)){0};
          camera.position.y = 3.f; // just a bit off the ground
          camera.position.z = -3.f; // just a bit behind both near plane
@@ -279,14 +301,13 @@ void projection_update(Projection_Application *app, f64 dt) {
 
          Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
 
-         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->ub_data.model), offset_of(typeof(app->ub_data), model));
-         // update_buffer(&app->buffer, MatrixToFloat(model), size_of(app->ub_data.model), offset_of(typeof(app->ub_data), model));
+         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+         // update_buffer(&app->buffer, MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
          // glFinish();
 
          *(Vector4*)app->buffer.mapped_ptr = (Vector4){68.0, 70., 71., 72.};
-         // isz _ = update_buffer_mapped_ptr(app->ub2, MatrixToFloat(model), size_of(app->ub_data.model), offset_of(typeof(app->ub_data), model));
+         // isz _ = update_buffer_mapped_ptr(app->ub2, MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
          bind_buffer_as_type(&app->ub2.buffer, BUFFER_TYPE_UNIFORM, 4);
-         bind_buffer_as_type(&app->buffer,     BUFFER_TYPE_UNIFORM, 5);
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
          assert(is_valid_vertex_array(app->va));
@@ -298,14 +319,30 @@ void projection_update(Projection_Application *app, f64 dt) {
       // Vector3Unproject(Vector3 screen_, Matrix projection, Matrix view);
 
 
-      upload_uniform_bool(app->shader, "is_light", true);
+      {
 
-      glBindVertexArray(app->sphere_va.handle);
-      glDrawElements(GL_TRIANGLES, app->sphere_va.ib.count, GL_UNSIGNED_INT, NULL);
+         const f32 scale_single    = 5.4;
+         Matrix translation_matrix = MatrixTranslate(app->per_frame.light.position.x, app->per_frame.light.position.y, app->per_frame.light.position.z);
+         Matrix scale_matrix       = MatrixScale(scale_single, scale_single, scale_single);
+         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, 0);
+         Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
+         upload_uniform_bool(app->shader, "is_light", true);
+         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+         bind_buffer_as_type(&app->sphere_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
+
+         glBindVertexArray(app->sphere_va.handle);
+         glDrawElements(GL_TRIANGLES, app->sphere_va.ib.count, GL_UNSIGNED_INT, NULL);
+      }
+
 
       if (true) {
-         Matrix model = MatrixRotate((Vector3){ 1., 1., 1.}, PI/3.);
-         // model = MatrixMultiply(MatrixTranslate(0, -0.50, 0), model);
+         const f32 scale_single    = 10.4;
+         Matrix translation_matrix = MatrixTranslate(12, 10, 0);
+         Matrix scale_matrix       = MatrixScale(scale_single, scale_single, scale_single);
+         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, 0);
+         Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
+         upload_uniform_bool(app->shader, "is_light", false);
+         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
          glBindTextureUnit(4, app->cube_texture.handle);
@@ -316,6 +353,26 @@ void projection_update(Projection_Application *app, f64 dt) {
          glDrawElements(GL_TRIANGLES, app->cube_va.ib.count, GL_UNSIGNED_INT, NULL);
       }
 
+      if (true) {
+         Matrix translation_matrix = MatrixTranslate(0, 0, -2);
+         Matrix scale_matrix       = MatrixScale(100000, 1/100., 100000);
+         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, 0);
+         Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
+
+         upload_uniform_bool(app->shader, "is_light", false);
+         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+
+         glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
+         glBindTextureUnit(4, app->diffuse_texture.handle);
+         bind_buffer_as_type(&app->cube_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
+
+         glBindVertexArray(app->cube_va.handle);
+         assert(is_valid_vertex_array(app->cube_va));
+         glDrawElements(GL_TRIANGLES, app->cube_va.ib.count, GL_UNSIGNED_INT, NULL);
+      }
+
+
+      draw_text("Fuck your mother");
    }
 
    if (!is_window_minimized()) {

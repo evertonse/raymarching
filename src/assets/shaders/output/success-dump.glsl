@@ -28,27 +28,38 @@
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
-layout(std140, binding = 2) uniform Camera {
+layout(std140, binding = 2) uniform Camera2 {
     // mat4 view;
     // mat4 proj;
     vec3 camera_position; float _pad0;
     vec3 camera_direction; float _pad1;
+} camera;
+
+struct Light {
+    vec3 position; float pad0;
+    vec3 ambient;  float pad1;
+    vec3 diffuse;  float pad2;
+    vec3 specular; float pad4;
 };
 
-layout(std140, binding = 4) uniform Ub_Data {
+struct Camera {
+    vec3  position; float pad0;
+    float theta, phi, pad1, pad2;
+};
+
+
+layout(std140, binding = 4) uniform Per_Frame {
     mat4 model, view, perspective;
-    // float cx, cy, cz, pad0;
-    vec3 camera_position; float pad0;
-    vec3 light_position;  float pad1;
-    vec3 light_color;     float pad2;
-    float theta, phi; float elapsed_time, delta_time;
-} ub_data;
+    Light  light;
+    Camera camera;
+    float elapsed_time, delta_time;
+} per_frame;
 
 
 layout(std140, binding = 5) uniform Ub_Data_Buffer {
     vec4 random_data;
 } ub_data_buffer;
-// You can call positions_xyz.lenght() to get the the count of positions 
+// You can call positions_xyz.lenght() to get the the count of positions
 layout(std430, binding = 3) buffer VertexData {
    float positions_xyz[];
 };
@@ -61,11 +72,12 @@ uniform mat4 model;
 uniform mat4 perspective;
 uniform bool is_light;
 
-// uniform vec3 camera_position;
+uniform vec3 camera_position;
 uniform vec2 spherical;
 uniform float u_time;
 
 
+out vec3 Position;
 out vec3 Normal;
 out vec2 TexCoord;
 out flat int special;
@@ -341,21 +353,21 @@ vec3 pull_position(int id) {
    );
 
 }
-// #define PULLING
+#define PULLING
 
 const float aspect = 1600./800.;
 const float fov    = PI/3.;
 
 void main() {
    special = 0;
+
 #ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
 #else
-   vec4 position = vec4(position.xyz, 1.0);
+   vec4 position = vec4(position.xyz + vec3(10), 1.0);
 #endif
 
    if (is_light) {
-      // position = vec4(ub_data.light_position.xyz, 1.0);
    }
 
    float positions_count = positions_xyz.length();
@@ -367,15 +379,24 @@ void main() {
       // scale = 20.3;
    }
 
-   position = ub_data.model*position;
+   // World position send to next stage
+   position = per_frame.model*position;
+   Position = position.xyz;
+   if (true) {
+      // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
+      Normal = mat3(transpose(inverse(per_frame.model))) * normal; // Apply mat3 to "drop" the translation portion
+      // Normal = ((transpose(inverse(per_frame.model)) * vec4(normal, 0.)).xyz);
+   } else {
+      Normal = normal.xyz;
+   }
 
 
    if (length(position.xyz) < 10.) {
       special = 1;
       // position = matrix_translation(translation)*matrix_rotation(vec3(1.), PI/2.) * matrix_scale(vec3(scale))*model*position;
-      // position =  * ub_data.model*position;
+      // position =  * per_frame.model*position;
    }
-   // position = ub_data.model * matrix_rotation(vec3(1.), PI/2.) * position;
+   // position = per_frame.model * matrix_rotation(vec3(1.), PI/2.) * position;
    // position.xyz  *= scale;
    // position.xyz  += translation;
    // position.xyz  += translation/2.;
@@ -386,11 +407,11 @@ void main() {
       // position.xzy  -= camera_position;
       // mat4 view = view_from_spherical(vec3(0., 0., 0.), 0, 0.5);
 
-      vec3 eye = ub_data.camera_position*5;
+      vec3 eye = per_frame.camera.position;
       vec3 direction = vec3(0., 0., 1.);
       direction = spherical_to_cartesian(-spherical.y, spherical.x + PI/2);
       direction = camera_forward(spherical);
-      // direction.xz *= rotation(sin(ub_data.elapsed_time));
+      // direction.xz *= rotation(sin(per_frame.elapsed_time));
       // direction = camera_forward(spherical);
       mat4 view = lookat(eye, eye + direction, vec3(0., 1., 0.));
       position = view * position;
@@ -410,7 +431,6 @@ void main() {
    // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
 
    TexCoord = uv;
-   Normal   = normal;
 } 
 #version 460 core
       #ifndef lerp
@@ -438,71 +458,157 @@ void main() {
       #endif
    
 
+in vec3 Position;
 in vec3 Normal;
 in vec2 TexCoord;
 in flat int special;
+uniform float u_time;
 
 layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
-
-layout(binding = 4) uniform sampler2D tex;
+layout(binding  = 4) uniform sampler2D tex;
 
 uniform bool is_light;
-layout(std140, binding = 2) uniform Camera {
+uniform vec3 camera_position;
+layout(std140, binding = 2) uniform Camera2 {
     // mat4 view;
     // mat4 proj;
     vec3 camera_position; float _pad0;
     vec3 camera_direction; float _pad1;
+} camera;
+
+struct Light {
+    vec3 position; float pad0;
+    vec3 ambient;  float pad1;
+    vec3 diffuse;  float pad2;
+    vec3 specular; float pad4;
 };
 
-layout(std140, binding = 4) uniform Ub_Data {
+struct Camera {
+    vec3  position; float pad0;
+    float theta, phi, pad1, pad2;
+};
+
+
+layout(std140, binding = 4) uniform Per_Frame {
     mat4 model, view, perspective;
-    // float cx, cy, cz, pad0;
-    vec3 camera_position; float pad0;
-    vec3 light_position;  float pad1;
-    vec3 light_color;     float pad2;
-    float theta, phi; float elapsed_time, delta_time;
-} ub_data;
+    Light  light;
+    Camera camera;
+    float elapsed_time, delta_time;
+} per_frame;
 
 
 layout(std140, binding = 5) uniform Ub_Data_Buffer {
     vec4 random_data;
 } ub_data_buffer;
 
-vec3 brdf_blinn_phong(vec3 light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha) {
+vec3 brdf_blinn_phong(
+      vec3 light_direction, vec3 view_direction, vec3 normal,
+      vec3 diffuse_color,       vec3 specular_color,
+      vec3 light_diffuse_color, vec3 light_specular_color, vec3 light_ambient_color,
+      float specular_exponent,  float attenuation
+) {
+
+   vec3 position = Position;
+
    // TODO: use half vector instead
-   vec3 wi = -normalize(light_direction);
-   vec3 wo = -normalize(view_direction);
-   vec3 r  = -reflect(wi, normal);
-   vec3 n  =  normalize(normal);
+   vec3 wi = normalize(light_direction);
+   vec3 wo = normalize(view_direction);
+   vec3 n  = normalize(normal);
 
-   vec3 ambient_color = diffuse_color * specular_color * alpha;
+   vec3 ambient_color = diffuse_color * specular_color;
 
-   float ambient_intesity  = 0.1;
-   float diffuse_intesity  = 0.1;
-   float specular_intesity = 0.2;
-
-   return  (diffuse_intesity  * (diffuse_color  * max(0, dot(wi, n))))
-         + (specular_intesity * (specular_color * pow(max(0, dot(r, wo)), alpha)))
-         + (ambient_intesity  * ambient_color);
-}
-
-void main() {
-   vec3 light_direction = normalize(vec3(2., 1., 1.));
-
-   FragColor     = texture(tex, TexCoord);
-   FragColor.w = 1.0;
+   // Table of materials and constants for ambient: http://devernay.free.fr/cours/opengl/materials.html
+   float ambient_intesity  = attenuation * 0.45 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r);
+   float diffuse_intesity  = attenuation * 0.5;
+   float specular_intesity = attenuation * 0.15;
 
 
-   if (is_light) {
-      // FragColor = vec4(light_color, 1.0);
-      FragColor = vec4(ub_data.light_color, 1.0);
+   float specular_term = 0;
+
+
+   const bool use_half_vector = true;
+   if (use_half_vector) {
+      vec3 h = normalize(wo + wi);
+      specular_term = dot(n, h);
+   } else {
+      vec3 r = -reflect(wi, normal);
+      specular_term = dot(r, wo);
    }
 
+   vec3 diffuse  = light_diffuse_color  * diffuse_color  * max(0, dot(wi, n));
+   vec3 specular = light_specular_color * specular_color * pow(max(0, specular_term), specular_exponent);
+   vec3 ambient  = light_ambient_color  * ambient_color;
+
+   return  (diffuse_intesity  * diffuse)
+         + (specular_intesity * specular)
+         + (ambient_intesity  * ambient);
+}
+
+float n = 10; // 1 100
+float ior = 1.5; // 1 2.5
+bool include_Fresnel = false;
+bool divide_by_NdotL = true;
+
+vec3 BRDF( vec3 L, vec3 V, vec3 N, vec3 X, vec3 Y )
+{
+    vec3 H = normalize(L+V);
+
+    float NdotH = dot(N, H);
+    float VdotH = dot(V, H);
+    float NdotL = dot(N, L);
+    float NdotV = dot(N, V);
+
+    float x = acos(NdotH) * n;
+    float D = exp( -x*x);
+    float G = (NdotV < NdotL) ?
+        ((2*NdotV*NdotH < VdotH) ?
+         2*NdotH / VdotH :
+         1.0 / NdotV)
+        :
+        ((2*NdotL*NdotH < VdotH) ?
+         2*NdotH*NdotL / (VdotH*NdotV) :
+         1.0 / NdotV);
+
+    // fresnel
+    float c = VdotH;
+    float g = sqrt(ior*ior + c*c - 1);
+    float F = 0.5 * pow(g-c,2) / pow(g+c,2) * (1 + pow(c*(g+c)-1,2) / pow(c*(g-c)+1,2));
+
+    float val = NdotH < 0 ? 0.0 : D * G * (include_Fresnel ? F : 1.0);
+
+    if (divide_by_NdotL)
+        val = val / dot(N,L);
+    return vec3(val);
+}
+
+
+vec3 brdf_blinn_phong(
+      vec3 light_direction, vec3 view_direction, vec3 normal,
+      vec3 diffuse_color,       vec3 specular_color,
+      float specular_exponent,  float attenuation
+) {
+   return brdf_blinn_phong(light_direction, view_direction, normal, diffuse_color, specular_color, vec3(1.), vec3(1.), vec3(1.), specular_exponent, attenuation);
+}
+
+
+void main() {
+   vec3 position = Position;
+   vec3 normal   = normalize(Normal);
+
+   vec3 light_direction = normalize(per_frame.light.position - position);
+   vec3 view_direction  = normalize(per_frame.camera.position - position);
+
+   vec3 diffuse_color  = texture(tex, TexCoord).xyz;
+   vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
+
+   float distance_to_light = length(position - per_frame.light.position);
+   float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
+
    if (special == 1) {
-      // FragColor = vec4(light_color, 1.0);
       FragColor.r = 1.0;
    }
 
+#if 0
    vec4 rand = ub_data_buffer.random_data;
    if (rand.x == 69.) {
       FragColor.g = 1.0;
@@ -511,9 +617,34 @@ void main() {
    if (rand.x == 68.) {
       FragColor.b = 1.0;
    }
-
-
-#if 0
-   FragColor = brdf_blinn_phong(light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha);
 #endif
+
+
+   const float max_distance = 40;
+   float attenuation = clamp(max_distance/distance_to_light, 0.20, 1.0);
+   vec3 color =
+      brdf_blinn_phong(
+         light_direction, view_direction, normal,
+         diffuse_color, specular_color,
+         per_frame.light.diffuse, per_frame.light.specular, per_frame.light.ambient,
+         64., attenuation
+      );
+
+   // FragColor = vec4(sin(per_frame.camera.theta*3.)/2. + 1., .0, .0, 1.); return;
+   // FragColor = vec4(sin(per_frame.camera.phi), .0, .0, 1.); return;
+   // FragColor = vec4(sin(per_frame.time2.w), .0, .0, 1.); return;
+   // FragColor = vec4(sin(per_frame.elapsed_time), per_frame.delta_time*100, .0, 1.); return;
+   // FragColor = vec4(sin(0.5), .0, .0, 1.); return;
+   // FragColor = vec4(sin(u_time), .0, .0, 1.); return;
+
+   float attenuation_alpha = clamp(896./distance_to_view, 0.2, 1.0);
+   FragColor = vec4(color , attenuation_alpha);
+
+   // FragColor = vec4(distance_to_view)/1000.;
+
+
+   if (is_light) {
+      // FragColor = vec4(light_color, 1.0);
+      FragColor = vec4(per_frame.light.ambient, 1.0);
+   }
 } 

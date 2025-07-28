@@ -236,6 +236,8 @@ config_clang_from_linux_to_windows
 # --------------------------
 
 sync_to_windows() {
+
+    # Old rsync -r --exclude='.git' --exclude='*.zip' --exclude='.cache' --exclude='*.obj' --size-only ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
     local exclude_patterns=(
         --exclude='.git'
         --exclude='*.zip'
@@ -300,6 +302,4 @@ main() {
 }
 
 main "$@"
-
-# rsync -r --exclude='.git' --exclude='*.zip' --exclude='.cache' --exclude='*.obj' --size-only ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
 

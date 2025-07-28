@@ -16,14 +16,16 @@ uniform mat4 model;
 uniform mat4 perspective;
 uniform bool is_light;
 
-// uniform vec3 camera_position;
+uniform vec3 camera_position;
 uniform vec2 spherical;
 uniform float u_time;
 
 
+out vec3 Position;
 out vec3 Normal;
 out vec2 TexCoord;
 out flat int special;
+
 
 #include "./src/coordinates.glsl"
 #include "./src/remaps.glsl"
@@ -57,21 +59,21 @@ vec3 pull_position(int id) {
    );
 
 }
-// #define PULLING
+#define PULLING
 
 const float aspect = 1600./800.;
 const float fov    = PI/3.;
 
 void main() {
    special = 0;
+
 #ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
 #else
-   vec4 position = vec4(position.xyz, 1.0);
+   vec4 position = vec4(position.xyz + vec3(10), 1.0);
 #endif
 
    if (is_light) {
-      // position = vec4(ub_data.light_position.xyz, 1.0);
    }
 
    float positions_count = positions_xyz.length();
@@ -83,15 +85,24 @@ void main() {
       // scale = 20.3;
    }
 
-   position = ub_data.model*position;
+   // World position send to next stage
+   position = per_frame.model*position;
+   Position = position.xyz;
+   if (true) {
+      // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
+      Normal = mat3(transpose(inverse(per_frame.model))) * normal; // Apply mat3 to "drop" the translation portion
+      // Normal = ((transpose(inverse(per_frame.model)) * vec4(normal, 0.)).xyz);
+   } else {
+      Normal = normal.xyz;
+   }
 
 
    if (length(position.xyz) < 10.) {
       special = 1;
       // position = matrix_translation(translation)*matrix_rotation(vec3(1.), PI/2.) * matrix_scale(vec3(scale))*model*position;
-      // position =  * ub_data.model*position;
+      // position =  * per_frame.model*position;
    }
-   // position = ub_data.model * matrix_rotation(vec3(1.), PI/2.) * position;
+   // position = per_frame.model * matrix_rotation(vec3(1.), PI/2.) * position;
    // position.xyz  *= scale;
    // position.xyz  += translation;
    // position.xyz  += translation/2.;
@@ -102,11 +113,11 @@ void main() {
       // position.xzy  -= camera_position;
       // mat4 view = view_from_spherical(vec3(0., 0., 0.), 0, 0.5);
 
-      vec3 eye = ub_data.camera_position*5;
+      vec3 eye = per_frame.camera.position;
       vec3 direction = vec3(0., 0., 1.);
       direction = spherical_to_cartesian(-spherical.y, spherical.x + PI/2);
       direction = camera_forward(spherical);
-      // direction.xz *= rotation(sin(ub_data.elapsed_time));
+      // direction.xz *= rotation(sin(per_frame.elapsed_time));
       // direction = camera_forward(spherical);
       mat4 view = lookat(eye, eye + direction, vec3(0., 1., 0.));
       position = view * position;
@@ -126,44 +137,47 @@ void main() {
    // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
 
    TexCoord = uv;
-   Normal   = normal;
 }
 
 
 #pragma fragment
 #version 460 core
 
+in vec3 Position;
 in vec3 Normal;
 in vec2 TexCoord;
 in flat int special;
+uniform float u_time;
 
 layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
-
-layout(binding = 4) uniform sampler2D tex;
+layout(binding  = 4) uniform sampler2D tex;
 
 uniform bool is_light;
+uniform vec3 camera_position;
 
 
 #include "./buffers/uniform.glsl"
 #include "./brdf/blinn-phong.glsl"
 
+
 void main() {
-   vec3 light_direction = normalize(vec3(2., 1., 1.));
+   vec3 position = Position;
+   vec3 normal   = normalize(Normal);
 
-   FragColor     = texture(tex, TexCoord);
-   FragColor.w = 1.0;
+   vec3 light_direction = normalize(per_frame.light.position - position);
+   vec3 view_direction  = normalize(per_frame.camera.position - position);
 
+   vec3 diffuse_color  = texture(tex, TexCoord).xyz;
+   vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
 
-   if (is_light) {
-      // FragColor = vec4(light_color, 1.0);
-      FragColor = vec4(ub_data.light_color, 1.0);
-   }
+   float distance_to_light = length(position - per_frame.light.position);
+   float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
 
    if (special == 1) {
-      // FragColor = vec4(light_color, 1.0);
       FragColor.r = 1.0;
    }
 
+#if 0
    vec4 rand = ub_data_buffer.random_data;
    if (rand.x == 69.) {
       FragColor.g = 1.0;
@@ -172,9 +186,34 @@ void main() {
    if (rand.x == 68.) {
       FragColor.b = 1.0;
    }
-
-
-#if 0
-   FragColor = brdf_blinn_phong(light_direction, vec3 view_direction, vec3 normal, vec3 diffuse_color, vec3 specular_color, float alpha);
 #endif
+
+
+   const float max_distance = 40;
+   float attenuation = clamp(max_distance/distance_to_light, 0.20, 1.0);
+   vec3 color =
+      brdf_blinn_phong(
+         light_direction, view_direction, normal,
+         diffuse_color, specular_color,
+         per_frame.light.diffuse, per_frame.light.specular, per_frame.light.ambient,
+         64., attenuation
+      );
+
+   // FragColor = vec4(sin(per_frame.camera.theta*3.)/2. + 1., .0, .0, 1.); return;
+   // FragColor = vec4(sin(per_frame.camera.phi), .0, .0, 1.); return;
+   // FragColor = vec4(sin(per_frame.time2.w), .0, .0, 1.); return;
+   // FragColor = vec4(sin(per_frame.elapsed_time), per_frame.delta_time*100, .0, 1.); return;
+   // FragColor = vec4(sin(0.5), .0, .0, 1.); return;
+   // FragColor = vec4(sin(u_time), .0, .0, 1.); return;
+
+   float attenuation_alpha = clamp(896./distance_to_view, 0.2, 1.0);
+   FragColor = vec4(color , attenuation_alpha);
+
+   // FragColor = vec4(distance_to_view)/1000.;
+
+
+   if (is_light) {
+      // FragColor = vec4(light_color, 1.0);
+      FragColor = vec4(per_frame.light.ambient, 1.0);
+   }
 }
