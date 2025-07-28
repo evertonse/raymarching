@@ -14,6 +14,9 @@ typedef struct {
    Countdown      shader_countdown_to_reload;
    Vertex_Array   va, cube_va, sphere_va;
    Texture        diffuse_texture, cube_texture;
+   struct{
+      Texture diffuse, specular, specular_colored, emissive;
+   } wood_box;
 
    Framebuffer    fb;
 
@@ -21,7 +24,7 @@ typedef struct {
    Camera         camera;
    Mesh           sphere_mesh;
 
-   Uniform_Buffer ub, ub2;
+   Uniform_Buffer ub, per_frame_buffer;
    Buffer buffer;
 
    struct {
@@ -31,7 +34,7 @@ typedef struct {
 
       Light light;
 
-      struct{
+      struct {
          Vector3 position; f32 pad0;
          f32 theta, phi, pad1, pad2; // Spherical Coordinates
       } camera;
@@ -77,6 +80,20 @@ void projection_update_shaders(Projection_Application *app) {
    }
 }
 
+   // upload_uniform_bool(app->shader, "is_light", true);
+static void draw_model(Projection_Application *app, Vertex_Array *va, Vector3 position, Vector3 scale, Vector4 rotation) {
+   Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
+   Matrix scale_matrix       = MatrixScale(scale.x, scale.y, scale.z);
+   Matrix rotation_matrix    = MatrixRotate((Vector3){rotation.x, rotation.y, rotation.z}, rotation.w);
+   Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
+
+   update_buffer(&app->per_frame_buffer, MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+   bind_buffer_as_type(&va->vb.buffer, BUFFER_TYPE_STORAGE, 3);
+
+   glBindVertexArray(va->handle);
+   glDrawElements(GL_TRIANGLES, va->ib.count, GL_UNSIGNED_INT, NULL);
+}
+
 
 void projection_init(Projection_Application *app) {
    app->va          = create_vertex_array_from_mesh(&chosen_mesh);
@@ -101,14 +118,18 @@ void projection_init(Projection_Application *app) {
 
    isz ub_binding = 2;
    app->ub  = create_uniform_buffer(size_of(Matrix)*2, ub_binding);
-   app->ub2 = create_uniform_buffer(size_of(app->per_frame), ub_binding + 2);
-   free(app->ub2.cpu_mem);
+   app->per_frame_buffer = create_uniform_buffer(size_of(app->per_frame), ub_binding + 2);
+   free(app->per_frame_buffer.cpu_mem);
    app->buffer = create_buffer_extended(BUFFER_TYPE_UNIFORM, BUFFER_USAGE_PERSISTENT, nullptr, size_of(app->per_frame), 5);
 
    app->shader = shader_invalid;
 
-   app->diffuse_texture = create_texture_from_filepath(chosen_texture_path);
-   app->cube_texture    = create_texture_from_filepath("res/textures/ocean6.png");
+   app->diffuse_texture           = create_texture_from_filepath(chosen_texture_path);
+   app->wood_box.specular         = create_texture_from_filepath("res/textures/specular_container2.png");
+   app->wood_box.specular_colored = create_texture_from_filepath("res/textures/specular_container2_colored.png");
+   app->wood_box.diffuse          = create_texture_from_filepath("res/textures/diffuse_container2.png");
+   app->wood_box.emissive         = create_texture_from_filepath("res/textures/matrix_emissive.jpg");
+   app->cube_texture              = create_texture_from_filepath("res/textures/ocean6.png");
    trace_info("va.handle = %d\n", app->va.handle);
 
    assert_msg(
@@ -119,7 +140,7 @@ void projection_init(Projection_Application *app) {
       && is_valid_texture(app->diffuse_texture)
       && is_valid_texture(app->cube_texture)
       && is_valid_uniform_buffer(app->ub)
-      && is_valid_uniform_buffer(app->ub2)
+      && is_valid_uniform_buffer(app->per_frame_buffer)
       && is_valid_buffer(app->buffer)
       ,"Something wanst valid upon creation"
    );
@@ -164,7 +185,7 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       assert(size_of(typeof(app->per_frame)) == size_of(app->per_frame));
 
-      update_buffer(&app->ub2, &app->per_frame, size_of(app->per_frame), 0);
+      update_buffer(&app->per_frame_buffer, &app->per_frame, size_of(app->per_frame), 0);
       *(Vector4*)app->buffer.mapped_ptr = (Vector4){69.0, 70., 71., 72.};
    }
 
@@ -190,6 +211,9 @@ void projection_update(Projection_Application *app, f64 dt) {
 
    Shader shader = app->shader;
    bind_shader(shader);
+   upload_uniform_bool(app->shader, "has_specular", false);
+         upload_uniform_bool(app->shader, "has_emissive", false);
+
    {
       upload_uniform_vec3(shader, "camera_position", &camera.position);
 
@@ -261,7 +285,7 @@ void projection_update(Projection_Application *app, f64 dt) {
       }
 
       bind_vertex_array(app->va);
-      bind_texture(app->diffuse_texture, 4);
+      bind_texture(app->diffuse_texture, 3);
 
       // bind_buffer_as_type(&va.ib.buffer, BUFFER_TYPE_STORAGE, 5);
 
@@ -301,13 +325,13 @@ void projection_update(Projection_Application *app, f64 dt) {
 
          Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
 
-         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+         update_buffer(&app->per_frame_buffer,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
          // update_buffer(&app->buffer, MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
          // glFinish();
 
          *(Vector4*)app->buffer.mapped_ptr = (Vector4){68.0, 70., 71., 72.};
-         // isz _ = update_buffer_mapped_ptr(app->ub2, MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
-         bind_buffer_as_type(&app->ub2.buffer, BUFFER_TYPE_UNIFORM, 4);
+         // isz _ = update_buffer_mapped_ptr(app->per_frame_buffer, MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+         bind_buffer_as_type(&app->per_frame_buffer.buffer, BUFFER_TYPE_UNIFORM, 4);
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
          assert(is_valid_vertex_array(app->va));
@@ -327,7 +351,7 @@ void projection_update(Projection_Application *app, f64 dt) {
          Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, 0);
          Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
          upload_uniform_bool(app->shader, "is_light", true);
-         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+         update_buffer(&app->per_frame_buffer,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
          bind_buffer_as_type(&app->sphere_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
 
          glBindVertexArray(app->sphere_va.handle);
@@ -342,10 +366,10 @@ void projection_update(Projection_Application *app, f64 dt) {
          Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, 0);
          Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
          upload_uniform_bool(app->shader, "is_light", false);
-         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+         update_buffer(&app->per_frame_buffer,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
-         glBindTextureUnit(4, app->cube_texture.handle);
+         bind_texture(app->cube_texture, 3);
          bind_buffer_as_type(&app->cube_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
 
          glBindVertexArray(app->cube_va.handle);
@@ -360,10 +384,10 @@ void projection_update(Projection_Application *app, f64 dt) {
          Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
 
          upload_uniform_bool(app->shader, "is_light", false);
-         update_buffer(&app->ub2,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
+         update_buffer(&app->per_frame_buffer,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
-         glBindTextureUnit(4, app->diffuse_texture.handle);
+         bind_texture(app->diffuse_texture, 3);
          bind_buffer_as_type(&app->cube_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
 
          glBindVertexArray(app->cube_va.handle);
@@ -371,6 +395,20 @@ void projection_update(Projection_Application *app, f64 dt) {
          glDrawElements(GL_TRIANGLES, app->cube_va.ib.count, GL_UNSIGNED_INT, NULL);
       }
 
+      {
+         upload_uniform_bool(app->shader, "has_specular", true);
+         upload_uniform_bool(app->shader, "has_emissive", true);
+         bind_texture(app->wood_box.diffuse,  3);
+         bind_texture(app->wood_box.specular, 4);
+         bind_texture(app->wood_box.emissive, 5);
+         static Vertex_Array learnopengl_cube = {0};
+         if (!is_valid_vertex_array(learnopengl_cube)) {
+            learnopengl_cube = create_cube_vertex_array();
+         }
+         draw_model(app, &learnopengl_cube, (Vector3){110., 36., 41.}, (Vector3){20, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * PI/2.});
+         bind_texture(app->wood_box.specular_colored, 4);
+         draw_model(app, &learnopengl_cube, (Vector3){50., 36., 30.}, (Vector3){10, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * 0.1});
+      }
 
       draw_text("Fuck your mother");
    }

@@ -65,4 +65,6 @@
 - [ ] Mix what you wrote in raymath.c with handmade_math to get the best of both (has to fix naming conv)
 
 - [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
+- [ ] Bindings of types of buffers should be cached
+- [ ] Blend, Cull and other setting should be cached makiing sure nobody changes that that mean making sure no dependencies touch the context
 

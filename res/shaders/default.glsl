@@ -150,8 +150,12 @@ in flat int special;
 uniform float u_time;
 
 layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
-layout(binding  = 4) uniform sampler2D tex;
+layout(binding  = 3) uniform sampler2D diffuse_texture;
+layout(binding  = 4) uniform sampler2D specular_texture;
+layout(binding  = 5) uniform sampler2D emissive_texture;
 
+uniform bool has_specular;
+uniform bool has_emissive;
 uniform bool is_light;
 uniform vec3 camera_position;
 
@@ -160,14 +164,20 @@ uniform vec3 camera_position;
 #include "./brdf/blinn-phong.glsl"
 
 
+vec3 gamma_correction(vec3 colour) {
+   float gamma = 1.0;
+   return pow(colour, vec3(1. / gamma));
+}
+
 void main() {
    vec3 position = Position;
    vec3 normal   = normalize(Normal);
 
+
    vec3 light_direction = normalize(per_frame.light.position - position);
    vec3 view_direction  = normalize(per_frame.camera.position - position);
 
-   vec3 diffuse_color  = texture(tex, TexCoord).xyz;
+   vec3 diffuse_color  = texture(diffuse_texture, TexCoord).xyz;
    vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
 
    float distance_to_light = length(position - per_frame.light.position);
@@ -189,31 +199,62 @@ void main() {
 #endif
 
 
-   const float max_distance = 40;
-   float attenuation = clamp(max_distance/distance_to_light, 0.20, 1.0);
+   vec3 light_diffuse_color  = per_frame.light.diffuse;
+   vec3 light_ambient_color  = per_frame.light.ambient;
+   vec3 light_specular_color = per_frame.light.specular;
+   const bool rain_bow_light = false;
+
+   if (rain_bow_light) {
+      light_diffuse_color  = vec3(sin(per_frame.elapsed_time*1.3)/2. + 1.0, sin(per_frame.elapsed_time*2)/4. + 0.5, sin(per_frame.elapsed_time*0.7)/4. + 0.5);
+      light_ambient_color  = light_diffuse_color * vec3(0.2f);
+      light_specular_color = vec3(0.92f);
+
+   }
+
+
+   if (has_specular) {
+      specular_color = vec3(1.0);
+      light_specular_color = vec3(1.0);
+      specular_color  = 2*texture(specular_texture, TexCoord).xyz;
+   }
+
+   float attenuation_distance = clamp(50/distance_to_light, 0.20, 1.0);
    vec3 color =
       brdf_blinn_phong(
          light_direction, view_direction, normal,
          diffuse_color, specular_color,
-         per_frame.light.diffuse, per_frame.light.specular, per_frame.light.ambient,
-         64., attenuation
+         light_diffuse_color, light_ambient_color, light_specular_color,
+         64., attenuation_distance
       );
 
-   // FragColor = vec4(sin(per_frame.camera.theta*3.)/2. + 1., .0, .0, 1.); return;
-   // FragColor = vec4(sin(per_frame.camera.phi), .0, .0, 1.); return;
-   // FragColor = vec4(sin(per_frame.time2.w), .0, .0, 1.); return;
-   // FragColor = vec4(sin(per_frame.elapsed_time), per_frame.delta_time*100, .0, 1.); return;
-   // FragColor = vec4(sin(0.5), .0, .0, 1.); return;
-   // FragColor = vec4(sin(u_time), .0, .0, 1.); return;
+   const bool test_elapsed_time = false;
+   if (test_elapsed_time) {
+      FragColor = vec4(sin(per_frame.elapsed_time), per_frame.delta_time*100, .0, 1.); return;
+   }
+
+   if (has_emissive && has_specular) {
+      // color += (attenuation_distance * texture(emissive_texture, TexCoord).xyz);
+      if ((specular_color.z + specular_color.y + specular_color.x) > 0.1) {
+         const float time_factor = sin(per_frame.elapsed_time * 2.9)/2. + 0.5;
+         // color += specular_color + time_factor * texture(emissive_texture, TexCoord).xyz;
+         const vec3 emissive_color = texture(emissive_texture, TexCoord).xyz;
+         color += specular_color * (emissive_color.y + emissive_color.x + emissive_color.z);
+      }
+      // color += (specular_color * texture(emissive_texture, TexCoord).xyz);
+      // FragColor.xyz += (vec3(0.2)-specular_color/2) * texture(emissive_texture, TexCoord).xyz;
+      // FragColor.xyz = texture(emissive_texture, TexCoord).xyz;
+      // FragColor.xyz = vec3(1.);
+   }
 
    float attenuation_alpha = clamp(896./distance_to_view, 0.2, 1.0);
-   FragColor = vec4(color , attenuation_alpha);
+   FragColor = vec4(color, attenuation_alpha);
 
-   // FragColor = vec4(distance_to_view)/1000.;
 
 
    if (is_light) {
       // FragColor = vec4(light_color, 1.0);
-      FragColor = vec4(per_frame.light.ambient, 1.0);
+      FragColor = vec4(light_ambient_color, 1.0);
    }
+
+   FragColor.xyz = gamma_correction(FragColor.xyz);
 }

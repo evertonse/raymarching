@@ -153,7 +153,7 @@ Texture create_texture_from_filepath(const char *filepath) {
     unsigned char *data = stbi_load(filepath, &width, &height, &channels, 0);
 
     if (!data) {
-        fprintf(stderr, "Failed to load texture: %s\n", filepath);
+        trace_error("Failed to load texture from: %s\n", filepath);
         return (Texture){0};
     }
 

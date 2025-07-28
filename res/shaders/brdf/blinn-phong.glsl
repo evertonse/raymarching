@@ -13,18 +13,18 @@ vec3 brdf_blinn_phong(
    vec3 wo = normalize(view_direction);
    vec3 n  = normalize(normal);
 
-   vec3 ambient_color = diffuse_color * specular_color;
+   // vec3 ambient_color = diffuse_color * specular_color;
+   vec3 ambient_color =  0.715160 * diffuse_color  + 0.062671 * specular_color;
+   // vec3 ambient_color = vec3(0.212671*diffuse_color.r, 0.715160*diffuse_color.g, 0.072169*diffuse_color.b);
+
 
    // Table of materials and constants for ambient: http://devernay.free.fr/cours/opengl/materials.html
-   float ambient_intesity  = attenuation * 0.45 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r);
+   float ambient_intesity  = attenuation * 0.35 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r);
    float diffuse_intesity  = attenuation * 0.5;
-   float specular_intesity = attenuation * 0.15;
-
-
-   float specular_term = 0;
-
+   float specular_intesity = attenuation * 0.25;
 
    const bool use_half_vector = true;
+   float specular_term = 0;
    if (use_half_vector) {
       vec3 h = normalize(wo + wi);
       specular_term = dot(n, h);
