@@ -235,7 +235,8 @@ Shader create_shader_from_memory(const u8** sources, const Shader_Type* types, u
 
          char* log = (char*)malloc(log_length);
          glGetShaderInfoLog(shader_handle, log_length, NULL, log);
-         fprintf(stderr, "Shader compile error (type %u):\n%s\n", type, log);
+         // TODO: Make this error line take into acount the include files
+         trace_error("Shader compile error (type %u):\nOpenGL says: %s\n", type, log);
          free(log);
 
          glDeleteShader(shader_handle);

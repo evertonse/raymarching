@@ -28,9 +28,9 @@ typedef struct {
    Buffer buffer;
 
    struct {
-      Matrix model;
-      Matrix view;
-      Matrix pespective;
+      float16 model;
+      float16 view;
+      float16 pespective;
 
       Light light;
 
@@ -105,16 +105,17 @@ void projection_init(Projection_Application *app) {
 
    app->shader_countdown_to_reload = create_countdown(0.12, true);
 
-   app->destination = (Rectanglei32) {
-      .x = 100,
-      .y = 100,
-      .width  = 800,
-      .height = 600
-   };
 
    // app->fb = create_framebuffer(1600, 800);
    // app->fb = create_framebuffer_multisample(1600, 800, 16);
    app->fb = create_framebuffer_multisample_with_renderbuffers(1600, 800, 16);
+
+   app->destination = (Rectanglei32) {
+      .x = 100,
+      .y = 100,
+      .width  = app->fb.color.width/2.,
+      .height = app->fb.color.height/2.
+   };
 
    isz ub_binding = 2;
    app->ub  = create_uniform_buffer(size_of(Matrix)*2, ub_binding);
@@ -165,9 +166,9 @@ void projection_update(Projection_Application *app, f64 dt) {
       Matrix  view      = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
 
       *per_frame   =  (typeof(app->per_frame)) {
-         .model           = MatrixIdentity(),
-         .pespective      = MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0),
-         .view            = view,
+         .model           = MatrixToFloatV(MatrixIdentity()),
+         .pespective      = MatrixToFloatV(MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0)),
+         .view            = MatrixToFloatV(view),
          .light = {
             .position  = light_position,
             .ambient     = {0.89f,  0.85f,  0.99f },
@@ -227,11 +228,6 @@ void projection_update(Projection_Application *app, f64 dt) {
       // Matrix view = MatrixViewFromSpherical(camera.position, -camera.rotation.y, -camera.rotation.x);
       glUniformMatrix4fv(view_location, 1, GL_FALSE, MatrixToFloat(view));
    // Send to GPU
-   }
-
-   {  // Time uniform
-      GLint loc = glGetUniformLocation(shader.handle, "u_time");
-      glUniform1f(loc, (f32)glfwGetTime());
    }
 
    {
@@ -387,7 +383,7 @@ void projection_update(Projection_Application *app, f64 dt) {
          update_buffer(&app->per_frame_buffer,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
-         bind_texture(app->diffuse_texture, 3);
+         bind_texture(app->cube_texture, 3);
          bind_buffer_as_type(&app->cube_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
 
          glBindVertexArray(app->cube_va.handle);
@@ -421,6 +417,7 @@ void projection_update(Projection_Application *app, f64 dt) {
          fb_resolved = resolve_multisample_framebuffer(app->fb);
          // blit_framebuffer_to_swapchain(fb_resolved);
       }
+      glFinish();
       blit_framebuffer_to_swapchain_rect(fb_resolved, app->destination);
    }
 }
