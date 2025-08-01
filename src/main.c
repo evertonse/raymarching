@@ -8,19 +8,49 @@
 #define GLAD_GL_IMPLEMENTATION
 #include "glad/gl.h"
 
+#define overload __attribute__((overloadable))
+#define require  __must_check
+#define stack_alloc __builtin_alloca
+
+#define trace_struct(d)    __builtin_dump_struct(&d, &printf)
+#define type_as_string(d)  __builtin_type_as_string(&d, &tprintf)
+
+#define private __attribute__((visibility("hidden")))
+
+
 
 // NOTE: If not defined, nuklear will try to define itself BUT is crashes when freeing a null which is wrong since stb relys on that behaviour it seems.
 #define STBTT_malloc(x,u)  ((void)(u),malloc(x))
 #define STBTT_free(x,u)    ((void)(u),free(x))
 
 
-#undef assert
 #undef unreachable
 #undef normalize
-#include "./raymath.c"
+#include "./math.c"
 
+#undef assert
 #define CYE_IMPLEMENTATION
 #include "cye.h"
+#undef trace_debug
+#define trace_debug(fmt, ...) cye_trace_log(CYE_LOG_DEBUG, "`%s`: " fmt, __func__, ##__VA_ARGS__)
+
+const char* cye_human_readable_size(i64 bytes) {
+    static char output[32];
+    static const char *units[] = {"B", "KB", "MB", "GB"};
+    f64 size = (f64)bytes;
+    int unit_index = 0;
+
+    while (size >= 1024.0 && unit_index < 3) {
+        size /= 1024.0;
+        unit_index++;
+    }
+
+    snprintf(output, size_of(output), "%.2f %s", size, units[unit_index]);
+    return output;
+}
+
+#define human_readable_size cye_human_readable_size
+
 
 #include "./state.c"
 #include "./timing.c"
@@ -78,7 +108,7 @@ typedef struct {
 } Application;
 
 #define create_application(init_fn, update_fn)     \
-   {                                  \
+   {                                               \
       .init   = (void (*)(void*))      (init_fn),  \
       .update = (void (*)(void*, f64)) (update_fn) \
    }

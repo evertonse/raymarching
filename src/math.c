@@ -1,5 +1,9 @@
 #define RAYMATH_IMPLEMENTATION
 #include "raymath.h"
+// #include <tgmath.h>
+
+typedef float Matrix4 __attribute__((matrix_type(4, 4)));
+typedef float float4 __attribute__((ext_vector_type(4)));
 
 Vector3 spherical_to_cartesian(float theta, float phi) {
     float x =  sin(phi) * cos(theta);
@@ -7,6 +11,7 @@ Vector3 spherical_to_cartesian(float theta, float phi) {
     float z =  cos(phi);
     return (Vector3){x, y, z};
 }
+
 
 Matrix MatrixViewFromSpherical(Vector3 position, float theta, float phi) {
    auto cross     = Vector3CrossProduct;

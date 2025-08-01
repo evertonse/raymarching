@@ -16,7 +16,7 @@ static f64 shader_needs_reload_timer = shader_needs_reload_timer_default;
 
 static const char *compute_shader_path = "./src/assets/shaders/shadertoy/base.glsl";
 void raymarching_application_init(Raymarching_Application* app) {
-   isz window_width = app->app.window.width, window_height = app->app.window.height;
+   isz window_width = get_window_width(), window_height = get_window_height();
    assert(window_width*window_height != 0);
 
    app->compute_shader = shader_invalid;
@@ -32,9 +32,13 @@ void raymarching_application_init(Raymarching_Application* app) {
 }
 
 void raymarching_application_update(Raymarching_Application *app, f64 dt) {
+   if (false) {
+      return;
+   }
    Camera camera = app->app.camera;
-   isz window_width = app->app.window.width, window_height = app->app.window.height;
+   isz window_width = get_window_width(), window_height = get_window_height();
    assert(window_width * window_height != 0);
+
    bool minimized = is_window_minimized();
 
    shader_needs_reload_timer -= app->app.time.delta;

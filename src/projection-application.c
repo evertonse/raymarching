@@ -26,6 +26,13 @@ typedef struct {
 
    Uniform_Buffer ub, per_frame_buffer;
    Buffer buffer;
+   struct{
+      Model model;
+      struct {
+         Vertex_Array *items;
+         isz count;
+      } vas;
+   } backpack;
 
    struct {
       float16 model;
@@ -61,12 +68,12 @@ void projection_update_shaders(Projection_Application *app) {
       Shader *s = shader_slots[i];
       const char *path = shader_paths[i];
 
-      bool want_reload = shader_needs_reload(*s);
+      bool need_reload = shader_needs_reload(*s);
 
       bool valid = is_valid_shader(*s);
 
-      if (!valid || want_reload) {
-         if (valid && want_reload) {
+      if (!valid || need_reload) {
+         if (valid && need_reload) {
             *s = reload_shader(*s);
          } else {
             *s = create_shader(path, 0);
@@ -81,7 +88,7 @@ void projection_update_shaders(Projection_Application *app) {
 }
 
    // upload_uniform_bool(app->shader, "is_light", true);
-static void draw_model(Projection_Application *app, Vertex_Array *va, Vector3 position, Vector3 scale, Vector4 rotation) {
+static void draw_va(Projection_Application *app, Vertex_Array *va, Vector3 position, Vector3 scale, Vector4 rotation) {
    Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
    Matrix scale_matrix       = MatrixScale(scale.x, scale.y, scale.z);
    Matrix rotation_matrix    = MatrixRotate((Vector3){rotation.x, rotation.y, rotation.z}, rotation.w);
@@ -94,6 +101,10 @@ static void draw_model(Projection_Application *app, Vertex_Array *va, Vector3 po
    glDrawElements(GL_TRIANGLES, va->ib.count, GL_UNSIGNED_INT, NULL);
 }
 
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void projection_init(Projection_Application *app) {
    app->va          = create_vertex_array_from_mesh(&chosen_mesh);
@@ -111,8 +122,8 @@ void projection_init(Projection_Application *app) {
    app->fb = create_framebuffer_multisample_with_renderbuffers(1600, 800, 16);
 
    app->destination = (Rectanglei32) {
-      .x = 100,
-      .y = 100,
+      .x = 100/4.,
+      .y = 100/4.,
       .width  = app->fb.color.width/2.,
       .height = app->fb.color.height/2.
    };
@@ -133,6 +144,33 @@ void projection_init(Projection_Application *app) {
    app->cube_texture              = create_texture_from_filepath("res/textures/ocean6.png");
    trace_info("va.handle = %d\n", app->va.handle);
 
+
+   ZString backpack_filepath = "res/models/backpack/backpack.obj";
+   app->backpack.model = create_model(backpack_filepath);
+   trace_info("Loaded model");
+   if (true) {
+
+      { // Setting up Vertex_Array array
+         app->backpack.vas.items = malloc(app->backpack.model.meshes.count * size_of(app->backpack.vas.items[0]));
+         app->backpack.vas.count = app->backpack.model.meshes.count;
+         for (isz idx = 0; idx < app->backpack.model.meshes.count; idx += 1) {
+            Mesh* mesh = &app->backpack.model.meshes.items[idx];
+            trace_struct(*mesh);
+
+            mesh->uvs_count = mesh->vertices_count;
+            mesh->normals_count = mesh->vertices_count;
+
+            if (idx == 1) {
+               // debug_break();
+            }
+
+            app->backpack.vas.items[idx] = create_vertex_array_from_mesh(mesh);
+            trace_struct(app->backpack.vas.items[idx]);
+            assert_msg(is_valid_vertex_array(app->backpack.vas.items[idx]), "%d-th vertex array is fucked", idx);
+         }
+      }
+   }
+
    assert_msg(
          is_valid_framebuffer_and_its_textures(app->fb)
       && is_valid_framebuffer(app->fb)
@@ -152,12 +190,18 @@ void projection_init(Projection_Application *app) {
 void projection_update(Projection_Application *app, f64 dt) {
 
    static GLsync sync = nullptr;
-   // wait_sync_point(sync);
-   // sync = sync_point(sync);
+   wait_sync_point(sync);
    app->ub.offset = 0; // reset for next frame
 
-   static Vector3 light_position = {110.0f,  10.f, 4.0f};
+   static Vector3 light_position = {110.0f,  16.f, 4.0f};
    gui_vector3("Light Position", &light_position);
+
+   static bool light_move_by_itself = true;
+   gui_check_box("Light Move?", &light_move_by_itself);
+   if (light_move_by_itself) {
+      const float slow_down_time = 0.34;
+      light_position.x = 150.0f * (sin(time_elapsed() * slow_down_time)/2. + 0.5);
+   }
 
 
    {  //  Update the main uniform buffer
@@ -357,9 +401,9 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       if (true) {
          const f32 scale_single    = 10.4;
-         Matrix translation_matrix = MatrixTranslate(12, 10, 0);
+         Matrix translation_matrix = MatrixTranslate(12, 40, -40);
          Matrix scale_matrix       = MatrixScale(scale_single, scale_single, scale_single);
-         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, 0);
+         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, time_elapsed());
          Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
          upload_uniform_bool(app->shader, "is_light", false);
          update_buffer(&app->per_frame_buffer,    MatrixToFloat(model), size_of(app->per_frame.model), offset_of(typeof(app->per_frame), model));
@@ -401,13 +445,21 @@ void projection_update(Projection_Application *app, f64 dt) {
          if (!is_valid_vertex_array(learnopengl_cube)) {
             learnopengl_cube = create_cube_vertex_array();
          }
-         draw_model(app, &learnopengl_cube, (Vector3){110., 36., 41.}, (Vector3){20, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * PI/2.});
+         draw_va(app, &learnopengl_cube, (Vector3){110., 36., 41.}, (Vector3){20, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * PI/2.});
          bind_texture(app->wood_box.specular_colored, 4);
-         draw_model(app, &learnopengl_cube, (Vector3){50., 36., 30.}, (Vector3){10, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * 0.1});
+         draw_va(app, &learnopengl_cube, (Vector3){50., 36., 30.}, (Vector3){10, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * 0.1});
+      }
+
+
+      for (isz idx = 0; idx < app->backpack.vas.count; idx += 1) {
+         draw_va(app, &app->backpack.vas.items[idx], (Vector3){120., 36., 30.}, (Vector3){10, 10, 10}, (Vector4){1, 1, 1, 0});
       }
 
       draw_text("Fuck your mother");
    }
+
+
+   sync = sync_point(sync);
 
    if (!is_window_minimized()) {
       Framebuffer fb_resolved = app->fb;
@@ -417,10 +469,10 @@ void projection_update(Projection_Application *app, f64 dt) {
          fb_resolved = resolve_multisample_framebuffer(app->fb);
          // blit_framebuffer_to_swapchain(fb_resolved);
       }
-      glFinish();
       blit_framebuffer_to_swapchain_rect(fb_resolved, app->destination);
    }
 }
+
 
 static Projection_Application projection_application = {
    .app = create_application(projection_init, projection_update)

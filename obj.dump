@@ -1,0 +1,353 @@
+struct ufbx_scene {
+  ufbx_metadata metadata = {
+    ufbx_warning_list warnings = {
+      ufbx_warning * data = 00007FF645F61F50
+      size_t count = 0
+    }
+    bool ascii = 1
+    uint32_t version = 0
+    ufbx_file_format file_format = 2
+    bool may_contain_no_index = 0
+    bool may_contain_missing_vertex_position = 0
+    bool may_contain_broken_elements = 0
+    bool is_unsafe = 0
+    bool[15] has_warning = *000002D6774D3D28
+    ufbx_string creator = {
+      const char * data = ""
+      size_t length = 0
+    }
+    bool big_endian = 0
+    ufbx_string filename = {
+      const char * data = "res/models/backpack/backpack.obj"
+      size_t length = 32
+    }
+    ufbx_string relative_root = {
+      const char * data = "res/models/backpack"
+      size_t length = 19
+    }
+    ufbx_blob raw_filename = {
+      const void * data = 000002D61D39253C
+      size_t size = 32
+    }
+    ufbx_blob raw_relative_root = {
+      const void * data = 000002D61D39255D
+      size_t size = 19
+    }
+    ufbx_exporter exporter = 0
+    uint32_t exporter_version = 0
+    ufbx_props scene_props = {
+      ufbx_prop_list props = {
+        ufbx_prop * data = 0000000000000000
+        size_t count = 0
+      }
+      size_t num_animated = 0
+      ufbx_props * defaults = 0000000000000000
+    }
+    ufbx_application original_application = {
+      ufbx_string vendor = {
+        const char * data = ""
+        size_t length = 0
+      }
+      ufbx_string name = {
+        const char * data = ""
+        size_t length = 0
+      }
+      ufbx_string version = {
+        const char * data = ""
+        size_t length = 0
+      }
+    }
+    ufbx_application latest_application = {
+      ufbx_string vendor = {
+        const char * data = ""
+        size_t length = 0
+      }
+      ufbx_string name = {
+        const char * data = ""
+        size_t length = 0
+      }
+      ufbx_string version = {
+        const char * data = ""
+        size_t length = 0
+      }
+    }
+    ufbx_thumbnail thumbnail = {
+      ufbx_props props = {
+        ufbx_prop_list props = {
+          ufbx_prop * data = 0000000000000000
+          size_t count = 0
+        }
+        size_t num_animated = 0
+        ufbx_props * defaults = 0000000000000000
+      }
+      uint32_t width = 0
+      uint32_t height = 0
+      ufbx_thumbnail_format format = 0
+      ufbx_blob data = {
+        const void * data = 0000000000000000
+        size_t size = 0
+      }
+    }
+    bool geometry_ignored = 0
+    bool animation_ignored = 0
+    bool embedded_ignored = 0
+    size_t max_face_triangles = 1
+    size_t result_memory_used = 8396000
+    size_t temp_memory_used = 12963312
+    size_t result_allocs = 12
+    size_t temp_allocs = 115
+    size_t element_buffer_size = 192672
+    size_t num_shader_textures = 0
+    ufbx_real bone_prop_size_unit = 1.000000
+    bool bone_prop_limb_length_relative = 1
+    ufbx_real ortho_size_unit = 30.000000
+    int64_t ktime_second = 0
+    ufbx_string original_file_path = {
+      const char * data = ""
+      size_t length = 0
+    }
+    ufbx_blob raw_original_file_path = {
+      const void * data = 0000000000000000
+      size_t size = 0
+    }
+    ufbx_space_conversion space_conversion = 0
+    ufbx_geometry_transform_handling geometry_transform_handling = 0
+    ufbx_inherit_mode_handling inherit_mode_handling = 0
+    ufbx_pivot_handling pivot_handling = 0
+    ufbx_mirror_axis handedness_conversion_axis = 0
+    ufbx_quat root_rotation = {
+      ufbx_real x = 0.000000
+      ufbx_real y = 0.000000
+      ufbx_real z = 0.000000
+      ufbx_real w = 1.000000
+      ufbx_real[4] v = *000002D6774D3EF0
+    }
+    ufbx_real root_scale = 1.000000
+    ufbx_mirror_axis mirror_axis = 0
+    ufbx_real geometry_scale = 1.000000
+  }
+  ufbx_scene_settings settings = {
+    ufbx_props props = {
+      ufbx_prop_list props = {
+        ufbx_prop * data = 0000000000000000
+        size_t count = 0
+      }
+      size_t num_animated = 0
+      ufbx_props * defaults = 0000000000000000
+    }
+    ufbx_coordinate_axes axes = {
+      ufbx_coordinate_axis right = 6
+      ufbx_coordinate_axis up = 6
+      ufbx_coordinate_axis front = 6
+    }
+    ufbx_real unit_meters = 0.000000
+    double frames_per_second = 24.000000
+    ufbx_vec3 ambient_color = {
+      ufbx_real x = 0.000000
+      ufbx_real y = 0.000000
+      ufbx_real z = 0.000000
+      ufbx_real[3] v = *000002D6774D3F68
+    }
+    ufbx_string default_camera = {
+      const char * data = ""
+      size_t length = 0
+    }
+    ufbx_time_mode time_mode = 11
+    ufbx_time_protocol time_protocol = 2
+    ufbx_snap_mode snap_mode = 0
+    ufbx_coordinate_axis original_axis_up = 6
+    ufbx_real original_unit_meters = 0.000000
+  }
+  ufbx_node * root_node = 000002D677490828
+  ufbx_anim * anim = 000002D6774D3B48
+  ufbx_unknown_list unknowns = {
+    ufbx_unknown ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_node_list nodes = {
+    ufbx_node ** data = 000002D6774C51A8
+    size_t count = 80
+  }
+  ufbx_mesh_list meshes = {
+    ufbx_mesh ** data = 000002D6774C5428
+    size_t count = 79
+  }
+  ufbx_light_list lights = {
+    ufbx_light ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_camera_list cameras = {
+    ufbx_camera ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_bone_list bones = {
+    ufbx_bone ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_empty_list empties = {
+    ufbx_empty ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_line_curve_list line_curves = {
+    ufbx_line_curve ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_nurbs_curve_list nurbs_curves = {
+    ufbx_nurbs_curve ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_nurbs_surface_list nurbs_surfaces = {
+    ufbx_nurbs_surface ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_nurbs_trim_surface_list nurbs_trim_surfaces = {
+    ufbx_nurbs_trim_surface ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_nurbs_trim_boundary_list nurbs_trim_boundaries = {
+    ufbx_nurbs_trim_boundary ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_procedural_geometry_list procedural_geometries = {
+    ufbx_procedural_geometry ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_stereo_camera_list stereo_cameras = {
+    ufbx_stereo_camera ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_camera_switcher_list camera_switchers = {
+    ufbx_camera_switcher ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_marker_list markers = {
+    ufbx_marker ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_lod_group_list lod_groups = {
+    ufbx_lod_group ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_skin_deformer_list skin_deformers = {
+    ufbx_skin_deformer ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_skin_cluster_list skin_clusters = {
+    ufbx_skin_cluster ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_blend_deformer_list blend_deformers = {
+    ufbx_blend_deformer ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_blend_channel_list blend_channels = {
+    ufbx_blend_channel ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_blend_shape_list blend_shapes = {
+    ufbx_blend_shape ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_cache_deformer_list cache_deformers = {
+    ufbx_cache_deformer ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_cache_file_list cache_files = {
+    ufbx_cache_file ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_material_list materials = {
+    ufbx_material ** data = 000002D6774C56A0
+    size_t count = 1
+  }
+  ufbx_texture_list textures = {
+    ufbx_texture ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_video_list videos = {
+    ufbx_video ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_shader_list shaders = {
+    ufbx_shader ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_shader_binding_list shader_bindings = {
+    ufbx_shader_binding ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_anim_stack_list anim_stacks = {
+    ufbx_anim_stack ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_anim_layer_list anim_layers = {
+    ufbx_anim_layer ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_anim_value_list anim_values = {
+    ufbx_anim_value ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_anim_curve_list anim_curves = {
+    ufbx_anim_curve ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_display_layer_list display_layers = {
+    ufbx_display_layer ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_selection_set_list selection_sets = {
+    ufbx_selection_set ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_selection_node_list selection_nodes = {
+    ufbx_selection_node ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_character_list characters = {
+    ufbx_character ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_constraint_list constraints = {
+    ufbx_constraint ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_audio_layer_list audio_layers = {
+    ufbx_audio_layer ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_audio_clip_list audio_clips = {
+    ufbx_audio_clip ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_pose_list poses = {
+    ufbx_pose ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_metadata_object_list metadata_objects = {
+    ufbx_metadata_object ** data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_element_list[42] elements_by_type = *000002D6774D3FB8
+  ufbx_texture_file_list texture_files = {
+    ufbx_texture_file * data = 00007FF645F61F50
+    size_t count = 0
+  }
+  ufbx_element_list elements = {
+    ufbx_element ** data = 000002D677490328
+    size_t count = 160
+  }
+  ufbx_connection_list connections_src = {
+    ufbx_connection * data = 000002D6774BF8C8
+    size_t count = 237
+  }
+  ufbx_connection_list connections_dst = {
+    ufbx_connection * data = 000002D6774C2538
+    size_t count = 237
+  }
+  ufbx_name_element_list elements_by_name = {
+    ufbx_name_element * data = 000002D6774C56A8
+    size_t count = 160
+  }
+  ufbx_dom_node * dom_root = 0000000000000000
+}

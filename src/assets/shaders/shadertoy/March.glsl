@@ -5,7 +5,7 @@
 #define RAYMARCH_MAX_STEPS 200
 // #define NEAR 0.000001
 float NEAR = 0.0001;
-float FAR = 400.0;
+float FAR = 200.0;
 float time;      // time
 
 #ifndef PI
@@ -371,7 +371,7 @@ void mainImage(out vec4 color, in vec2 f) {
    {
       mat2 camera_rotation = rotation(-PI/8.);
       const float widen = 10.;
-      camera_pos = iPosition;
+      camera_pos = iPosition/15.;
 
       // camera_dir = cameraDir(uv, vec3(PI/2, 0., 0.));
       camera_dir = cameraDir(uv, vec3(iRotation.x, iRotation.y, 0.));

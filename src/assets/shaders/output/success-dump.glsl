@@ -54,11 +54,6 @@ layout(std140, binding = 4) uniform Per_Frame {
     Camera camera;
     float elapsed_time, delta_time;
 } per_frame;
-
-
-layout(std140, binding = 5) uniform Ub_Data_Buffer {
-    vec4 random_data;
-} ub_data_buffer;
 // You can call positions_xyz.lenght() to get the the count of positions
 layout(std430, binding = 3) buffer VertexData {
    float positions_xyz[];
@@ -362,14 +357,14 @@ void main() {
 #ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
 #else
-   vec4 position = vec4(position.xyz + vec3(10), 1.0);
+   vec4 position = vec4(position.xyz,  1.0);
 #endif
 
    float positions_count = positions_xyz.length();
    mat4  gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
 
    // World position send to next stage
-   position.xz *= rotation(per_frame.elapsed_time * 0.2);
+   // position.xz *= rotation(per_frame.elapsed_time * 0.2);
    position = per_frame.model*position;
 
    { // Send to next shader
@@ -447,6 +442,88 @@ uniform bool has_emissive;
 uniform bool is_light;
 uniform vec3 camera_position;
 uniform vec2 spherical;
+
+vec3 spherical_to_cartesian(float theta, float phi) {
+   // float x = sin(theta) * cos(phi);
+   // float y = sin(theta) * sin(phi);
+   // float z = cos(theta);
+   // return vec3(x, y, z);
+
+   // float x = sin(phi) * cos(theta);
+   // float y = cos(phi);
+   // float z = sin(phi) * sin(theta);
+
+   float x =  sin(phi) * cos(theta);
+   float y = -sin(phi) * sin(theta);
+   float z =  cos(phi);
+   return vec3(x, y, z);
+}
+mat4 view_from_spherical(vec3 position, float theta, float phi) {
+   vec3 forward = vec3(0.0, 0.0, 1.0);
+   vec3 right   = vec3(1.0, 0.0, 0.0);
+   vec3 up      = vec3(0.0, 1.0, 0.0);
+
+   forward = spherical_to_cartesian(spherical.y, 0.0);
+
+   right   = cross(up, forward);
+   up      = cross(forward, right);
+
+   // forward = normalize(forward);
+   // right   = normalize(right);
+   // up      = normalize(up);
+
+
+   mat4 rotate = mat4(
+      right.x, up.x, forward.x, 0,
+      right.y, up.y, forward.y, 0,
+      right.z, up.z, forward.z, 0,
+      0,       0,    0,         1.0
+   );
+
+   position = camera_position;
+
+   mat4 translate = mat4(
+      1.0,         0.0,         0.0,         0.0,
+      0.0,         1.0,         0.0,         0.0,
+      0.0,         0.0,         1.0,         0.0,
+      -position.x, -position.y, -position.z, 1.0
+   );
+
+   mat4 view = rotate * translate;
+   return view;
+}
+
+mat4 lookat_rh(vec3 eye, vec3 target, vec3 up) {
+    // Calculate forward vector (negative Z axis)
+    vec3 f = normalize(target - eye);
+    // vec3 zaxis = normalize(target);
+    // Calculate right vector (X axis)
+    vec3 r = normalize(cross(up, f));
+    // Calculate up vector (Y axis)
+    vec3 u = normalize(cross(f, r));
+
+    // Create view matrix (column-major)
+    return mat4(
+       vec4(r, 0.0),
+       vec4(u, 0.0),
+       vec4(f, 0.0),
+       vec4(-dot(r, eye), -dot(u, eye), -dot(f, eye), 1.0)
+    );
+}
+
+mat4 lookat(vec3 eye, vec3 target, vec3 up) {
+    vec3 f = normalize(target - eye);      // forward
+    vec3 r = normalize(cross(up, f));      // right
+    vec3 u = cross(f, r);                  // up (already normalized by previous step)
+
+    // Column-major layout
+    return mat4(
+        vec4(r.x, u.x, f.x, 0.0),
+        vec4(r.y, u.y, f.y, 0.0),
+        vec4(r.z, u.z, f.z, 0.0),
+        vec4(-dot(r, eye), -dot(u, eye), -dot(f, eye), 1.0)
+    );
+}
 vec3 camera_forward(vec2 r) {
    float theta = -r.x, phi = -r.y + PI/2;
    // float x =  sin(phi) * cos(theta);
@@ -487,34 +564,26 @@ layout(std140, binding = 4) uniform Per_Frame {
     float elapsed_time, delta_time;
 } per_frame;
 
-
-layout(std140, binding = 5) uniform Ub_Data_Buffer {
-    vec4 random_data;
-} ub_data_buffer;
-
 vec3 brdf_blinn_phong(
       vec3 light_direction, vec3 view_direction, vec3 normal,
       vec3 diffuse_color,       vec3 specular_color,
       vec3 light_diffuse_color, vec3 light_specular_color, vec3 light_ambient_color,
-      float specular_exponent,  float attenuation
+      float specular_exponent
 ) {
 
-   vec3 position = Position;
-
-   // TODO: use half vector instead
    vec3 wi = normalize(light_direction);
    vec3 wo = normalize(view_direction);
    vec3 n  = normalize(normal);
 
    // vec3 ambient_color = diffuse_color * specular_color;
-   vec3 ambient_color =  0.715160 * diffuse_color  + 0.062671 * specular_color;
+   vec3 ambient_color =  0.55160 * diffuse_color  + 0.082671 * specular_color;
    // vec3 ambient_color = vec3(0.212671*diffuse_color.r, 0.715160*diffuse_color.g, 0.072169*diffuse_color.b);
 
 
    // Table of materials and constants for ambient: http://devernay.free.fr/cours/opengl/materials.html
-   float ambient_intesity  = attenuation * 0.35 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r);
-   float diffuse_intesity  = attenuation * 0.5;
-   float specular_intesity = attenuation * 0.25;
+   float ambient_intesity  = 0.2 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.1 + (0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r));
+   float diffuse_intesity  = 0.5;
+   float specular_intesity = 0.25;
 
    const bool use_half_vector = true;
    float specular_term = 0;
@@ -530,9 +599,11 @@ vec3 brdf_blinn_phong(
    vec3 specular = light_specular_color * specular_color * pow(max(0, specular_term), specular_exponent);
    vec3 ambient  = light_ambient_color  * ambient_color;
 
-   return  (diffuse_intesity  * diffuse)
+   return  vec3(0.)
+         + (diffuse_intesity  * diffuse)
          + (specular_intesity * specular)
-         + (ambient_intesity  * ambient);
+         + (ambient_intesity  * ambient)
+   ;
 }
 
 float n = 10; // 1 100
@@ -572,21 +643,12 @@ vec3 BRDF( vec3 L, vec3 V, vec3 N, vec3 X, vec3 Y )
     return vec3(val);
 }
 
-
-vec3 brdf_blinn_phong(
-      vec3 light_direction, vec3 view_direction, vec3 normal,
-      vec3 diffuse_color,       vec3 specular_color,
-      float specular_exponent,  float attenuation
-) {
-   return brdf_blinn_phong(light_direction, view_direction, normal, diffuse_color, specular_color, vec3(1.), vec3(1.), vec3(1.), specular_exponent, attenuation);
-}
-
 float light_attenuation(vec3 light_position, vec3 fragment_position) {
    // See to get some values: http://www.ogre3d.org/tikiwiki/tiki-index.php?page=-Point+Light+Attenuation
    const float Kc = 1.0;
    const float Kl = 0.007;
    const float Kq = 0.0002;
-   const float min_attenuation = 0.07, max_attenuation = 1.0;
+   const float min_attenuation = 0.00, max_attenuation = 1.0;
 
    float d = length(fragment_position - light_position);
    float denominator = Kc + Kl*d + Kq * pow(d, 2.);
@@ -600,73 +662,6 @@ vec3 gamma_correction(vec3 colour) {
 
 }
 
-vec3 point_light() {
-   vec3 position = Position;
-   vec3 normal   = normalize(Normal);
-
-
-   vec3 light_direction = normalize(per_frame.light.position - position);
-   vec3 view_direction  = normalize(per_frame.camera.position - position);
-
-   vec3 diffuse_color  = texture(diffuse_texture, TexCoord).xyz;
-   vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
-
-
-   if (special == 1) {
-      FragColor.r = 1.0;
-   }
-
-   vec3 light_diffuse_color  = per_frame.light.diffuse;
-   vec3 light_ambient_color  = per_frame.light.ambient;
-   vec3 light_specular_color = per_frame.light.specular;
-   const bool rain_bow_light = true;
-
-   if (rain_bow_light) {
-      light_diffuse_color  = vec3(sin(per_frame.elapsed_time*1.3)/2. + 1.0, sin(per_frame.elapsed_time*2)/4. + 0.5, sin(per_frame.elapsed_time*0.7)/4. + 0.5);
-      light_ambient_color  = light_diffuse_color * vec3(0.2f);
-      light_specular_color = vec3(0.92f);
-
-   }
-
-
-   if (has_specular) {
-      specular_color = vec3(1.0);
-      light_specular_color = vec3(1.0);
-      specular_color  = 2*texture(specular_texture, TexCoord).xyz;
-   }
-
-   float attenuation = light_attenuation(per_frame.light.position, position);
-   vec3 color =
-      brdf_blinn_phong(
-         light_direction, view_direction, normal,
-         diffuse_color, specular_color,
-         light_diffuse_color, light_ambient_color, light_specular_color,
-         64., attenuation
-      );
-
-   const bool test_elapsed_time = false;
-   if (test_elapsed_time) {
-      return vec3(sin(per_frame.elapsed_time), per_frame.delta_time*100, .0);
-   }
-
-   if (has_emissive && has_specular) {
-      // color += (attenuation_distance * texture(emissive_texture, TexCoord).xyz);
-      if ((specular_color.z + specular_color.y + specular_color.x) > 0.1) {
-         const float time_factor = sin(per_frame.elapsed_time * 2.9)/2. + 0.5;
-         // color += specular_color + time_factor * texture(emissive_texture, TexCoord).xyz;
-         const vec3 emissive_color = texture(emissive_texture, TexCoord).xyz;
-         color += specular_color * (emissive_color.y + emissive_color.x + emissive_color.z);
-      }
-      // color += (specular_color * texture(emissive_texture, TexCoord).xyz);
-      // FragColor.xyz += (vec3(0.2)-specular_color/2) * texture(emissive_texture, TexCoord).xyz;
-      // FragColor.xyz = texture(emissive_texture, TexCoord).xyz;
-      // FragColor.xyz = vec3(1.);
-   }
-   if (is_light) {
-      return light_ambient_color;
-   }
-   return color;
-}
 
 vec3 direction_light() {
    vec3 position = Position;
@@ -688,13 +683,12 @@ vec3 direction_light() {
       specular_color  = texture(specular_texture, TexCoord).xyz;
    }
 
-   vec3 color =
-      brdf_blinn_phong(
-         light_direction, view_direction, normal,
-         diffuse_color, specular_color,
-         light_diffuse_color, light_ambient_color, light_specular_color,
-         64., 1.0
-      );
+   vec3 color = brdf_blinn_phong(
+      light_direction, view_direction, normal,
+      diffuse_color, specular_color,
+      light_diffuse_color, light_ambient_color, light_specular_color,
+      64.
+   );
 
    if (has_emissive && has_specular) {
       // color += (attenuation_distance * texture(emissive_texture, TexCoord).xyz);
@@ -722,13 +716,13 @@ vec3 spot_light_smooth() {
    // Spotlight cone parameters
    float inner_cutoff = cos(radians(12.5)); // Inner cone angle (12.5 degrees)
    float outer_cutoff = cos(radians(17.5)); // Outer cone angle (17.5 degrees)
-   float epsilon = inner_cutoff - outer_cutoff;
+   float epsilon_cutoff = inner_cutoff - outer_cutoff;
 
    // Angle, but in cosine, between light direction and fragment direction
    float theta = dot(frag_to_light_direction, normalize(-light_direction));
 
    // Spotlight intensity with smooth falloff
-   float intensity = clamp((theta - outer_cutoff) / epsilon, 0.0, 1.0);
+   float intensity = clamp((theta - outer_cutoff) / epsilon_cutoff, 0.0, 1.0);
 
    // Early exit if outside spotlight cone
    if (theta < outer_cutoff) {
@@ -744,12 +738,12 @@ vec3 spot_light_smooth() {
    }
 
    float attenuation = light_attenuation(light_position, position);
-   vec3 color = brdf_blinn_phong(
+   vec3 color = attenuation * brdf_blinn_phong(
          light_direction, view_direction, normal,
          diffuse_color, specular_color,
          per_frame.light.diffuse, per_frame.light.ambient,
          has_specular ? vec3(1.0) : per_frame.light.specular,
-         64.0, attenuation
+         64.0
    );
 
    // Apply spotlight intensity
@@ -764,35 +758,39 @@ vec3 spot_light_smooth() {
    return color;
 }
 
-vec3 spot_light() {
-   vec3 position = Position;
-   vec3 normal = normalize(Normal);
-   vec3 light_position = per_frame.camera.position;
+float spot_light(
+   vec3 fragment_position,
+   vec3 spotlight_position, vec3 spotlight_direction,
+   float angle, float angle_increment
+) {
+   vec3 position = fragment_position;
+   vec3 light_position = spotlight_position;
 
-   // Fixed: Calculate light direction (from fragment to light)
+   // Light direction (from fragment to light)
    vec3 light_direction = normalize(light_position - position);
 
-   // Fixed: Use light direction for spotlight cone check
-   vec3 spotlight_direction = normalize(camera_forward(spherical));
+   // camera_forward point to the scene, so it's right where we're looking
+   spotlight_direction = normalize(spotlight_direction);
 
    // Spotlight cone checking
-   float cutoff = cos(radians(12.5));
-   float outer_cutoff = cos(radians(15.0));
-
-   // Fixed: Dot product between spotlight direction and light direction
-   float theta = dot(-spotlight_direction, light_direction);
-
-   vec3 diffuse_color = texture(diffuse_texture, TexCoord).xyz;
+   float inner_cutoff  = cos(radians(angle));
+   float outer_cutoff  = cos(radians(angle + angle_increment));
+   float theta         = dot(-spotlight_direction, light_direction);
+   const float min_intensity = 0.1;
+   const float max_intensity = 1.0;
 
    // Early exit for fragments outside spotlight
    if (theta < outer_cutoff) {
-      return 0.1 * per_frame.light.ambient * diffuse_color;
+      return min_intensity;
    }
 
    // Smooth spotlight falloff
-   float epsilon = cutoff - outer_cutoff;
-   float intensity = clamp((theta - outer_cutoff) / epsilon, 0.0, 1.0);
+   float epsilon = inner_cutoff - outer_cutoff;
+   float intensity = clamp((theta - outer_cutoff) / epsilon, min_intensity, max_intensity);
+   // float intensity = smoothstep(0.0, 1.0, (theta - outer_cutoff) / epsilon);
+   return intensity;
 
+#if 0
    // Calculate lighting (replace with your BRDF)
    float ndotl = max(dot(normal, light_direction), 0.0);
    vec3 view_direction = normalize(per_frame.camera.position - position);
@@ -805,6 +803,8 @@ vec3 spot_light() {
    vec3 final_color = intensity * (diffuse_color * ndotl + vec3(specular) * 0.3);
 
    return final_color + 0.1 * per_frame.light.ambient * diffuse_color;
+#endif
+
 }
 
 vec3 spot_light_hard() {
@@ -849,12 +849,12 @@ vec3 spot_light_hard() {
    }
 
    float attenuation = light_attenuation(light_position, position);
-   vec3 color = brdf_blinn_phong(
+   vec3 color = attenuation * brdf_blinn_phong(
       light_direction, view_direction,
       normal,
       diffuse_color, specular_color,
       light_diffuse_color, light_ambient_color, light_specular_color,
-      64., attenuation
+      64.
    );
 
    if (has_emissive && has_specular) {
@@ -876,17 +876,127 @@ vec3 spot_light_hard() {
    return color;
 }
 
+float point_light(vec3 light_position, vec3 fragment_positon) {
+   float attenuation = light_attenuation(light_position, fragment_positon);
+   return attenuation;
+}
+
+
+// Calculate color as if light is a point light but doesn't do any attenuation
+vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, vec3 view_position, vec3 normal) {
+   vec3 position = fragment_position;
+   normal = normalize(normal);
+
+   vec3 view_direction  = normalize(view_position - fragment_position);
+
+   vec3 fragment_diffuse_color  = texture(diffuse_texture, TexCoord).xyz;
+   vec3 fragment_specular_color = vec3(0.8) + 0.2*fragment_diffuse_color;
+
+   vec3 light_diffuse_color  = light.diffuse;
+   vec3 light_ambient_color  = light.ambient;
+   vec3 light_specular_color = light.specular;
+
+   const bool rainbow = false;
+   if (rainbow) {
+      light_diffuse_color  = vec3(sin(per_frame.elapsed_time*1.3)/2. + 1.0, sin(per_frame.elapsed_time*2)/4. + 0.5, sin(per_frame.elapsed_time*0.7)/4. + 0.5);
+      light_ambient_color  = light_diffuse_color * vec3(0.2f);
+      light_specular_color = vec3(0.92f);
+
+   }
+
+   if (has_specular) {
+      light_specular_color = vec3(1.0);
+      fragment_specular_color = vec3(1.0);
+      fragment_specular_color = texture(specular_texture, TexCoord).xyz;
+   }
+
+   float attenuation = light_attenuation(light.position, position);
+   vec3 color = brdf_blinn_phong (
+         light_direction, view_direction, normal,
+         fragment_diffuse_color, fragment_specular_color,
+         light_diffuse_color, light_ambient_color, light_specular_color,
+         32.0
+   );
+
+
+   const bool test_elapsed_time = false;
+   if (test_elapsed_time) {
+      return vec3(sin(per_frame.elapsed_time), sin(per_frame.delta_time*1.2 +  PI/2.), sin(per_frame.elapsed_time*2.7 + PI/4.0));
+   }
+
+
+   if (has_emissive && has_specular) {
+      // color += (attenuation_distance * texture(emissive_texture, TexCoord).xyz);
+      if ((fragment_specular_color.z + fragment_specular_color.y + fragment_specular_color.x) > 0.1) {
+         const float time_factor = sin(per_frame.elapsed_time * 2.9)/2. + 0.5;
+         // color += specular_color + time_factor * texture(emissive_texture, TexCoord).xyz;
+         const vec3 emissive_color = texture(emissive_texture, TexCoord).xyz;
+         color += fragment_specular_color * (emissive_color.y + emissive_color.x + emissive_color.z);
+      }
+   }
+   if (is_light) {
+      return light_ambient_color;
+   }
+   return color;
+}
+
 void main() {
+   // FragColor = vec4(gl_FragCoord.z);
+   // return;
    // vec3 color = direction_light();
    // vec3 color = point_light();
 
-   vec3 color = spot_light_smooth();
+   // vec3 color = spot_light_smooth();
    // vec3 color = spot_light();
-   // vec3 color = spot_light_hard();
-
    vec3 position = Position;
+
+   vec3 camera_direction = camera_forward(spherical);
+   vec3 camera_position = per_frame.camera.position;
+   float intensity = spot_light(
+      position,          // fragment_position
+      camera_position,   // spotlight_position
+      camera_direction,  // spotlight_direction,
+      19.5, 12.0         // cutoff in degrees
+   );
+
+
+   // vec3 color = calculate_color(per_frame.light, position, per_frame.camera.position, Normal);
+   vec3 color = vec3(0);
+
+   {
+      Light point_lights[3];
+      // Initialize the struct members
+      point_lights[0] = per_frame.light;
+
+      point_lights[1].position = camera_position + vec3(0., 10., 0.);
+      point_lights[1].ambient  = vec3(1.1, 0.09, 0.89);
+      point_lights[1].diffuse  = vec3(1.0, 0.09, 0.89);
+      point_lights[1].specular = vec3(1.0, 0.89, 1.0);
+
+      point_lights[2].position = vec3(0., 10., 0.);
+      point_lights[2].ambient  = vec3(1.0, 0.89, 0.0);
+      point_lights[2].diffuse  = vec3(1.0, 0.89, 0.0);
+      point_lights[2].specular = vec3(1.0, 0.89, 0.0);
+
+      for (int idx = 0; idx < point_lights.length(); idx += 1) {
+         Light light = point_lights[idx];
+         float attenuation = point_light(light.position, position);
+
+         vec3 light_direction = normalize(light.position - position);
+         if (idx == 1) {
+            // break;
+            // light_direction = camera_direction;
+            attenuation *= intensity;
+         } else {
+            light_direction = normalize(light.position - position);
+         }
+
+         color += attenuation * calculate_color(light, light_direction, position, camera_position, Normal);
+      }
+   }
+
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
    float attenuation_alpha = clamp(distance_to_view/distance_to_view, 0.2, 1.0);
-   FragColor = vec4(color, 1.0);
+   FragColor = vec4(color, attenuation_alpha);
    FragColor.xyz = gamma_correction(FragColor.xyz);
 } 

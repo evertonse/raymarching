@@ -62,9 +62,19 @@
 - [x] Update Vertex_Array to use the Buffer api
 
 - [x] Fix Shader reaload lag
+- [ ] Expand Shader to allow "#pragma once"
 - [ ] Mix what you wrote in raymath.c with handmade_math to get the best of both (has to fix naming conv)
 
 - [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
 - [ ] Bindings of types of buffers should be cached
 - [ ] Blend, Cull and other setting should be cached makiing sure nobody changes that that mean making sure no dependencies touch the context
 
+
+download zip,
+find an online 3d viewer that properly renders the backface shade thing,
+use that to convert the set of files to a .glb file,
+open that in the default Windows 3d viewer because it does not support adding textures to .obj files (paint 3d does but it does not support .mtl),
+apply default spin animation,
+record the entire 3d viewer window with windows game bar,
+find a random online editor to crop and cut,
+export as gif (did not even have to convert mp4 to gif or anything, kewl)

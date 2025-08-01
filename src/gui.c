@@ -65,6 +65,16 @@ void gui_vector3(ZString title, Vector3* vec_in_out ) {
    nk_end(nk_ctx);
 }
 
+void gui_check_box(ZString title, bool* in_out ) {
+   static int window_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE;
+   if (nk_begin(nk_ctx, title, nk_rect(50, 50, 300, 120), window_flags)) {
+      nk_layout_row_dynamic(nk_ctx, 30, 3); // 3 columns for X, Y, Z
+      bool result = nk_check_label(nk_ctx, "  ", *in_out);
+      *in_out = result;
+   }
+   nk_end(nk_ctx);
+}
+
 void gui_float(ZString title, float* in_out) {
    auto val = in_out;
    // static int window_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE | NK_WINDOW_MOVABLE;

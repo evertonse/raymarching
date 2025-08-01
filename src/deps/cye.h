@@ -162,17 +162,24 @@
 #   endif
 #endif
 
-#ifndef DEBUG_TRAP
-#   if defined(_MSC_VER)
+#ifndef debug_break
+#   if defined(_MSC_VER) && !defined(__clang__)
 #      if _MSC_VER < 1300
-#          define DEBUG_TRAP() __asm int 3
+#          define debug_break() __asm int 3
 #      else
-#          define DEBUG_TRAP() __debugbreak()
+#          define debug_break() __debugbreak()
 #      endif
+#   elif defined(__clang__)
+#      define debug_break() __debugbreak()
 #   else
-#      define DEBUG_TRAP() __builtin_trap()
+#      define debug_break() __builtin_trap()
 #   endif
 #endif
+
+#ifndef DEBUG_TRAP
+#define DEBUG_TRAP debug_break
+#endif
+
 
 #ifndef static_assert_old
 
@@ -2422,7 +2429,7 @@ bool cye_ds_read_file(ZString path, Cye_DString *ds) {
     usz new_count = ds->count + m;
     if (new_count > ds->capacity) {
         ds->items = cye_context.realloc(ds->items, new_count);
-        cye_assert(ds->items != NULL && "Please, you'll need to acquire more random access memory ");
+        cye_assert(ds->items != NULL && "Please, you'll need to acquire more random access memory, sire.");
         ds->capacity = new_count;
     }
 
@@ -2578,6 +2585,7 @@ char* cye_path_create_from_array(ZString paths[], usz paths_count) {
 
 ZString cye_path_base_name(ZString path) {
 #ifndef PLATFORM_WINDOWS
+    if (!path || !*path) return NULL;
     ZString p = strrchr(path, '/');
     return p ? p + 1 : path;
 #else
@@ -2865,9 +2873,25 @@ bool cye_is_file(ZString path) {
 }
 
 // Check if path  is directory
+#ifdef PLATFORM_WINDOWS
+
 bool cye_is_dir(ZString path) {
-    cye_todo("VAI TRABALHAR VAGABUNDO");
+    DWORD attr = GetFileAttributesA(path);
+    if (attr == INVALID_FILE_ATTRIBUTES) return false;
+    return (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
+
+#else
+
+bool cye_is_dir(ZString path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return false;
+    return S_ISDIR(st.st_mode);
+}
+
+#endif
+
+
 
 // TODO: Move this into the library
 // Check if a path exists and is executable
@@ -3144,13 +3168,37 @@ ZString cye_path_home(void) {
     cye_todo("New Functions to Work on");
 }
 
-//  Return current directory
+#ifdef PLATFORM_WINDOWS
 ZString cye_path_cwd(void) {
-    cye_todo("New Functions to Work on");
+    DWORD length = GetCurrentDirectoryA(0, NULL);
+    if (length == 0) return NULL;
+
+    char* buffer = (char*)cye_talloc(length);
+    if (!buffer) return NULL;
+
+    if (GetCurrentDirectoryA(length, buffer) == 0) {
+        free(buffer);
+        return NULL;
+    }
+
+    return buffer;
 }
 
+#else
+
+ZString cye_path_cwd(void) {
+    char temp[PATH_MAX];
+    if (!getcwd(temp, sizeof(temp))) {
+        return NULL;
+    }
+    char* result = cye_tstrdup(temp);
+    return result;
+}
+
+#endif
+
 ZString cye_path_parent(ZString path) {
-    cye_todo("New Functions to Work on");
+    return cye_path_dir_of(path);
 }
 
 ZString cye_path_owner(ZString path) {

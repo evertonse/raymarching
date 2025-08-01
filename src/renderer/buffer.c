@@ -80,6 +80,7 @@ typedef struct {
     Buffer buffer;
 } Storage_Buffer;
 
+// TODO: By defauled we should just have a create buffer that takes  usage data and size, let the user decide the binding point whenever and also what type it is shouldn't concern us
 Buffer create_buffer_extended(Buffer_Type type, Buffer_Usage usage, const void *data, isz size, i64 binding) {
     Buffer buf = {0};
     buf.type = type;
@@ -205,16 +206,16 @@ void wait_sync_point(GLsync sync) {
    static constexpr isz max_tries = 800;
    static constexpr usz timeout_ns = 1;
    GLenum wait = 0;
-   for (isz idx = 0; idx < max_tries; idx++) {
+   for (isz idx = 0; true || idx < max_tries; idx++) {
       // This function will not return until one of two things happens: the sync object parameter becomes signaled, or a number of nanoseconds greater than or equal to the timeout parameter passes
       wait = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, timeout_ns);
       if (wait == GL_ALREADY_SIGNALED || wait == GL_CONDITION_SATISFIED) {
-         trace_okay("We ball we this (wait == GL_ALREADY_SIGNALED || wait == GL_CONDITION_SATISFIED)");
+         trace_debug("We ball we this (wait == GL_ALREADY_SIGNALED || wait == GL_CONDITION_SATISFIED)");
          return;
       } else if (wait == GL_TIMEOUT_EXPIRED) {
          // trace_warn("Client Wait timedout (set to %d nanoseconds).", timeout_ns);
       } else if (wait == GL_WAIT_FAILED) {
-         trace_warn("Client Wait Failed");
+         trace_debug("Client Wait Failed");
       }
    }
    trace_warn("Client Wait surpassed max tries (%d) each with a timeout of %d ns.", max_tries, timeout_ns);
@@ -453,7 +454,7 @@ Texture_Buffer create_texture_buffer(
     );
 
     // Associate the buffer with the texture
-    GLenum gl_internal_format;
+    GLenum gl_internal_format = 0;
     switch (format) {
         case TEXTURE_FORMAT_RGBA32F: gl_internal_format = GL_RGBA32F; break;
         case TEXTURE_FORMAT_RGBA8:   gl_internal_format = GL_RGBA8;   break;
@@ -499,16 +500,16 @@ Storage_Buffer create_storage_buffer(isz size, i64 binding, const void* data, bo
     return result;
 }
 
-Vertex_Buffer create_vertex_buffer(const void* data, isz vertex_size, isz vertex_count) {
+// You might divy up the array of vertex in diffent ways, so we use vertices_count allow you to query how many was it. But the buffer is always buffer_size, not taking into account vertinces_count
+Vertex_Buffer create_vertex_buffer(const void* data, isz buffer_size, isz vertices_count) {
     Vertex_Buffer result = {0};
-    isz size = vertex_count * vertex_size;
-    result.count = vertex_count;
+    result.count = vertices_count;
 
     result.buffer = create_buffer_extended(
         BUFFER_TYPE_VERTEX,
         BUFFER_USAGE_DYNAMIC,
         data,
-        size,
+        buffer_size,
         -1
     );
 

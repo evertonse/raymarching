@@ -6,12 +6,13 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
+
 #include "./shader.c"
 #include "./mesh.c"
 #include "./texture.c"
+#include "./model.c"
 #include "./buffer.c"
 #include "./nuklear.c"
-
 #include "./text.c"
 
 typedef struct {
@@ -48,7 +49,7 @@ typedef struct {
 
 inline bool is_valid_vertex_array(Vertex_Array va) {
     if (0 == va.handle) {
-       trace_info("Vertex Array is has zero handle");
+       trace_info("Vertex Array has zero handle");
        return false;
     }
 
@@ -84,7 +85,7 @@ Vertex_Array create_vertex_array(const Vertex *vertices, usz vertex_count, const
 
    glCreateVertexArrays(1, &va.handle);
 
-   va.vb = create_vertex_buffer(vertices, vertex_count * size_of(Vertex) , vertex_count);
+   va.vb = create_vertex_buffer(vertices, vertex_count * size_of(Vertex), vertex_count);
    va.ib = create_index_buffer(indices, indices_count);
    glVertexArrayElementBuffer(va.handle, va.ib.buffer.handle);
 
@@ -127,7 +128,8 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    // Create VAO
    glCreateVertexArrays(1, &va.handle);
 
-   // Create and upload VBO
+   // Create and upload VBO. Plus one just in case we need to add one more float to query the size of the array from shaders
+   // But buffers can be queried with '.length()'. I just dk if it portable?
    va.vb = create_vertex_buffer(nullptr, total_size + size_of(f32), mesh->vertices_count);
 
    isz offset = 0;
@@ -237,20 +239,6 @@ void bind_vertex_array(const Vertex_Array va) {
 
 #include "framebuffer.c"
 
-static const char* human_readable_size(i64 bytes) {
-    static char output[32];
-    static const char *units[] = {"B", "KB", "MB", "GB"};
-    f64 size = (f64)bytes;
-    int unit_index = 0;
-
-    while (size >= 1024.0 && unit_index < 3) {
-        size /= 1024.0;
-        unit_index++;
-    }
-
-    snprintf(output, size_of(output), "%.2f %s", size, units[unit_index]);
-    return output;
-}
 
 void print_opengl_resource_limits(void) {
    GLint value;

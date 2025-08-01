@@ -97,37 +97,46 @@ config_clang_from_linux_to_windows() {
     # This allows the debugger find your source code from the debug information otherwise it'll point to files where it was first built
     # which if they don't match the debbuger wont find it.
     #
-    flags_debug="-v -fdebug-macro -fdebug-prefix-map=$(pwd)=$WINDOWS_DESTINATION_DIR -fdebug-compilation-dir=$WINDOWS_DESTINATION_DIR -fuse-ld=lld -g -gcodeview -gcodeview-command-line -gcolumn-info -Xlinker -pdb="
+    flags_debug_codeview_extra="-gcodeview-command-line -gcolumn-info"
+    flags_debug_directory="-fdebug-prefix-map=$(pwd)=$WINDOWS_DESTINATION_DIR -fdebug-compilation-dir=$WINDOWS_DESTINATION_DIR"
+    flags_debug_macro="-fdebug-macro"
+    flags_debug="-v $flags_debug_directory -fuse-ld=lld -g -gcodeview $flags_debug_codeview_extra -Xlinker -pdb="
 
     #
     # NOTE: WinDbg "works" with dwarf-5 embed-source. Flags would be:
-      # flags_debug="-g -gdwarf-5 -gembed-source -fdebug-compilation-dir=$WINDOWS_DESTINATION_DIR"
-    # But can try other versions just in case flags_debug="-g -gmodules -gdwarf-3"
+    # flags_debug="-g -gdwarf-5 -gcolumn-info -gmodules -gembed-source $flags_debug_directory"
+    #
+    # But can try other versions just in case the Debugger only parses older formats
+    # flags_debug="-g -gmodules -gdwarf-3 $flags_debug_directory"
     #
 }
 
 build() {
+    #
+    # See for optimization flags: https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
+    #
     # From: https://carlpearson.net/post/20220301-gcc-flags/
     # And https://gcc.gnu.org/onlinedocs/gcc/Option-Summary.html
-    # -Wpedantic: Issue all the warnings demanded by strict ISO C++.
-    # -Wcast-align: warn whenever a pointer is cast such that the required alignment is increased (char* -> int*).
-    # -Wdisabled-optimization: warn if a requested optimization pass is disabled (e.g. code is too large, has some other feature that makes g++ give up).
+    #     -Wpedantic: Issue all the warnings demanded by strict ISO C++.
+    #     -Wcast-align: warn whenever a pointer is cast such that the required alignment is increased (char* -> int*).
+    #     -Wdisabled-optimization: warn if a requested optimization pass is disabled (e.g. code is too large, has some other feature that makes g++ give up).
     #     -Wcast-qual: warn when qualifier (const) is cast away, or introduces a qualifier in an unsafe way.
-    # -Wformat=2: same as -Wformat -Wformat-nonliteral -Wformat-security -Wformat-y2k. make sure printf-style function arguments match their format strings.
+    #     -Wformat=2: same as -Wformat -Wformat-nonliteral -Wformat-security -Wformat-y2k. make sure printf-style function arguments match their format strings.
     #     -Wlogical-op: warn about suspicious use of logical operators, i.e. contexts where bitwise is more likely.
     #     -Wnull-dereference: warn if paths that dereference a null pointer are detected.
     #     -Wpointer-arith: warn about sizeof for function types or void.
     #     -Wshadow: warn about variable shadowing and global function shadowing.
     #     -Wswitch-enum: warn when a switch on an enum type is missing one of the enums.
-    # -Wswitch-default: warn whenever a switch statement does not have a default case*.
+    #     -Wswitch-default: warn whenever a switch statement does not have a default case*.
     #     -Wvla: warn about using variable-length arrays.
     #     -fno-rtti for cpp only, you know what it means
     #     -Wfloat-equal: useful because usually testing floating-point numbers for equality is bad.
-    # -Wundef: warn if an uninitialized identifier is evaluated in an #if directive.
-    # -Wstrict-prototypes: warn if a function is declared or defined without specifying the argument types.
-    # -Wstrict-overflow=5: warns about cases where the compiler optimizes based on the assumption that signed overflow does not occur (famous UB with big discussion when gcc implemented this). (The value 5 may be too strict, see the manual page.)
-    # -Wwrite-strings: give string constants the type const char[length] so that copying the address of one into a non-const char * pointer will get a warning.
-    # -Waggregate-return: warn if any functions that return structures or unions are defined or called.
+    #     -Wundef: warn if an uninitialized identifier is evaluated in an #if directive.
+    #     -Wstrict-prototypes: warn if a function is declared or defined without specifying the argument types.
+    #     -Wstrict-overflow=5: warns about cases where the compiler optimizes based on the assumption that signed overflow does not occur (famous UB with big discussion when gcc implemented this). (The value 5 may be too strict, see the manual page.)
+    #     -Wwrite-strings: give string constants the type const char[length] so that copying the address of one into a non-const char * pointer will get a warning.
+    #     -Waggregate-return: warn if any functions that return structures or unions are defined or called.
+    #
 
     # Annoying warnings removed
     flags_no_warn='-Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -Wno-unknown-warning-option -Wno-unused-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-keyword-macro -Wno-unused-variable -Wno-self-assign'
@@ -158,7 +167,7 @@ build() {
     case "$1" in
         release)
             echo "Configuring for release"
-            flags="-static -pipe -static -O3 -ffast-math -fno-exceptions"
+            flags="-static -pipe -static -O3 -ffast-math -fno-exceptions -finline-functions"
             ;;
         debug)
             echo "Configuring for debug"
@@ -176,13 +185,17 @@ build() {
 
     profile_start
 
+    # Extensions from clang: https://clang.llvm.org/docs/LanguageExtensions.html#matrix-types
+    # Extensions from gnu: https://gcc.gnu.org/onlinedocs/gcc/Syntax-Extensions.html
     # Language standard with GNU extensions
     # -std=c99
     # -std=c23
     std_flags="-std=gnu2x"  # GNU-extended C23 (equivalent to -std=gnu23)
+    # std_flags="-std=nu2y"
 
     # Enable all C23 features and GNU extensions
-    extension_flags="-fms-extensions -fgnuc-version=13 -fgnu-keywords"
+    # extension_flags="-fenable-matrix -fms-extensions -fgnuc-version=13 -fgnu-keywords"
+    extension_flags="-fenable-matrix"
 
     # Enable specific C23 features
     # c23_features="-fdeclspec -fblocks -fcoroutines-ts -fdouble-square-bracket-attributes"
@@ -192,7 +205,7 @@ build() {
 
     # flags="$flags $c23_features $extension_flags $std_flags"
     # flags="$flags $std_flags $c23_features $c23_full"
-    flags="$flags $std_flags"
+    flags="$flags $std_flags $extension_flags"
 
     set -x
     $cc -Isrc                    \
@@ -242,13 +255,20 @@ sync_to_windows() {
         --exclude='.git'
         --exclude='*.zip'
         --exclude='.cache'
-        --exclude='*.obj'
+        --exclude="$glfw_obj"
     )
     echo "Syncing files to Windows..."
 
     profile_start
-    rsync -r "${exclude_patterns[@]}" --size-only ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
+
+    rync_flags='--size-only --delete' # size_only might be wrong sometimes, albeit its fast
+    rync_flags='--delete-delay --delete'
+    # --times is important to let rsync skip some files next syncing point
+    rsync -r --executability --times "${exclude_patterns[@]}" ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
+
     profile_end "Syncing files into directory $WINDOWS_DESTINATION_DIR"
+    # After syncing we don't want any '.pdb' files here
+    rm -f *.pdb
 }
 
 on_wsl() {

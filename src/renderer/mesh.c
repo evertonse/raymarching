@@ -1,17 +1,33 @@
 
 
 #include "assets/all_obj.h"
+// void *data;
+// bool is_from_single_data_buffer;
 typedef struct {
-   Vector3 *vertices;
+   union {
+      Vector3 *vertices;
+      Vector3 *positions;
+   };
+
    Vector3 *normals;
-   Vector2 *uvs;
+
+   union {
+      Vector2 *uvs;
+      Vector2 *texcoords;
+   };
    u32 *indices;
 
-   u32 vertices_count;
+   union {
+      u32 vertices_count;
+      u32 positions_count;
+   };
    u32 uvs_count;
    u32 normals_count;
    u32 indices_count;
+   int material_index;
+
 } Mesh;
+
 
 // Macro to define a mesh from OBJ data
 #define DEFINE_MESH(prefix, ext)                           \
@@ -178,6 +194,7 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
 
    return mesh;
 }
+
 Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
     Mesh mesh = {0};
 

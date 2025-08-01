@@ -3,25 +3,22 @@ vec3 brdf_blinn_phong(
       vec3 light_direction, vec3 view_direction, vec3 normal,
       vec3 diffuse_color,       vec3 specular_color,
       vec3 light_diffuse_color, vec3 light_specular_color, vec3 light_ambient_color,
-      float specular_exponent,  float attenuation
+      float specular_exponent
 ) {
 
-   vec3 position = Position;
-
-   // TODO: use half vector instead
    vec3 wi = normalize(light_direction);
    vec3 wo = normalize(view_direction);
    vec3 n  = normalize(normal);
 
    // vec3 ambient_color = diffuse_color * specular_color;
-   vec3 ambient_color =  0.715160 * diffuse_color  + 0.062671 * specular_color;
+   vec3 ambient_color =  0.55160 * diffuse_color  + 0.082671 * specular_color;
    // vec3 ambient_color = vec3(0.212671*diffuse_color.r, 0.715160*diffuse_color.g, 0.072169*diffuse_color.b);
 
 
    // Table of materials and constants for ambient: http://devernay.free.fr/cours/opengl/materials.html
-   float ambient_intesity  = attenuation * 0.35 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r);
-   float diffuse_intesity  = attenuation * 0.5;
-   float specular_intesity = attenuation * 0.25;
+   float ambient_intesity  = 0.2 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.1 + (0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r));
+   float diffuse_intesity  = 0.5;
+   float specular_intesity = 0.25;
 
    const bool use_half_vector = true;
    float specular_term = 0;
@@ -37,9 +34,11 @@ vec3 brdf_blinn_phong(
    vec3 specular = light_specular_color * specular_color * pow(max(0, specular_term), specular_exponent);
    vec3 ambient  = light_ambient_color  * ambient_color;
 
-   return  (diffuse_intesity  * diffuse)
+   return  vec3(0.)
+         + (diffuse_intesity  * diffuse)
          + (specular_intesity * specular)
-         + (ambient_intesity  * ambient);
+         + (ambient_intesity  * ambient)
+   ;
 }
 
 float n = 10; // 1 100
@@ -78,13 +77,3 @@ vec3 BRDF( vec3 L, vec3 V, vec3 N, vec3 X, vec3 Y )
         val = val / dot(N,L);
     return vec3(val);
 }
-
-
-vec3 brdf_blinn_phong(
-      vec3 light_direction, vec3 view_direction, vec3 normal,
-      vec3 diffuse_color,       vec3 specular_color,
-      float specular_exponent,  float attenuation
-) {
-   return brdf_blinn_phong(light_direction, view_direction, normal, diffuse_color, specular_color, vec3(1.), vec3(1.), vec3(1.), specular_exponent, attenuation);
-}
-

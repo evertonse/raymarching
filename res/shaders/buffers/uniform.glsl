@@ -25,7 +25,3 @@ layout(std140, binding = 4) uniform Per_Frame {
     float elapsed_time, delta_time;
 } per_frame;
 
-
-layout(std140, binding = 5) uniform Ub_Data_Buffer {
-    vec4 random_data;
-} ub_data_buffer;

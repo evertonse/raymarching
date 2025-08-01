@@ -63,7 +63,7 @@ void init_window(void) {
    const int max_width  = __state.window.mode->width;
    const int max_height = __state.window.mode->height;
 
-   int window_width  = max_width / 3.5;                // Half the width of the screen
+   int window_width  = max_width / 3.2;                // Half the width of the screen
    int window_height = max_height / 1.6;               // Half the height of the screen
 
    int right_padding_from_windows_bar = 67;
@@ -92,7 +92,7 @@ void init_window(void) {
 
    glfwMakeContextCurrent(window);
    gladLoadGL(glfwGetProcAddress);
-   glfwSwapInterval(1);
+   glfwSwapInterval(-1);
    __state.window.initialized = true;
 
 }
