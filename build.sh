@@ -61,6 +61,9 @@ popd() {
 
 
 WINDOWS_DESTINATION_DIR='C:\Dev\code\GPUCompute'
+DEBUGGER_DIRECTORY='C:\Dev\tools\raddbg\'
+DEBUGGER_EXECUTABLE_NAME='raddbg.exe'
+DEBUGGER_FILEPATH="$DEBUGGER_DIRECTORY\\$DEBUGGER_EXECUTABLE_NAME"
 
 config_gcc_linux() {
     cc='gcc'
@@ -72,9 +75,7 @@ config_gcc_linux() {
 
 config_mingw() {
     cxx='/bin/x86_64-w64-mingw32-g++'
-    cc='/bin/x86_64-w64-mingw32-gcc'
-    glfw_obj=rglfw.obj
-    bin='main.exe'
+    cc='/bin/x86_64-w64-mingw32-gcc' glfw_obj=rglfw.obj bin='main.exe'
     pbd='main.pdb'
 
     # TODO: Need to change debug compilation directory in mingw
@@ -139,7 +140,7 @@ build() {
     #
 
     # Annoying warnings removed
-    flags_no_warn='-Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -Wno-unknown-warning-option -Wno-unused-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-keyword-macro -Wno-unused-variable -Wno-self-assign'
+    flags_no_warn='-Wno-missing-braces -Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -Wno-unknown-warning-option -Wno-unused-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-keyword-macro -Wno-unused-variable -Wno-self-assign'
 
     # Collection of decently extra extra warnings
     flags_ub='-fwrapv -fno-strict-aliasing -ftrapv'
@@ -249,6 +250,10 @@ config_clang_from_linux_to_windows
 # --------------------------
 
 sync_to_windows() {
+    local pkill_cmd="$(wslpath 'C:\Windows\System32\taskkill.exe')"
+    set -x
+    $pkill_cmd /F /IM $DEBUGGER_EXECUTABLE_NAME || echo "$DEBUGGER_EXECUTABLE_NAME not open, which is fine."
+    set +x
 
     # Old rsync -r --exclude='.git' --exclude='*.zip' --exclude='.cache' --exclude='*.obj' --size-only ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
     local exclude_patterns=(
@@ -277,8 +282,7 @@ on_wsl() {
 
 
 start_debugger() {
-    local debugger_path='C:\Dev\tools\raddbg\raddbg.exe'
-    local debugger="$(wslpath "$debugger_path")"
+    local debugger="$(wslpath "$DEBUGGER_FILEPATH")"
     local target_dir="$(wslpath "$WINDOWS_DESTINATION_DIR")"
     echo "Starting debugger $debugger from $target_dir..."
     cd "$target_dir" && "$debugger" "$1" # Pass in the executable

@@ -18,7 +18,7 @@ vec3 brdf_blinn_phong(
    // Table of materials and constants for ambient: http://devernay.free.fr/cours/opengl/materials.html
    float ambient_intesity  = 0.2 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.1 + (0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r));
    float diffuse_intesity  = 0.5;
-   float specular_intesity = 0.25;
+   float specular_intesity = 0.35;
 
    const bool use_half_vector = true;
    float specular_term = 0;

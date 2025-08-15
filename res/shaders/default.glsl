@@ -9,21 +9,28 @@ layout(location = 2) in vec2 uv;
 
 #include "./buffers/uniform.glsl"
 #include "./buffers/positions_xyz.glsl"
+#include "./buffers/animation.glsl"
 #include "./buffers/indices.glsl"
 
 uniform mat4 view;
 uniform mat4 model;
 uniform mat4 perspective;
 uniform bool is_light;
+uniform int has_animation = -1;
 
 uniform vec3 camera_position;
 uniform vec2 spherical;
 
 
-out vec3 Position;
-out vec3 Normal;
-out vec2 TexCoord;
-out flat int special;
+out Varying {
+   vec3 Position;
+   vec3 Normal;
+   vec2 TexCoord;
+};
+
+out Flat {
+   flat int special;
+};
 
 
 #include "./src/coordinates.glsl"
@@ -66,7 +73,32 @@ void main() {
 
    // World position send to next stage
    // position.xz *= rotation(per_frame.elapsed_time * 0.2);
-   position = per_frame.model*position;
+   mat4 model = per_frame.model;
+   if (has_animation >= 0) {
+      // position = geometry_to_model[has_animation]*vec3(0);
+      vec4 translation = geometry_to_model[has_animation] * vec4(0., 0., 0., 1.);
+      translation.x += 150.;
+      translation.y += 20.;
+      mat4 model = matrix_transform(translation.xyz, vec3(1.), vec4(1));
+      position.xyz *= 10;
+      position = position + translation;
+      // position = model * position;
+   } else {
+      if (has_animation == -69) {
+         ivec4 joint_idxs    = joint_data[gl_VertexID].joint_idxs;
+         vec4  joint_weights = joint_data[gl_VertexID].joint_weights;
+         if (length(joint_weights) != 0) {
+         }
+         position =
+              joint_weights[0] * (geometry_to_model[joint_idxs[0]] * position)
+            + joint_weights[1] * (geometry_to_model[joint_idxs[1]] * position)
+            + joint_weights[2] * (geometry_to_model[joint_idxs[2]] * position)
+            + joint_weights[3] * (geometry_to_model[joint_idxs[3]] * position);
+         // position = model * position;
+      } else {
+         position = model * position;
+      }
+   }
 
    { // Send to next shader
       // Everything is sent in World Space
@@ -74,7 +106,7 @@ void main() {
       // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
       if (true) {
          // Apply mat3 to "drop" the translation portion
-         Normal = mat3(transpose(inverse(per_frame.model))) * normal;
+         Normal = mat3(transpose(inverse(model))) * normal;
          // Normal = ((transpose(inverse(per_frame.model)) * vec4(normal, 0.)).xyz);
       } else {
          Normal = normal.xyz;
@@ -100,6 +132,11 @@ void main() {
    // WARNING: This function is mostly the same except for some z-fighting shenanigans
    // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
 
+   mat4 a = geometry_to_model[0];
+   if (geometry_to_model.length() == 0) {
+      // special = 1;
+   }
+
    TexCoord = uv;
 }
 
@@ -112,10 +149,15 @@ void main() {
 #pragma fragment
 #version 460 core
 
-in vec3 Position;
-in vec3 Normal;
-in vec2 TexCoord;
-in flat int special;
+in Varying {
+   vec3 Position;
+   vec3 Normal;
+   vec2 TexCoord;
+};
+
+in Flat {
+   flat int special;
+};
 
 layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
 layout(binding  = 3) uniform sampler2D diffuse_texture;
@@ -161,6 +203,7 @@ vec3 direction_light() {
    vec3 view_direction  = normalize(per_frame.camera.position - position);
 
    vec3 diffuse_color  = texture(diffuse_texture, TexCoord).xyz;
+   // vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
    vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
 
 
@@ -169,8 +212,6 @@ vec3 direction_light() {
    vec3 light_specular_color = per_frame.light.specular;
 
    if (has_specular) {
-      specular_color = vec3(1.0);
-      light_specular_color = vec3(1.0);
       specular_color  = texture(specular_texture, TexCoord).xyz;
    }
 
@@ -178,7 +219,7 @@ vec3 direction_light() {
       light_direction, view_direction, normal,
       diffuse_color, specular_color,
       light_diffuse_color, light_ambient_color, light_specular_color,
-      64.
+      32.
    );
 
    if (has_emissive && has_specular) {
@@ -396,6 +437,7 @@ vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, 
    }
 
    if (has_specular) {
+   // if (false && has_specular) {
       light_specular_color = vec3(1.0);
       fragment_specular_color = vec3(1.0);
       fragment_specular_color = texture(specular_texture, TexCoord).xyz;
@@ -406,7 +448,7 @@ vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, 
          light_direction, view_direction, normal,
          fragment_diffuse_color, fragment_specular_color,
          light_diffuse_color, light_ambient_color, light_specular_color,
-         32.0
+         64.0
    );
 
 
@@ -459,10 +501,18 @@ void main() {
       // Initialize the struct members
       point_lights[0] = per_frame.light;
 
-      point_lights[1].position = camera_position + vec3(0., 10., 0.);
-      point_lights[1].ambient  = vec3(1.1, 0.09, 0.89);
-      point_lights[1].diffuse  = vec3(1.0, 0.09, 0.89);
-      point_lights[1].specular = vec3(1.0, 0.89, 1.0);
+      point_lights[1].position = camera_position + vec3(0., 7., 0.);
+      const bool pink_spotlight = false;
+      if (pink_spotlight) {
+         point_lights[1].ambient  = vec3(1.0, 0.09, 0.89);
+         point_lights[1].diffuse  = vec3(1.0, 0.09, 0.89);
+         point_lights[1].specular = vec3(1.0, 0.89, 1.0);
+      } else {
+         point_lights[1].specular = vec3(1.0);
+         point_lights[1].ambient  = vec3(1.0);
+         point_lights[1].diffuse  = vec3(1.0);
+      }
+
 
       point_lights[2].position = vec3(0., 10., 0.);
       point_lights[2].ambient  = vec3(1.0, 0.89, 0.0);
@@ -481,7 +531,12 @@ void main() {
          }
 
          color += attenuation * calculate_color(light, light_direction, position, camera_position, Normal);
+         // color += calculate_color(light, light_direction, position, camera_position, Normal);
       }
+   }
+
+   if (special > 0) {
+      color = vec3(1);
    }
 
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view

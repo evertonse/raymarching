@@ -58,6 +58,24 @@ layout(std140, binding = 4) uniform Per_Frame {
 layout(std430, binding = 3) buffer VertexData {
    float positions_xyz[];
 };
+layout(std430, binding = 12) buffer Animation_Matrices {
+   mat4 geometry_to_model[];
+};
+
+struct Joint_Data {
+   ivec4 joint_idxs;     // index into geometry_to_model
+   vec4  joint_weights;  // \sum_over_(i=4){joint_weights[i] * bone_idxs[i]}
+};
+
+layout(std430, binding = 9) buffer Animation_Bones {
+   Joint_Data joint_data[];
+  // for (int i = 0; i < 4; ++i) {
+  //       mat4 bone_transform = geometry_to_model[bone_idxs[i]];
+  //       position += bone_weights[i] * (bone_transform * vec4(position, 1.0));
+  //   }
+  //
+  //   gl_Position = uModelViewProjection * vec4(position, 1.0);
+};
 layout(std430, binding = 5) buffer IndexData {
    float indices[];
 };
@@ -66,15 +84,21 @@ uniform mat4 view;
 uniform mat4 model;
 uniform mat4 perspective;
 uniform bool is_light;
+uniform int has_animation = -1;
 
 uniform vec3 camera_position;
 uniform vec2 spherical;
 
 
-out vec3 Position;
-out vec3 Normal;
-out vec2 TexCoord;
-out flat int special;
+out Varying {
+   vec3 Position;
+   vec3 Normal;
+   vec2 TexCoord;
+};
+
+out Flat {
+   flat int special;
+};
 
 vec3 spherical_to_cartesian(float theta, float phi) {
    // float x = sin(theta) * cos(phi);
@@ -251,6 +275,57 @@ mat4 matrix_rotation(vec3 axis, float angle) {
         0.0,                  0.0,                  0.0,                 1.0
     );
 }
+
+mat4 matrix_transform(vec3 translation, vec3 scale, vec4 rotation) {
+    mat4 matrix = mat4(1.0);
+
+    // Apply translation
+    matrix[3] = vec4(translation, 1.0);
+
+    // Apply rotation
+    if (rotation.w != 0.0) {
+        vec3 axis = normalize(rotation.xyz);
+        float angle = rotation.w;
+
+        float c = cos(angle);
+        float s = sin(angle);
+        float t = 1.0 - c;
+
+        vec3 x = vec3(
+            t * axis.x * axis.x + c,
+            t * axis.x * axis.y - s * axis.z,
+            t * axis.x * axis.z + s * axis.y
+        );
+
+        vec3 y = vec3(
+            t * axis.x * axis.y + s * axis.z,
+            t * axis.y * axis.y + c,
+            t * axis.y * axis.z - s * axis.x
+        );
+
+        vec3 z = vec3(
+            t * axis.x * axis.z - s * axis.y,
+            t * axis.y * axis.z + s * axis.x,
+            t * axis.z * axis.z + c
+        );
+
+        mat4 rotationMatrix = mat4(
+            vec4(x, 0.0),
+            vec4(y, 0.0),
+            vec4(z, 0.0),
+            vec4(0.0, 0.0, 0.0, 1.0)
+        );
+
+        matrix = matrix * rotationMatrix;
+    }
+
+    // Apply scale
+    matrix[0][0] *= scale.x;
+    matrix[1][1] *= scale.y;
+    matrix[2][2] *= scale.z;
+
+    return matrix;
+}
 mat4 view_from_spherical(vec3 position, float theta, float phi) {
    vec3 forward = vec3(0.0, 0.0, 1.0);
    vec3 right   = vec3(1.0, 0.0, 0.0);
@@ -365,7 +440,32 @@ void main() {
 
    // World position send to next stage
    // position.xz *= rotation(per_frame.elapsed_time * 0.2);
-   position = per_frame.model*position;
+   mat4 model = per_frame.model;
+   if (has_animation >= 0) {
+      // position = geometry_to_model[has_animation]*vec3(0);
+      vec4 translation = geometry_to_model[has_animation] * vec4(0., 0., 0., 1.);
+      translation.x += 150.;
+      translation.y += 20.;
+      mat4 model = matrix_transform(translation.xyz, vec3(1.), vec4(1));
+      position.xyz *= 10;
+      position = position + translation;
+      // position = model * position;
+   } else {
+      if (has_animation == -69) {
+         ivec4 joint_idxs    = joint_data[gl_VertexID].joint_idxs;
+         vec4  joint_weights = joint_data[gl_VertexID].joint_weights;
+         if (length(joint_weights) != 0) {
+         }
+         position =
+              joint_weights[0] * (geometry_to_model[joint_idxs[0]] * position)
+            + joint_weights[1] * (geometry_to_model[joint_idxs[1]] * position)
+            + joint_weights[2] * (geometry_to_model[joint_idxs[2]] * position)
+            + joint_weights[3] * (geometry_to_model[joint_idxs[3]] * position);
+         // position = model * position;
+      } else {
+         position = model * position;
+      }
+   }
 
    { // Send to next shader
       // Everything is sent in World Space
@@ -373,7 +473,7 @@ void main() {
       // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
       if (true) {
          // Apply mat3 to "drop" the translation portion
-         Normal = mat3(transpose(inverse(per_frame.model))) * normal;
+         Normal = mat3(transpose(inverse(model))) * normal;
          // Normal = ((transpose(inverse(per_frame.model)) * vec4(normal, 0.)).xyz);
       } else {
          Normal = normal.xyz;
@@ -398,6 +498,11 @@ void main() {
    // gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
    // WARNING: This function is mostly the same except for some z-fighting shenanigans
    // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
+
+   mat4 a = geometry_to_model[0];
+   if (geometry_to_model.length() == 0) {
+      // special = 1;
+   }
 
    TexCoord = uv;
 } 
@@ -427,10 +532,15 @@ void main() {
       #endif
    
 
-in vec3 Position;
-in vec3 Normal;
-in vec2 TexCoord;
-in flat int special;
+in Varying {
+   vec3 Position;
+   vec3 Normal;
+   vec2 TexCoord;
+};
+
+in Flat {
+   flat int special;
+};
 
 layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
 layout(binding  = 3) uniform sampler2D diffuse_texture;
@@ -583,7 +693,7 @@ vec3 brdf_blinn_phong(
    // Table of materials and constants for ambient: http://devernay.free.fr/cours/opengl/materials.html
    float ambient_intesity  = 0.2 * (0.212671*ambient_color.r + 0.715160*ambient_color.g + 0.072169*ambient_color.b)/(0.1 + (0.212671*diffuse_color.r + 0.715160*diffuse_color.r + 0.072169*diffuse_color.r));
    float diffuse_intesity  = 0.5;
-   float specular_intesity = 0.25;
+   float specular_intesity = 0.35;
 
    const bool use_half_vector = true;
    float specular_term = 0;
@@ -670,6 +780,7 @@ vec3 direction_light() {
    vec3 view_direction  = normalize(per_frame.camera.position - position);
 
    vec3 diffuse_color  = texture(diffuse_texture, TexCoord).xyz;
+   // vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
    vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
 
 
@@ -678,8 +789,6 @@ vec3 direction_light() {
    vec3 light_specular_color = per_frame.light.specular;
 
    if (has_specular) {
-      specular_color = vec3(1.0);
-      light_specular_color = vec3(1.0);
       specular_color  = texture(specular_texture, TexCoord).xyz;
    }
 
@@ -687,7 +796,7 @@ vec3 direction_light() {
       light_direction, view_direction, normal,
       diffuse_color, specular_color,
       light_diffuse_color, light_ambient_color, light_specular_color,
-      64.
+      32.
    );
 
    if (has_emissive && has_specular) {
@@ -905,6 +1014,7 @@ vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, 
    }
 
    if (has_specular) {
+   // if (false && has_specular) {
       light_specular_color = vec3(1.0);
       fragment_specular_color = vec3(1.0);
       fragment_specular_color = texture(specular_texture, TexCoord).xyz;
@@ -915,7 +1025,7 @@ vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, 
          light_direction, view_direction, normal,
          fragment_diffuse_color, fragment_specular_color,
          light_diffuse_color, light_ambient_color, light_specular_color,
-         32.0
+         64.0
    );
 
 
@@ -968,10 +1078,18 @@ void main() {
       // Initialize the struct members
       point_lights[0] = per_frame.light;
 
-      point_lights[1].position = camera_position + vec3(0., 10., 0.);
-      point_lights[1].ambient  = vec3(1.1, 0.09, 0.89);
-      point_lights[1].diffuse  = vec3(1.0, 0.09, 0.89);
-      point_lights[1].specular = vec3(1.0, 0.89, 1.0);
+      point_lights[1].position = camera_position + vec3(0., 7., 0.);
+      const bool pink_spotlight = false;
+      if (pink_spotlight) {
+         point_lights[1].ambient  = vec3(1.0, 0.09, 0.89);
+         point_lights[1].diffuse  = vec3(1.0, 0.09, 0.89);
+         point_lights[1].specular = vec3(1.0, 0.89, 1.0);
+      } else {
+         point_lights[1].specular = vec3(1.0);
+         point_lights[1].ambient  = vec3(1.0);
+         point_lights[1].diffuse  = vec3(1.0);
+      }
+
 
       point_lights[2].position = vec3(0., 10., 0.);
       point_lights[2].ambient  = vec3(1.0, 0.89, 0.0);
@@ -984,15 +1102,18 @@ void main() {
 
          vec3 light_direction = normalize(light.position - position);
          if (idx == 1) {
-            // break;
-            // light_direction = camera_direction;
             attenuation *= intensity;
          } else {
             light_direction = normalize(light.position - position);
          }
 
          color += attenuation * calculate_color(light, light_direction, position, camera_position, Normal);
+         // color += calculate_color(light, light_direction, position, camera_position, Normal);
       }
+   }
+
+   if (special > 0) {
+      color = vec3(1);
    }
 
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view

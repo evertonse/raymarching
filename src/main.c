@@ -1,3 +1,5 @@
+// NOTE: 3 spaces indentation is the best and I'm tired of pretending it's not. I'm sorry if it hurts your powers of 2 brain.
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -12,8 +14,8 @@
 #define require  __must_check
 #define stack_alloc __builtin_alloca
 
-#define trace_struct(d)    __builtin_dump_struct(&d, &printf)
-#define type_as_string(d)  __builtin_type_as_string(&d, &tprintf)
+#define trace_struct(d)     __builtin_dump_struct(&d, &printf)
+#define type_as_string(d)   __builtin_type_as_string(&d, &tprintf)
 
 #define private __attribute__((visibility("hidden")))
 
@@ -33,6 +35,7 @@
 #include "cye.h"
 #undef trace_debug
 #define trace_debug(fmt, ...) cye_trace_log(CYE_LOG_DEBUG, "`%s`: " fmt, __func__, ##__VA_ARGS__)
+
 
 const char* cye_human_readable_size(i64 bytes) {
     static char output[32];

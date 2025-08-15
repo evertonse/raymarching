@@ -15,6 +15,14 @@ typedef struct {
       Vector2 *uvs;
       Vector2 *texcoords;
    };
+
+   struct {
+      // Order is important
+      Vector4Int joint_idxs;
+      Vector4    joint_weights;
+      // should have one of each per position or none
+   } *joint_data;
+
    u32 *indices;
 
    union {
@@ -196,41 +204,41 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
 }
 
 Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
-    Mesh mesh = {0};
+   Mesh mesh = {0};
 
-    // 8 floats per vertex: 3 (pos) + 3 (normal) + 2 (uv)
-    const usz floats_per_vertex = 8;
-    const usz vertex_count = count / floats_per_vertex;
+   // 8 floats per vertex: 3 (pos) + 3 (normal) + 2 (uv)
+   const usz floats_per_vertex = 8;
+   const usz vertex_count = count / floats_per_vertex;
 
-    usz vertex_data_size = vertex_count * size_of(Vector3);
-    usz normal_data_size = vertex_count * size_of(Vector3);
-    usz uv_data_size     = vertex_count * size_of(Vector2);
-    usz index_data_size  = vertex_count * size_of(u32);
+   usz vertex_data_size = vertex_count * size_of(Vector3);
+   usz normal_data_size = vertex_count * size_of(Vector3);
+   usz uv_data_size     = vertex_count * size_of(Vector2);
+   usz index_data_size  = vertex_count * size_of(u32);
 
-    usz total_size = vertex_data_size + normal_data_size + uv_data_size + index_data_size;
-    void *block = malloc(total_size);
+   usz total_size = vertex_data_size + normal_data_size + uv_data_size + index_data_size;
+   void *block = malloc(total_size);
 
-    // Assign pointers within the block
-    mesh.vertices = (Vector3 *)block;
-    mesh.normals  = (Vector3 *)((char *)block + vertex_data_size);
-    mesh.uvs      = (Vector2 *)((char *)block + vertex_data_size + normal_data_size);
-    mesh.indices  = (u32 *)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size);
+   // Assign pointers within the block
+   mesh.vertices = (Vector3 *)block;
+   mesh.normals  = (Vector3 *)((char *)block + vertex_data_size);
+   mesh.uvs      = (Vector2 *)((char *)block + vertex_data_size + normal_data_size);
+   mesh.indices  = (u32 *)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size);
 
-    // Fill in the data
-    for (usz i = 0; i < vertex_count; i++) {
-        const float *v = &interleaved[i * floats_per_vertex];
-        mesh.vertices[i] = (Vector3){v[0], v[1], v[2]};
-        mesh.normals[i]  = (Vector3){v[3], v[4], v[5]};
-        mesh.uvs[i]      = (Vector2){v[6], v[7]};
-        mesh.indices[i]  = (u32)i;
-    }
+   // At last, fill in the data
+   for (usz i = 0; i < vertex_count; i++) {
+       const float *v = &interleaved[i * floats_per_vertex];
+       mesh.vertices[i] = (Vector3){v[0], v[1], v[2]};
+       mesh.normals[i]  = (Vector3){v[3], v[4], v[5]};
+       mesh.uvs[i]      = (Vector2){v[6], v[7]};
+       mesh.indices[i]  = (u32)i;
+   }
 
-    mesh.vertices_count = vertex_count;
-    mesh.normals_count  = vertex_count;
-    mesh.uvs_count      = vertex_count;
-    mesh.indices_count  = vertex_count;
+   mesh.vertices_count = vertex_count;
+   mesh.normals_count  = vertex_count;
+   mesh.uvs_count      = vertex_count;
+   mesh.indices_count  = vertex_count;
 
-    return mesh;
+   return mesh;
 }
 
 

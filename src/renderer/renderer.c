@@ -120,33 +120,50 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    assert_msg(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count, "vertices=%d normals=%d uvs=%d", mesh->vertices_count,mesh->normals_count, mesh->uvs_count);
 
    // Calculate sizes
-   usz vertex_size = mesh->vertices_count * size_of(Vector3);
-   usz normal_size = mesh->normals_count  * size_of(Vector3);
-   usz uv_size     = mesh->uvs_count      * size_of(Vector2);
-   usz total_size  = vertex_size + normal_size + uv_size;
+   usz positions_size = mesh->vertices_count * size_of(Vector3);
+   usz normals_size   = mesh->normals_count  * size_of(Vector3);
+   usz uvs_size       = mesh->uvs_count      * size_of(Vector2);
+   usz total_size     = positions_size + normals_size + uvs_size;
 
    // Create VAO
    glCreateVertexArrays(1, &va.handle);
 
    // Create and upload VBO. Plus one just in case we need to add one more float to query the size of the array from shaders
-   // But buffers can be queried with '.length()'. I just dk if it portable?
-   va.vb = create_vertex_buffer(nullptr, total_size + size_of(f32), mesh->vertices_count);
+   // But buffers can be queried with '.length()' from shader. I just dk if it's portable?
 
-   isz offset = 0;
+   const bool is_continuous_buffer =
+         (u64)mesh->positions + positions_size == (u64)mesh->normals
+      && (u64)mesh->normals   + normals_size == (u64)mesh->uvs;
+   ;
 
-   if (false) { // Make first float be the vertices count. But I don't think we need that even if we're using as storage buffer
-      f32 vertex_count = (f32)mesh->vertices_count;
-      offset = update_buffer(&va.vb.buffer, &vertex_count, size_of(vertex_count), offset); // metadata the first element is
+   isz positions_offset = 0;
+
+   isz normals_offset = positions_size;
+
+   isz uvs_offset = positions_size + normals_size;
+
+   if (is_continuous_buffer) {
+      trace_okay("Detected continuous buffer in vertex array creation from mesh. Optimization: no update calls will be needed.");
+      va.vb = create_vertex_buffer(mesh->vertices, total_size + size_of(f32), mesh->vertices_count);
+   } else {
+      va.vb = create_vertex_buffer(nullptr, total_size + size_of(f32), mesh->vertices_count);
+
+      isz offset = 0;
+
+      if (false) { // Make first float be the vertices count. But I don't think we need that even if we're using as storage buffer
+         f32 vertex_count = (f32)mesh->vertices_count;
+         offset = update_buffer(&va.vb.buffer, &vertex_count, size_of(vertex_count), offset); // metadata the first element is
+      }
+
+      positions_offset = offset;
+      offset = update_buffer(&va.vb.buffer, mesh->vertices, positions_size, offset);
+
+      normals_offset = offset;
+      offset = update_buffer(&va.vb.buffer, mesh->normals,  normals_size, offset);
+
+      uvs_offset = offset;
+      offset = update_buffer(&va.vb.buffer, mesh->uvs,      uvs_size,     offset);
    }
-
-   isz positions_offset = offset;
-   offset = update_buffer(&va.vb.buffer, mesh->vertices, vertex_size, offset);
-
-   isz normals_offset = offset;
-   offset = update_buffer(&va.vb.buffer, mesh->normals,  normal_size, offset);
-
-   isz uvs_offset = offset;
-   offset = update_buffer(&va.vb.buffer, mesh->uvs,      uv_size,     offset);
 
 
    // Link VBO to VAO (positions)

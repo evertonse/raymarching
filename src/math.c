@@ -12,6 +12,10 @@ Vector3 spherical_to_cartesian(float theta, float phi) {
     return (Vector3){x, y, z};
 }
 
+static Vector3 MatrixMultiplyVector3(Matrix matrix, Vector3 vector) {
+   return Vector3Transform(vector, matrix);
+}
+
 
 Matrix MatrixViewFromSpherical(Vector3 position, float theta, float phi) {
    auto cross     = Vector3CrossProduct;
@@ -92,6 +96,7 @@ void __invalid_generic();
     ),                                                         \
     Matrix: _Generic(((b)),                                    \
         Matrix:  MatrixMultiplySwapped,                        \
+        Vector3: MatrixMultiplyVector3,                        \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     ),                                                         \
     int: _Generic(((b)),                                       \
@@ -133,3 +138,121 @@ static inline Vector3 Vector3ScaleSwapped(double scalar, Vector3 vec) {
    return Vector3Scale(vec, scalar);
 }
 
+typedef struct Transform {
+	Vector3    translation;
+	Quaternion rotation;
+	Vector3    scale;
+} Transform;
+
+// Calculate linear interpolation between two floats
+double Lerpf64(double start, double end, double amount) {
+   double result = start + amount*(end - start);
+   return result;
+}
+
+Transform TransformInterpolate(Transform t1, Transform t2, float amount) {
+   Transform result = {0};
+   result.translation = Vector3Lerp(t1.translation, t2.translation, amount);
+   result.scale       = Vector3Lerp(t1.scale, t2.scale, amount);
+   result.rotation    = QuaternionSlerp(t1.rotation, t2.rotation, amount);
+   return result;
+}
+#define TransformLerp TransformInterpolate
+
+Transform TransformCombine(Transform parent, Transform child) {
+    Transform out;
+
+    // Scale: multiply component-wise
+    out.scale = Vector3Multiply(parent.scale, child.scale);
+
+    // Rotation: quaternion multiplication (parent * child)
+    out.rotation = QuaternionMultiply(parent.rotation, child.rotation);
+
+    // Translation: parent translation + (parent rotation * (parent scale * child translation))
+    Vector3 scaledChildPos = Vector3Multiply(child.translation, parent.scale);
+    Vector3 rotatedChildPos = Vector3RotateByQuaternion(scaledChildPos, parent.rotation);
+    out.translation = Vector3Add(parent.translation, rotatedChildPos);
+
+    return out;
+}
+
+
+
+Matrix MatrixCompose(Transform transform) {
+   Quaternion q = transform.rotation;
+   Vector3 s    = transform.scale;
+   Vector3 t    = transform.translation;
+
+	float sx = 2.0f * s.x,
+         sy = 2.0f * s.y,
+         sz = 2.0f * s.z;
+
+	float xx = q.x*q.x,
+         xy = q.x*q.y,
+         xz = q.x*q.z,
+         xw = q.x*q.w;
+
+	float yy = q.y*q.y,
+         yz = q.y*q.z,
+         yw = q.y*q.w;
+
+	float zz = q.z*q.z,
+         zw = q.z*q.w;
+
+   Matrix m = {0};
+   // First column (X axis)
+	m.m0 = sx * (- yy - zz + 0.5f);
+	m.m1 = sx * (+ xy + zw);
+	m.m2 = sx * (- yw + xz);
+
+   // Second column (Y axis)
+	m.m4 = sy * (- zw + xy);
+	m.m5 = sy * (- xx - zz + 0.5f);
+	m.m6 = sy * (+ xw + yz);
+
+   // Third column (Z axis)
+	m.m8  = sz * (+ xz + yw);
+	m.m9  = sz * (- xw + yz);
+	m.m10 = sz * (- xx - yy + 0.5f);
+
+   // Fourth column (Translation)
+	m.m12 = t.x;
+	m.m13 = t.y;
+	m.m14 = t.z;
+	m.m15 = 1.0;
+	return m;
+}
+
+typedef union {
+    struct {
+        int items[4];
+    };
+    struct {
+       int x;
+       int y;
+       int z;
+       int w;
+    };
+} Vector4Int;
+
+// Get float array of matrix data
+Matrix FloatsToMatrix(float floats[16]) {
+   Matrix mat = { 0 };
+   mat.m0  = floats[ 0];
+   mat.m1  = floats[ 1];
+   mat.m2  = floats[ 2];
+   mat.m3  = floats[ 3];
+   mat.m4  = floats[ 4];
+   mat.m5  = floats[ 5];
+   mat.m6  = floats[ 6];
+   mat.m7  = floats[ 7];
+   mat.m8  = floats[ 8];
+   mat.m9  = floats[ 9];
+   mat.m10 = floats[10];
+   mat.m11 = floats[11];
+   mat.m12 = floats[12];
+   mat.m13 = floats[13];
+   mat.m14 = floats[14];
+   mat.m15 = floats[15];
+   return mat;
+}

@@ -9,14 +9,17 @@ typedef struct {
 
 typedef struct {
    Application app; // must be first
+   Vector3_List list;
 
    Shader         shader, light_shader;
    Countdown      shader_countdown_to_reload;
    Vertex_Array   va, cube_va, sphere_va;
    Texture        diffuse_texture, cube_texture;
-   struct{
+   struct {
       Texture diffuse, specular, specular_colored, emissive;
    } wood_box;
+
+   Joint_List joint_list;
 
    Framebuffer    fb;
 
@@ -26,13 +29,23 @@ typedef struct {
 
    Uniform_Buffer ub, per_frame_buffer;
    Buffer buffer;
-   struct{
+   struct {
       Model model;
+      Transform transform;
       struct {
          Vertex_Array *items;
          isz count;
       } vas;
-   } backpack;
+
+      struct {
+         Texture diffuse, specular, specular_colored, emissive;
+      } textures;
+
+      struct {
+         Buffer vertex_joints;             // Allocated and set once. Updated never again
+      } animation;
+   } backpack, boy;
+   Buffer geometry_to_world_matrices; // Allocated once. Updated eveyframe.
 
    struct {
       float16 model;
@@ -52,12 +65,13 @@ typedef struct {
 } Projection_Application;
 
 
+static const char *shader_paths[] = {
+   "res/shaders/default.glsl",
+   "res/shaders/light.glsl",
+};
+
 // __attribute__((overloadable)) // TODO: Check this out on clang extensions plus builtin vecto3 types
 void projection_update_shaders(Projection_Application *app) {
-   static const char *shader_paths[] = {
-      "res/shaders/default.glsl",
-      "res/shaders/light.glsl",
-   };
 
    Shader *shader_slots[] = {
       &app->shader,
@@ -69,25 +83,22 @@ void projection_update_shaders(Projection_Application *app) {
       const char *path = shader_paths[i];
 
       bool need_reload = shader_needs_reload(*s);
-
       bool valid = is_valid_shader(*s);
-
-      if (!valid || need_reload) {
-         if (valid && need_reload) {
+      if (!valid) {
+         *s = create_shader(path, 0);
+      } else {
+         if (need_reload) {
             *s = reload_shader(*s);
-         } else {
-            *s = create_shader(path, 0);
          }
-
-         if (!is_valid_shader(*s)) {
-            trace_error("Shader %s failed to compile", path);
-            return;
-         }
+      }
+      if (!is_valid_shader(*s)) {
+         trace_error("Shader %s failed to compile", path);
+         return;
       }
    }
 }
 
-   // upload_uniform_bool(app->shader, "is_light", true);
+
 static void draw_va(Projection_Application *app, Vertex_Array *va, Vector3 position, Vector3 scale, Vector4 rotation) {
    Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
    Matrix scale_matrix       = MatrixScale(scale.x, scale.y, scale.z);
@@ -101,6 +112,96 @@ static void draw_va(Projection_Application *app, Vertex_Array *va, Vector3 posit
    glDrawElements(GL_TRIANGLES, va->ib.count, GL_UNSIGNED_INT, NULL);
 }
 
+static void init_model_and_its_gpu_data(typeof(((Projection_Application *)0)->boy) *bundle, ZString filepath) {
+   ZString backpack_filepath = "res/models/backpack/backpack.obj";
+   bundle->model = create_model(filepath);
+
+   if (nullptr != bundle->model.materials.diffuse) {
+      bundle->textures.diffuse = create_texture_from_filepath(bundle->model.materials.diffuse);
+   }
+
+   if (nullptr != bundle->model.materials.specular) {
+      bundle->textures.specular = create_texture_from_filepath(bundle->model.materials.specular);
+   }
+
+   { // Setting up Vertex_Array array
+      bundle->vas.items = malloc(bundle->model.meshes.count * size_of(bundle->vas.items[0]));
+      bundle->vas.count = bundle->model.meshes.count;
+      for (isz idx = 0; idx < bundle->model.meshes.count; idx += 1) {
+         Mesh *mesh = &bundle->model.meshes.items[idx];
+         mesh->uvs_count     = mesh->vertices_count;
+         mesh->normals_count = mesh->vertices_count;
+
+         bundle->vas.items[idx] = create_vertex_array_from_mesh(mesh);
+         assert_msg(is_valid_vertex_array(bundle->vas.items[idx]), "%d-th vertex array is fucked", idx);
+      }
+   }
+   {
+      assert(bundle->model.meshes.count == 1);
+      bundle->animation.vertex_joints = create_buffer_extended(
+         BUFFER_TYPE_STORAGE, BUFFER_USAGE_STATIC,
+         bundle->model.meshes.items[0].joint_data,
+         bundle->model.meshes.items[0].positions_count * size_of(bundle->model.meshes.items[0].joint_data[0]),
+         -1
+      );
+      assert(bundle->animation.vertex_joints.size == bundle->model.meshes.items[0].positions_count * size_of(bundle->model.meshes.items[0].joint_data[0]));
+   }
+   bundle->transform.scale       = (Vector3){50, 50, 50};
+   bundle->transform.rotation    = (Vector4){1, 1, 1, 0};
+   bundle->transform.translation = (Vector3){30., 76., 20.};
+}
+
+static void update_and_draw_model_and_its_gpu_data(typeof(((Projection_Application *)0)->boy) *bundle, Projection_Application *app) {
+   static double time = 0;
+   time += time_delta();
+   // time += 0.025; // for debugging do not relyu on actual passing time because time it's warped in debug space;
+   // TODO: Animation.time_end
+   if (time > 0.83) {
+      time = 0.0;
+   }
+   auto list = joint_matrices(&bundle->model, time);
+   isz  list_data_size = (size_of(list.matrices[0])*list.count);
+
+   bool valid = is_valid_buffer(app->geometry_to_world_matrices);
+   bool needs_resize = valid && app->geometry_to_world_matrices.size < list_data_size;
+   bool needs_allocation = !valid || needs_resize;
+
+   if (needs_resize) {
+      destroy_buffer(&app->geometry_to_world_matrices);
+   }
+   if (needs_allocation) {
+      app->geometry_to_world_matrices = create_buffer_extended(BUFFER_TYPE_STORAGE, BUFFER_USAGE_DYNAMIC, nullptr, list_data_size, -1);
+   }
+
+   update_buffer(&app->geometry_to_world_matrices, list.matrices, list_data_size, 0);
+   bind_buffer(&app->geometry_to_world_matrices, 12);
+
+   bind_buffer(&bundle->animation.vertex_joints, 9);
+
+
+   if (is_valid_texture(bundle->textures.diffuse)) {
+      bind_texture(bundle->textures.diffuse,  3);
+   }
+
+   if (is_valid_texture(bundle->textures.specular)) {
+      bind_texture(bundle->textures.specular,  4);
+      upload_uniform_bool(app->shader, "has_specular", true);
+   }
+
+   if (is_valid_texture(bundle->textures.emissive)) {
+      bind_texture(bundle->textures.emissive,  4);
+      upload_uniform_bool(app->shader, "has_emissive", true);
+   }
+   upload_uniform_bool(app->shader, "is_light", false);
+
+   upload_uniform_int(app->shader, "has_animation", -69);
+   for (isz idx = 0; idx < bundle->vas.count; idx += 1) {
+      draw_va(app, &bundle->vas.items[idx], bundle->transform.translation, bundle->transform.scale, bundle->transform.rotation);
+   }
+   upload_uniform_int(app->shader, "has_animation", -1);
+}
+
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -112,7 +213,13 @@ void projection_init(Projection_Application *app) {
    app->sphere_mesh = generate_sphere_mesh(0.5, 2*32, 2*32);
    app->sphere_va   = create_vertex_array_from_mesh(&app->sphere_mesh);
 
-   projection_update_shaders(app);
+   app->shader       = create_shader(shader_paths[0], 0);
+   // TODO: Investigate why loading 2 shaders bugs all the paths
+   // app->light_shader = create_shader(shader_paths[1], 0);
+
+   // app->shader       = shader_invalid;
+   // app->light_shader = shader_invalid;
+
 
    app->shader_countdown_to_reload = create_countdown(0.12, true);
 
@@ -145,30 +252,16 @@ void projection_init(Projection_Application *app) {
    trace_info("va.handle = %d\n", app->va.handle);
 
 
-   ZString backpack_filepath = "res/models/backpack/backpack.obj";
-   app->backpack.model = create_model(backpack_filepath);
-   trace_info("Loaded model");
-   if (true) {
+   // ZString scene_filepath = "res/models/medieval-sword-pack-10-low-poly-game-ready/source/Medieval Sword pack 1_0 (Oakeshott Classification) .fbx";
+   // ZString scene_filepath = "res/models/survival-guitar-backpack/source/Survival_BackPack_2.fbx";
+   // ZString scene_filepath = "res/models/akm-free-lowpoly/source/AK.fbx";
+   // ZString scene_filepath = "res/models/Fantasy_gradient_sword/Fantasy_gradient_sword.fbx";
+   // ZString scene_filepath = "res/models/backpack/backpack.obj"; // Works
+   // ZString scene_filepath = "res/models/Fantasy-blender-retextured/Sword.fbx"; // Works
 
-      { // Setting up Vertex_Array array
-         app->backpack.vas.items = malloc(app->backpack.model.meshes.count * size_of(app->backpack.vas.items[0]));
-         app->backpack.vas.count = app->backpack.model.meshes.count;
-         for (isz idx = 0; idx < app->backpack.model.meshes.count; idx += 1) {
-            Mesh* mesh = &app->backpack.model.meshes.items[idx];
-            trace_struct(*mesh);
-
-            mesh->uvs_count = mesh->vertices_count;
-            mesh->normals_count = mesh->vertices_count;
-
-            if (idx == 1) {
-               // debug_break();
-            }
-
-            app->backpack.vas.items[idx] = create_vertex_array_from_mesh(mesh);
-            trace_struct(app->backpack.vas.items[idx]);
-            assert_msg(is_valid_vertex_array(app->backpack.vas.items[idx]), "%d-th vertex array is fucked", idx);
-         }
-      }
+   {
+      ZString animation_filepath = "res/models/boy/boy_animation_textured.fbx";
+      init_model_and_its_gpu_data(&app->boy, animation_filepath);
    }
 
    assert_msg(
@@ -183,7 +276,6 @@ void projection_init(Projection_Application *app) {
       && is_valid_buffer(app->buffer)
       ,"Something wanst valid upon creation"
    );
-
 }
 
 
@@ -398,7 +490,6 @@ void projection_update(Projection_Application *app, f64 dt) {
          glDrawElements(GL_TRIANGLES, app->sphere_va.ib.count, GL_UNSIGNED_INT, NULL);
       }
 
-
       if (true) {
          const f32 scale_single    = 10.4;
          Matrix translation_matrix = MatrixTranslate(12, 40, -40);
@@ -417,7 +508,7 @@ void projection_update(Projection_Application *app, f64 dt) {
          glDrawElements(GL_TRIANGLES, app->cube_va.ib.count, GL_UNSIGNED_INT, NULL);
       }
 
-      if (true) {
+      {
          Matrix translation_matrix = MatrixTranslate(0, 0, -2);
          Matrix scale_matrix       = MatrixScale(100000, 1/100., 100000);
          Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, 0);
@@ -451,9 +542,25 @@ void projection_update(Projection_Application *app, f64 dt) {
       }
 
 
-      for (isz idx = 0; idx < app->backpack.vas.count; idx += 1) {
-         draw_va(app, &app->backpack.vas.items[idx], (Vector3){120., 36., 30.}, (Vector3){10, 10, 10}, (Vector4){1, 1, 1, 0});
+
+      {
+         if (is_valid_texture(app->backpack.textures.diffuse)) {
+            bind_texture(app->backpack.textures.diffuse,  3);
+         }
+
+         if (is_valid_texture(app->backpack.textures.specular)) {
+            bind_texture(app->backpack.textures.specular,  4);
+            upload_uniform_bool(app->shader, "has_specular", true);
+         }
+         // bind_texture(app->wood_box.emissive, 5);
+         upload_uniform_bool(app->shader, "has_emissive", false);
+         upload_uniform_bool(app->shader, "is_light", false);
+         for (isz idx = 0; idx < app->backpack.vas.count; idx += 1) {
+            draw_va(app, &app->backpack.vas.items[idx], (Vector3){70., 56., 30.}, (Vector3){100, 100, 100}, (Vector4){1, 1, 1, 0});
+         }
       }
+
+      update_and_draw_model_and_its_gpu_data(&app->boy, app);
 
       draw_text("Fuck your mother");
    }

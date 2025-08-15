@@ -133,11 +133,14 @@ typedef struct Vector3 {
 
 #if !defined(RL_VECTOR4_TYPE)
 // Vector4 type
-typedef struct Vector4 {
-    float x;
-    float y;
-    float z;
-    float w;
+typedef union Vector4 {
+    float items[4];
+    struct {
+        float x;
+        float y;
+        float z;
+        float w;
+    };
 } Vector4;
 #define RL_VECTOR4_TYPE
 #endif

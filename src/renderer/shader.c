@@ -19,9 +19,10 @@
 #define VERTEX_SHADER   GL_VERTEX_SHADER
 
 typedef enum {
-   SHADER_TYPE_COMPUTE  = GL_COMPUTE_SHADER,
-   SHADER_TYPE_FRAGMENT = GL_FRAGMENT_SHADER,
-   SHADER_TYPE_VERTEX   = GL_VERTEX_SHADER
+   SHADER_TYPE_UNDEFINED  = 0,
+   SHADER_TYPE_COMPUTE    = GL_COMPUTE_SHADER,
+   SHADER_TYPE_FRAGMENT   = GL_FRAGMENT_SHADER,
+   SHADER_TYPE_VERTEX     = GL_VERTEX_SHADER
 } Shader_Type;
 
 typedef struct {
@@ -199,9 +200,12 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
 }
 
 inline bool is_valid_shader(Shader shader) {
-    return INVALID_SHADER_HANDLE != shader.handle;
+   return INVALID_SHADER_HANDLE != shader.handle;
+   // TODO: Should we compare with 0 too? Also why does this break preprocess with seemingly unrelated error:?
+   // Failed to open file: res/shaders/buffers/buffers/positions_xyz.glsl
+   // src/renderer/./shader.c:146: Assertion Failure: `false` TODO handle pre_process_shader failure
+   // return INVALID_SHADER_HANDLE != shader.handle && shader.handle != 0;
 }
-
 
 Shader create_shader_from_memory(const u8** sources, const Shader_Type* types, usize count) {
    Shader shader = shader_invalid;
@@ -663,4 +667,9 @@ void upload_uniform_bool(const Shader shader, const char* name, bool value) {
     // TODO: Make something like this work GLint loc = get_cached_uniform_location(shader.handle, name);
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform1i(loc, value ? 1 : 0);
+}
+
+void upload_uniform_int(const Shader shader, const char* name, int value) {
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniform1i(loc, value);
 }
