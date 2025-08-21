@@ -21,6 +21,10 @@
 - [ ] Call back error from opengl howw to setup
 
 # Projection Pipeline
+- [ ] Instead of assing has_animation, has_diffuse, pass a clamping value or intensity value that inquires a math operation instead of an if
+- [ ] Abstract every renderable into cpu data and gpu data counterpart.
+- [ ] Refactor Buffer to just have buffer with additional specific data, rather than multiple types.
+
 - [x] Renderbuffer, SSBO, Uniform buffer objects create and use
 
 - [x] Vertex Pulling positions
@@ -41,6 +45,18 @@
 - [ ] AZDO
 - [ ] Bindless textures
 - [ ] MSAA manually
+
+- [x] Model Skeleton:  simple model
+- [x] Model Animation: simple model
+- [ ] Model Animation: various models with varying complexity
+- [ ] Model Animation: Simplify updating animation
+- [ ] Model GpuData: What is the best way to setup the gpu data for a model and pass a lighter structure around? Figure it out.
+      For now  we're using some anonymous structure as a "bundle".
+- [ ] Model Animation support multiply animation.
+- [ ] Model Animation suport blending animation into another one smoothly.
+- [ ] Model Animation suport multiple meshes with different geomtry_to_node matrices (inverse bind matrices).
+- [ ] Model Animation Transistion from walk to idle
+- [ ] Camera make the camera follow the carachter prolly by having a certing offsset from a certain view direction (the character's)
 
 - [ ] Material struct as uniform buffer
 - [ ] Normal inverse transforming
@@ -77,7 +93,7 @@
 - [x] Tender .obj with .mtl files, diffuse and specular
 - [ ] Try .glb file with it
 - [ ] Model loading with cgtlf
-- [ ] Sword.fbx with wrong absolute path, deal with it by taking the base_name and search relatively to the .fbx file passed
+- [x] Sword.fbx with wrong absolute path, deal with it by taking the base_name and search relatively to the .fbx file passed
 
 
 

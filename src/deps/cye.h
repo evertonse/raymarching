@@ -3261,12 +3261,15 @@ ZString cye_path_dir_of(ZString file_path) {
     if (!file_path) return NULL;
 
     // If it's already a directory, return thyself
-    Cye_Log_Level old_level = cye_threshold_log_level;
-    cye_set_trace_level(CYE_LOG_NONE);
-    if (cye_path_file_kind(file_path) == CYE_FILE_KIND_DIRECTORY) {
-        return file_path;
+    const bool idempotent = false;
+    if (idempotent) {
+        Cye_Log_Level old_level = cye_threshold_log_level;
+        cye_set_trace_level(CYE_LOG_NONE);
+        if (cye_path_file_kind(file_path) == CYE_FILE_KIND_DIRECTORY) {
+            return file_path;
+        }
+        cye_set_trace_level(old_level);
     }
-    cye_set_trace_level(old_level);
 
     // Get last separator position
     ZString last_sep = NULL;

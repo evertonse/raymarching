@@ -769,7 +769,6 @@ float light_attenuation(vec3 light_position, vec3 fragment_position) {
 vec3 gamma_correction(vec3 colour) {
    float gamma = 1.0;
    return pow(colour, vec3(1. / gamma));
-
 }
 
 

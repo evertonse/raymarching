@@ -25,8 +25,6 @@ typedef struct {
    Joint   *joints;
    ZString *names;
    u32 count;
-
-   double time;
    Transform hierarchy_transform; // From root_bone_to_root_node transform, root_node is the scene root node and root_bone is the bone that has no other bone as parent, but that doesn't mean it doesnt have any parent NODE, it's just garanteed to not have a parent node that happens to be a bone.
 } Joint_List;
 
@@ -69,7 +67,8 @@ typedef struct {
             const char* diffuse;
             const char* specular;
             const char* emissive;
-        };
+        } *items;
+        isz count;
     } materials;
 
     Joint_List joints;
@@ -83,34 +82,35 @@ typedef struct {
 
 
 // Options: https://ufbx.github.io/reference#ufbx_load_opts
-static ufbx_load_opts ufbx_default_opts = {
-  .ignore_embedded = false,
-  // .target_axes = ufbx_axes_right_handed_y_up,
-  .generate_missing_normals = true,
-  .strict = true,
-  .target_unit_meters = 0.1f,
-  // UFBX_GEOMETRY_TRANSFORM_HANDLING_PRESERVE
-  // UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY
-  .geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY,
-  .space_conversion = UFBX_SPACE_CONVERSION_MODIFY_GEOMETRY, // This one is important to help on getting the animation matrices
+static const ufbx_load_opts ufbx_default_opts = {
+   .normalize_normals  = true,
+   .normalize_tangents = true,
+   .ignore_embedded = false,
+   // .target_axes = ufbx_axes_right_handed_y_up,
+   .generate_missing_normals = true,
+   .strict = true,
+   .target_unit_meters = 0.1f,
+   // UFBX_GEOMETRY_TRANSFORM_HANDLING_PRESERVE
+   // UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY
+   .geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY,
+   .space_conversion = UFBX_SPACE_CONVERSION_MODIFY_GEOMETRY, // This one is important to help on getting the animation matrices
+   #if 1
+   .obj_search_mtl_by_filename = true,
+   .load_external_files = true, // IMPORTANT: Auto load mtl and other texture files (unsafe if user defined data)0
+   #else
+   // (.obj) Path to the .mtl file.
+   // .obj_mtl_path = {
+   //     .data = "res/models/backpack/backpack.mtl",
+   //     .length = strlen("res/models/backpack/backpack.mtl")
+   // },
+   #endif
 
-  #if 1
-  .obj_search_mtl_by_filename = true,
-  .load_external_files = true, // IMPORTANT: Auto load mtl and other texture files (unsafe if user defined data)0
-  #else
-  // (.obj) Path to the .mtl file.
-  // .obj_mtl_path = {
-  //     .data = "res/models/backpack/backpack.mtl",
-  //     .length = strlen("res/models/backpack/backpack.mtl")
-  // },
-  #endif
-
-  // (.obj) Don't split geometry into meshes by object.
-  .obj_merge_objects =  true,
-  // (.obj) Don't split geometry into meshes by groups.
-  .obj_merge_groups = true,
-  // (.obj) Force splitting groups even on object boundaries.
-  .obj_split_groups = false,
+   // (.obj) Don't split geometry into meshes by object.
+   .obj_merge_objects =  false,
+   // (.obj) Don't split geometry into meshes by groups.
+   .obj_merge_groups = false,
+   // (.obj) Force splitting groups even on object boundaries.
+   .obj_split_groups = true,
 };
 
 Transform transform_from_ufbx_node(ufbx_node *node) {
@@ -139,55 +139,60 @@ static const char* filepath_from_ufbx_material_map(ZString scene_path, const ufb
    ZString texture_path = map.texture->filename.data;
    if (!file_exists(texture_path)) {
       ZString texture_base_name = path_base_name(texture_path);
-      ZString mode_directory = path_dir_of(scene_path);
-      texture_path = path_create(mode_directory, texture_base_name);
+      ZString base_directory = path_dir_of(scene_path);
+      texture_path = path_create(base_directory, texture_base_name);
       if (!file_exists(texture_path)) {
-         return nullptr;
+         base_directory = path_create(path_dir_of(base_directory), "textures");
+         texture_path   = path_create(base_directory, texture_base_name);
+         if (!file_exists(texture_path)) {
+            return nullptr;
+         }
       }
    }
    assert_msg(file_exists(texture_path), "We should previously return null if the file doesnt exist, period.");
    trace_okay("`%s` Texture Path exists for scene `%s`", texture_path, scene_path);
-   return strdup(texture_path); // @leak
+   return strdup(texture_path); // @Leak
 }
 
 
 #define UFBX_MAX_WARNING_COUNT 10
 
-void ufbx_log_warnings(const ufbx_scene *scene) {
-    if (!scene) return;
+void trace_ufbx_warnings(const ufbx_scene *scene) {
+   if (!scene) {
+      return;
+   }
 
-    int warning_count[UFBX_WARNING_TYPE_COUNT] = {0};
-    int ignored_warning_count = 0;
+   int warning_count[UFBX_WARNING_TYPE_COUNT] = {0};
+   int ignored_warning_count = 0;
 
-    for (size_t i = 0; i < scene->metadata.warnings.count; i++) {
-        ufbx_warning warning = scene->metadata.warnings.data[i];
+   for (size_t i = 0; i < scene->metadata.warnings.count; i++) {
+      ufbx_warning warning = scene->metadata.warnings.data[i];
+      auto description = warning.description.data;
 
-        if (warning_count[warning.type]++ < UFBX_MAX_WARNING_COUNT) {
-            if (warning.count > 1) {
-                trace_warn("FBX: ufbx warning: %s (x%d)", warning.description, (int)warning.count);
-            } else {
-                const char *element_name = NULL;
-                if (warning.element_id != UFBX_NO_INDEX &&
-                    warning.element_id < scene->elements.count)
-                {
-                    ufbx_element *element = scene->elements.data[warning.element_id];
-                    element_name = element->name.data;
-                }
-
-                if (element_name && element_name[0] != '\0') {
-                    trace_warn("FBX: ufbx warning in '%s': %s", element_name, warning.description);
-                } else {
-                    trace_warn("FBX: ufbx warning: %s", warning.description);
-                }
+      if (warning_count[warning.type]++ < UFBX_MAX_WARNING_COUNT) {
+         if (warning.count > 1) {
+            trace_warn("FBX: ufbx warning: %s (x%d)", description, (int)warning.count);
+         } else {
+            const char *element_name = nullptr;
+            if (warning.element_id != UFBX_NO_INDEX && warning.element_id < scene->elements.count) {
+               ufbx_element *element = scene->elements.data[warning.element_id];
+               element_name = element->name.data;
             }
-        } else {
-            ignored_warning_count++;
-        }
-    }
 
-    if (ignored_warning_count > 0) {
-        trace_warn("FBX: ignored %d further ufbx warnings", ignored_warning_count);
-    }
+            if (element_name && element_name[0] != '\0') {
+               trace_warn("FBX: ufbx warning in '%s': %s", element_name, description);
+            } else {
+               trace_warn("FBX: ufbx warning: %s", description);
+            }
+         }
+      } else {
+         ignored_warning_count++;
+      }
+   }
+
+   if (ignored_warning_count > 0) {
+      trace_warn("FBX: ignored %d further ufbx warnings", ignored_warning_count);
+   }
 }
 
 Matrix raylib_matrix_from_ufbx_matrix(const ufbx_matrix ufbxmat) {
@@ -222,18 +227,18 @@ Matrix raylib_matrix_from_ufbx_matrix(const ufbx_matrix ufbxmat) {
 
 // TODO: HashMap
 usz joint_index_from_ufbx_bone_node(const ufbx_scene *scene, const ufbx_node *bone_node) {
-   bool found_bone_idx = false;
-   usz bone_idx = 0;
-   for (; bone_idx < scene->bones.count; bone_idx++) {
-      auto scene_bone_node = scene->bones.data[bone_idx]->instances.data[0];
-      assert_msg(1 == scene->bones.data[bone_idx]->instances.count, "We assume each bone has exactly 1 instance that correspondes to its node");
+   bool found_bone_index = false;
+   usz bone_index = 0;
+   for (; bone_index < scene->bones.count; bone_index++) {
+      auto scene_bone_node = scene->bones.data[bone_index]->instances.data[0];
+      assert_msg(1 == scene->bones.data[bone_index]->instances.count, "We assume each bone has exactly 1 instance that correspondes to its node");
       if (scene_bone_node == bone_node) {
-         found_bone_idx = true;
+         found_bone_index = true;
          break;
       }
    }
-   assert_msg(found_bone_idx, "Should have found because why does a bone from a cluster is not foundable from the scene bones? ");
-   return bone_idx;
+   assert_msg(found_bone_index, "Should have found because why does a bone from a cluster is not foundable from the scene bones? ");
+   return bone_index;
 }
 
 Joint_List create_joint_list_from_ufbx_scene(const ufbx_scene *scene) {
@@ -251,21 +256,21 @@ Joint_List create_joint_list_from_ufbx_scene(const ufbx_scene *scene) {
    }
 
    list.count = scene->bones.count;
-   for (usz bones_idx = 0; bones_idx < scene->bones.count; bones_idx++) {
-      auto bone = scene->bones.data[bones_idx];
+   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index++) {
+      auto bone = scene->bones.data[bones_index];
 
       assert_msg(1 == bone->instances.count, "We're assuming instances is how we get THE (as in only one makes sense for us as this moment) node from a bone");
       auto bone_node = bone->instances.data[0];
-      list.names[bones_idx] = strdup(bone_node->name.data); // @LEAK
-      Joint *joint = &list.joints[bones_idx];
+      list.names[bones_index] = strdup(bone_node->name.data); // @LEAK
+      Joint *joint = &list.joints[bones_index];
       bool has_parent = nullptr != bone_node->parent;
       if (!has_parent || nullptr == bone_node->parent->bone) {
          // Maybe we need to check this to make sure it's a bone
          // Considering the armature might have a final transformation it's important to apply it even it it doen'nt have a bone attach, so idk what to do in this situation?
          joint->parent = -1;
       } else {
-         usz parent_idx = joint_index_from_ufbx_bone_node(scene, bone_node->parent);
-         joint->parent = (isz)parent_idx;
+         usz parent_index = joint_index_from_ufbx_bone_node(scene, bone_node->parent);
+         joint->parent = (isz)parent_index;
       }
 
       // HACK: This joint_list is not correct when we have more nodes than bones
@@ -284,15 +289,15 @@ Joint_List create_joint_list_from_ufbx_scene(const ufbx_scene *scene) {
          list.hierarchy_transform = hierarchy_transform;
          // todo make it so we don't need to tarnish this joint transform
          joint->transform = TransformCombine(hierarchy_transform, child_transform);
-         assert_msg(bone_node->parent->parent->is_root && nullptr == bone_node->parent->parent->parent, "Expected to have no more parents but (%p) %s", bone_node->parent->parent, bone_node->parent->parent->name.data);
+         // assert_msg(bone_node->parent->parent->is_root && nullptr == bone_node->parent->parent->parent, "Expected to have no more parents but (%p) %s", bone_node->parent->parent, bone_node->parent->parent->name.data);
       } else {
          joint->transform = transform_from_ufbx_node(bone_node);
       }
 
       // Find the geomtry_to_bone (inverse bind matrix)
       ufbx_matrix geometry_to_node = ufbx_identity_matrix;
-      for (usz cluster_idx = 0; cluster_idx < scene->skin_clusters.count; cluster_idx++) {
-         auto cluster = scene->skin_clusters.data[cluster_idx];
+      for (usz cluster_index = 0; cluster_index < scene->skin_clusters.count; cluster_index++) {
+         auto cluster = scene->skin_clusters.data[cluster_index];
          if (bone_node == cluster->bone_node) {
             geometry_to_node = cluster->geometry_to_bone;
             break;
@@ -320,7 +325,7 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
    result.joint_animations.items = calloc(scene->bones.count, size_of(Joint_Animation));
 
    // Baked animation data is ufbx transforming the fbx data into linearly interpolatable keyframes. Easy enough.
-   ufbx_baked_anim *baked = ufbx_bake_anim(scene, anim, NULL, NULL);
+   ufbx_baked_anim *baked = ufbx_bake_anim(scene, anim, nullptr, nullptr);
 
 
    result.time_begin = baked->playback_time_begin;
@@ -375,11 +380,601 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
    return result;
 }
 
-static constexpr int MAX_WEIGHTS = 4;
+void trace_ufbx_scene_statsold(ufbx_scene *scene) {
+   auto checkpoint = tsave();
+   ZString info = "";
+   info = tprintf("%s %d textures for this scene: ", info, scene->textures.count);
+   for (size_t i = 0; i < scene->textures.count; i++) {
+      auto texture = *scene->textures.data[i];
+      ZString base_name = path_base_name(texture.relative_filename.data);
+      info = tprintf("%s    texture (%d): base_name %s", info, i, base_name);
+      info = tprintf("%s                : %s", info, i, texture.relative_filename.data);
+      info = tprintf("%s                : file_textures.count %ld ", info, i, texture.file_textures.count);
+   }
+
+   trestore(checkpoint);
+   trace_info(info);
+
+   info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
+   for (size_t i = 0; i < scene->materials.count; i++) {
+      auto material = *scene->materials.data[i];
+      info = tprintf("%s    material '%s' (%d): has %ldd textures", info, i, material.name, material.textures.count);
+      for (size_t j = 0; j < material.textures.count; j++) {
+         auto texture = *(material.textures.data[j].texture);
+         ZString base_name = path_base_name(texture.relative_filename.data);
+         info = tprintf("%s        texture (%d): base_name %s", info, i, base_name);
+         info = tprintf("%s                    : %s", info, i, texture.relative_filename.data);
+         info = tprintf("%s                    : file_textures.count %ld ", info, i, texture.file_textures.count);
+         info = tprintf("%s                    : content %p with size %ld ", info, i, texture.content.data, texture.content.size);
+      }
+   }
+
+   trace_info(info);
+
+   trestore(checkpoint);
+}
+
+void trace_ufbx_scene_stats(ufbx_scene *scene) {
+   auto checkpoint = tsave();
+   ZString info = "";
+   info = tprintf("%s %d textures for this scene: ", info, scene->textures.count);
+   for (size_t i = 0; i < scene->textures.count; i++) {
+      auto texture = *scene->textures.data[i];
+      auto base_name = path_base_name(texture.relative_filename.data);
+      info = tprintf("%s    texture (%zu): base_name %s\n", info, i, base_name);
+      info = tprintf("%s                : %s\n", info, texture.relative_filename.data);
+      info = tprintf("%s                : file_textures.count %ld\n", info, texture.file_textures.count);
+   }
+
+   trestore(checkpoint);
+   trace_info(info);
+
+   info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
+   for (size_t i = 0; i < scene->materials.count; i++) {
+      auto material = *scene->materials.data[i];
+      info = tprintf("%s    material '%s' (%zu): has %ld textures\n", info, material.name.data, i, material.textures.count);
+      for (size_t j = 0; j < material.textures.count; j++) {
+         auto texture = *(material.textures.data[j].texture);
+         auto base_name = path_base_name(texture.relative_filename.data);
+         info = tprintf("%s        texture (%zu): base_name %s\n", info, j, base_name);
+         info = tprintf("%s                    : %s\n", info, texture.relative_filename.data);
+         info = tprintf("%s                    : file_textures.count %ld\n", info, texture.file_textures.count);
+         info = tprintf("%s                    : content %p with size %ld\n", info, texture.content.data, texture.content.size);
+      }
+   }
+
+   trace_info(info);
+
+   trestore(checkpoint);
+}
+
+static isz material_index_from_ufbx_scene(ufbx_material* material, ufbx_scene *scene) {
+   isz index = -1;
+   // We're gonna fully loop everytime to make sure no repeated material
+   for (usz material_index = 0; material_index < scene->materials.count; material_index += 1) {
+      ufbx_material *scene_material = scene->materials.data[material_index];
+      if (material == scene_material) {
+         assert(-1 == index);
+         index = material_index;
+      }
+   }
+   // We expect to found it 100% of the time, so assert we actually found it
+   assert(-1 != index);
+   return index;
+}
+
+// TODO: setup -> create for consistency
+static void setup_materials_from_ufbx_scene(Model *model, ufbx_scene *scene, const char* scene_filepath) {
+   // Setup Textures
+   if (!model->materials.items) {
+      model->materials.count = scene->materials.count;
+      model->materials.items = malloc(size_of(model->materials.items[0])*model->materials.count);
+   }
+   for (usz material_index = 0; material_index < scene->materials.count; material_index += 1) {
+      ufbx_material fbx_material = *scene->materials.data[material_index];
+      auto material = &model->materials.items[material_index];
+      // Diffuse
+      material->diffuse = filepath_from_ufbx_material_map(scene_filepath, fbx_material.pbr.base_color);
+      material->diffuse = material->diffuse ?: filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.diffuse_color);
+
+      // Specular
+      material->specular = filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.specular_color);
+      material->specular = material->specular ?: filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.reflection_factor);
+
+      // Emisse ignored
+      material->emissive = filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.emission_color);
+   }
+}
+
+static Mesh create_mesh_from_ufbx_node_original(ufbx_node *node, ufbx_scene *scene) {
+   static constexpr int MAX_WEIGHTS = 4;
+   // Setup Mesh data
+   auto mesh = node->mesh;
+   assert(mesh);
+   isz vertices_count = 0;
+   usz triangles_count = mesh->num_triangles;
+   isz tri_indices_count = mesh->max_face_triangles * 3;
+   usz checkpoint = tsave();
+   u32 *tri_indices = talloc(tri_indices_count * size_of(u32));
+
+   usz indices_count = triangles_count * 3;
+
+   // Malloc once and set the pointers
+   Mesh model_mesh = {0};
+   {
+      usz positions_size = triangles_count * 3 * size_of(model_mesh.positions[0]);
+      usz normals_size   = triangles_count * 3 * size_of(model_mesh.normals[0]);
+      usz uvs_size       = triangles_count * 3 * size_of(model_mesh.uvs[0]);
+      isz indices_size   = indices_count   * 1 * size_of(u32);
+      // Final indices will occupy less memory that we're setting here
+      char *data = malloc(positions_size + normals_size + uvs_size + indices_size);
+
+      model_mesh.positions = (Vector3 *)(data + 0);
+      model_mesh.normals   = (Vector3 *)(data + positions_size);
+      model_mesh.uvs       = (Vector2 *)(data + positions_size + normals_size);
+      model_mesh.indices   = (u32 *)    (data + positions_size + normals_size + uvs_size);
+
+      model_mesh.positions_count = triangles_count * 3;
+      model_mesh.normals_count   = triangles_count * 3;
+      model_mesh.uvs_count       = triangles_count * 3;
+      model_mesh.material_index  = -1;
+
+      if (scene->bones.count > 0) {
+         assert(size_of(model_mesh.joint_data[0]) == (4 + 4) * size_of(float));
+         // TODO: Condense into 1 malloc call
+         char *data = malloc(model_mesh.positions_count * size_of(model_mesh.joint_data[0]));
+         model_mesh.joint_data = (typeof(model_mesh.joint_data))data;
+      }
+   }
+
+   if (node->materials.count > 0) {
+      model_mesh.material_index = material_index_from_ufbx_scene(node->materials.data[0], scene);
+   }
+
+   assert_msg(1 == mesh->skin_deformers.count, "Only one Skeleton and one Animation supported");
+   auto skin = mesh->skin_deformers.data[0];
+   for (usz part_index = 0; part_index < mesh->material_parts.count; part_index++) {
+      auto material_part = mesh->material_parts.data[part_index];
+      trace_struct(material_part);
+   }
+   for (usz face_index = 0; face_index < mesh->faces.count; face_index++) {
+      ufbx_face face = mesh->faces.data[face_index];
+      u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, mesh, face);
+      // Iterate over each triangle corner contiguously.
+      for (isz tri_index = 0; tri_index < tri_count * 3; tri_index++) {
+         u32 index = tri_indices[tri_index];
+         ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
+         ufbx_vec3 ufbx_normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, index);
+         ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&mesh->vertex_uv, index);
+
+         // ufbx_position  = ufbx_transform_position(&node->geometry_to_world, ufbx_position);
+
+         Vector3 position = {(f32)ufbx_position.x, (f32)ufbx_position.y, (f32)ufbx_position.z};
+         Vector3 normal = {(f32)ufbx_normal.x, (f32)ufbx_normal.y, (f32)ufbx_normal.z};
+         Vector2 uv = {(f32)ufbx_uv.x, (f32)ufbx_uv.y};
+         uint32_t vertex = mesh->vertex_indices.data[index];
+         ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
+         size_t num_weights = skin_vertex.num_weights;
+         if (num_weights > MAX_WEIGHTS) {
+            num_weights = MAX_WEIGHTS;
+         }
+
+         float total_weight = 0.0f;
+         Vector4 bone_weight = {-1., -1., -1., -1.};
+         Vector4Int bone_indices = {-1, -1, -1, -1};
+         for (size_t i = 0; i < num_weights; i++) {
+            ufbx_skin_weight skin_weight = skin->weights.data[skin_vertex.weight_begin + i];
+
+            // Nonchalantly finding the index by ptr comparison (uh!) in O(bones_count*num_wights*everysingle_vertice).
+            // Pray we ain't got thousands of bones, this is a job for either a hash or see it ufbx has some way to get the index from cluster to bones?
+            ufbx_skin_cluster *cluster = skin->clusters.data[skin_weight.cluster_index];
+            usz bone_index = joint_index_from_ufbx_bone_node(scene, cluster->bone_node);
+            bone_indices.items[i] = (int)bone_index;
+            bone_weight.items[i] = (float)skin_weight.weight;
+            total_weight += (float)skin_weight.weight;
+         }
+
+         // FBX does not guarantee that skin weights are normalized, and we may even
+         // be dropping some, so we must renormalize them.
+         for (size_t i = 0; i < num_weights; i++) {
+            bone_weight.items[i] /= total_weight;
+         }
+
+         model_mesh.positions[vertices_count] = position;
+         model_mesh.normals[vertices_count] = normal;
+         model_mesh.uvs[vertices_count] = uv;
+         model_mesh.indices[vertices_count] = vertices_count;
+         model_mesh.joint_data[vertices_count].joint_indices = bone_indices;
+         model_mesh.joint_data[vertices_count].joint_weights = bone_weight;
+         vertices_count += 1;
+      }
+   }
+
+   trestore(checkpoint);
+
+   assert((isz)vertices_count == (isz)triangles_count * 3 && model_mesh.positions_count == vertices_count && model_mesh.normals_count == vertices_count && model_mesh.uvs_count == vertices_count);
+
+   const bool reduce_indices = true; // DONE: Adjust for joint data
+   if (reduce_indices) {
+      // Generate the index buffer.
+
+      ufbx_vertex_stream streams[] = {
+          {model_mesh.positions, vertices_count, size_of(model_mesh.positions[0])},
+          {model_mesh.normals, vertices_count, size_of(model_mesh.normals[0])},
+          {model_mesh.uvs, vertices_count, size_of(model_mesh.uvs[0])},
+          {model_mesh.joint_data, vertices_count, size_of(model_mesh.joint_data[0])},
+
+      };
+      isz streams_count = model_mesh.joint_data ? count_of(streams) : count_of(streams) - 1;
+
+      // This call will deduplicate vertices, modifying the arrays passed in `streams[]`,
+      // indices are written in `indices[]` and the number of unique vertices is returned.
+      isz vertices_count_new = (isz)ufbx_generate_indices(streams, streams_count, model_mesh.indices, indices_count, nullptr, nullptr);
+      model_mesh.positions_count = vertices_count_new;
+      model_mesh.normals_count = vertices_count_new;
+      model_mesh.uvs_count = vertices_count_new;
+
+      // model_mesh.indices_count   = vertices_count_new;
+      model_mesh.indices_count = indices_count;
+
+      if (vertices_count_new < vertices_count) {
+         trace_okay("ufbx_generate_indices optimized from %lld to %lld", vertices_count, vertices_count_new);
+      } else if (vertices_count_new == vertices_count) {
+         trace_info("ufbx_generate_indices did jack shit from %lld to %lld", vertices_count, vertices_count_new);
+      } else {
+         trace_error("ufbx_generate_indices did worsened (? ?) from %lld to %lld", vertices_count, vertices_count_new);
+      }
+
+   } else {
+      model_mesh.indices_count = indices_count;
+   }
+   return model_mesh;
+}
+static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
+   static constexpr int MAX_WEIGHTS = 4;
+
+   auto mesh = node->mesh;
+   assert(mesh);
+
+   usz total_triangles = mesh->num_triangles;
+   usz total_indices = total_triangles * 3;
+   usz checkpoint = tsave();
+
+   isz tri_indices_count = mesh->max_face_triangles * 3;
+   u32 *tri_indices = talloc(tri_indices_count * size_of(u32));
+   bool has_bones = scene->bones.count > 0;
+   usz surfaces_count = mesh->material_parts.count;
+
+   // Allocate mesh data
+   Mesh model_mesh = {0};
+   {
+      usz total_size = 0;
+
+      usz positions_size   = total_indices * size_of(model_mesh.positions[0]);
+      usz normals_size     = total_indices * size_of(model_mesh.normals[0]);
+      usz uvs_size         = total_indices * size_of(model_mesh.uvs[0]);
+      usz indices_size     = total_indices * size_of(u32);
+      usz surfaces_size    = surfaces_count * size_of(model_mesh.surfaces[0]);
+      usz joint_data_size  = has_bones ? total_indices * size_of(model_mesh.joint_data[0]) : 0;
+
+      total_size = positions_size + normals_size + uvs_size + indices_size + surfaces_size + joint_data_size;
+
+      // Allocate a single block of memory
+      char *data = malloc(total_size);
+
+      // Assign pointers
+      model_mesh.positions  =             (Vector3*)(data);
+      model_mesh.normals    =             (Vector3*)(data + positions_size);
+      model_mesh.uvs        =             (Vector2*)(data + positions_size + normals_size);
+      model_mesh.indices    =             (u32    *)(data + positions_size + normals_size + uvs_size);
+      model_mesh.surfaces   =             (void   *)(data + positions_size + normals_size + uvs_size + indices_size);
+      model_mesh.joint_data = has_bones ? (void   *)(data + positions_size + normals_size + uvs_size + indices_size + surfaces_size) : nullptr;
+   }
+
+
+   auto skin = mesh->skin_deformers.count > 0 ? mesh->skin_deformers.data[0] : nullptr;
+
+   isz total_vertex_count = 0;
+   isz total_index_count = 0;
+
+   // Process each material part (surface) - always at least 1
+   for (usz part_index = 0; part_index < mesh->material_parts.count; part_index++) {
+      auto material_part = mesh->material_parts.data[part_index];
+
+      // Set surface start
+      model_mesh.surfaces[part_index].indices_start_index = total_index_count;
+      model_mesh.surfaces[part_index].material_index = -1;
+
+      // Get material index for this part
+      if (part_index < node->materials.count) {
+         model_mesh.surfaces[part_index].material_index = material_index_from_ufbx_scene(node->materials.data[part_index], scene);
+      }
+
+      isz part_vertex_start = total_vertex_count;
+
+      // Process faces in this material part
+      for (usz face_idx = 0; face_idx < material_part.face_indices.count; face_idx++) {
+         u32 face_index = material_part.face_indices.data[face_idx];
+         ufbx_face face = mesh->faces.data[face_index];
+
+         u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, mesh, face);
+
+         // Process triangles in this face
+         for (isz tri_index = 0; tri_index < tri_count * 3; tri_index++) {
+            u32 index = tri_indices[tri_index];
+
+            // Get vertex data
+            ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
+            ufbx_vec3 ufbx_normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, index);
+            ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&mesh->vertex_uv, index);
+
+            Vector3 position = {(f32)ufbx_position.x, (f32)ufbx_position.y, (f32)ufbx_position.z};
+            Vector3 normal = {(f32)ufbx_normal.x, (f32)ufbx_normal.y, (f32)ufbx_normal.z};
+            Vector2 uv = {(f32)ufbx_uv.x, (f32)ufbx_uv.y};
+
+            // Handle skinning data
+            if (skin && model_mesh.joint_data) {
+               uint32_t vertex = mesh->vertex_indices.data[index];
+               ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
+               size_t num_weights = skin_vertex.num_weights;
+               if (num_weights > MAX_WEIGHTS)
+                  num_weights = MAX_WEIGHTS;
+
+               float total_weight      = 0.0f;
+               Vector4 bone_weight     = {0, 0, 0, 0};
+               Vector4Int bone_indices = {-1, -1, -1, -1};
+
+               for (size_t i = 0; i < num_weights; i++) {
+                  ufbx_skin_weight skin_weight = skin->weights.data[skin_vertex.weight_begin + i];
+                  ufbx_skin_cluster *cluster = skin->clusters.data[skin_weight.cluster_index];
+                  usz bone_index = joint_index_from_ufbx_bone_node(scene, cluster->bone_node);
+
+                  bone_indices.items[i] = (int)bone_index;
+                  bone_weight.items[i] = (float)skin_weight.weight;
+                  total_weight += (float)skin_weight.weight;
+               }
+
+               // Normalize weights
+               if (total_weight > 0.0f) {
+                  for (size_t i = 0; i < num_weights; i++) {
+                     bone_weight.items[i] /= total_weight;
+                  }
+               }
+
+               model_mesh.joint_data[total_vertex_count].joint_indices = bone_indices;
+               model_mesh.joint_data[total_vertex_count].joint_weights = bone_weight;
+            }
+
+            // Store vertex data
+            model_mesh.positions[total_vertex_count] = position;
+            model_mesh.normals[total_vertex_count] = normal;
+            model_mesh.uvs[total_vertex_count] = uv;
+            model_mesh.indices[total_index_count] = total_vertex_count;
+
+            total_vertex_count++;
+            total_index_count++;
+         }
+      }
+
+      // Set surface index count
+      model_mesh.surfaces[part_index].indices_count = total_index_count - model_mesh.surfaces[part_index].indices_start_index;
+      trace_struct(model_mesh.surfaces[part_index]);
+   }
+
+   // Set final counts
+   model_mesh.positions_count = total_vertex_count;
+   model_mesh.normals_count   = total_vertex_count;
+   model_mesh.uvs_count       = total_vertex_count;
+   model_mesh.indices_count   = total_index_count;
+   model_mesh.material_index  = -1; // Not used when surfaces are present
+   model_mesh.surfaces_count  = surfaces_count;
+
+   trestore(checkpoint);
+
+   // Optional: Optimize with vertex deduplication
+   const bool reduce_indices = true;
+   if (reduce_indices) {
+      ufbx_vertex_stream streams[] = {
+          {model_mesh.positions, total_vertex_count, size_of(model_mesh.positions[0])},
+          {model_mesh.normals, total_vertex_count, size_of(model_mesh.normals[0])},
+          {model_mesh.uvs, total_vertex_count, size_of(model_mesh.uvs[0])},
+          {model_mesh.joint_data, total_vertex_count, size_of(model_mesh.joint_data[0])},
+      };
+      isz streams_count = model_mesh.joint_data ? count_of(streams) : count_of(streams) - 1;
+
+      isz vertices_count_new = (isz)ufbx_generate_indices(streams, streams_count, model_mesh.indices, total_index_count, nullptr, nullptr);
+
+      model_mesh.positions_count = vertices_count_new;
+      model_mesh.normals_count = vertices_count_new;
+      model_mesh.uvs_count = vertices_count_new;
+
+      // Surface indices are still valid - they reference the same index buffer positions
+      // ufbx_generate_indices only remaps vertex data and updates the index values
+      // but preserves the index buffer structure and ordering
+
+      trace_okay("ufbx_generate_indices optimized from %lld to %lld vertices", total_vertex_count, vertices_count_new);
+   }
+
+   return model_mesh;
+}
+
+static Mesh create_mesh_from_ufbx_node1(ufbx_node *node, ufbx_scene *scene) {
+   static constexpr int MAX_WEIGHTS = 4;
+
+   auto mesh = node->mesh;
+   assert(mesh);
+
+   isz vertices_count = 0;
+   usz triangles_count = mesh->num_triangles;
+   isz tri_indices_count = mesh->max_face_triangles * 3;
+   usz checkpoint = tsave();
+   u32 *tri_indices = talloc(tri_indices_count * size_of(u32));
+   usz indices_count = triangles_count * 3;
+
+   // Count surfaces (material parts)
+   usz surfaces_count = mesh->material_parts.count;
+   if (surfaces_count == 0)
+      surfaces_count = 1; // At least one surface
+
+   Mesh model_mesh = {0};
+
+   // Allocate memory for mesh data
+   {
+      usz positions_size = triangles_count * 3 * size_of(model_mesh.positions[0]);
+      usz normals_size = triangles_count * 3 * size_of(model_mesh.normals[0]);
+      usz uvs_size = triangles_count * 3 * size_of(model_mesh.uvs[0]);
+      isz indices_size = indices_count * 1 * size_of(u32);
+      usz surfaces_size = surfaces_count * size_of(model_mesh.surfaces[0]);
+
+      char *data = malloc(positions_size + normals_size + uvs_size + indices_size + surfaces_size);
+
+      model_mesh.positions = (Vector3 *)(data + 0);
+      model_mesh.normals = (Vector3 *)(data + positions_size);
+      model_mesh.uvs = (Vector2 *)(data + positions_size + normals_size);
+      model_mesh.indices = (u32 *)(data + positions_size + normals_size + uvs_size);
+      model_mesh.surfaces = (typeof(model_mesh.surfaces))(data + positions_size + normals_size + uvs_size + indices_size);
+
+      model_mesh.positions_count = triangles_count * 3;
+      model_mesh.normals_count = triangles_count * 3;
+      model_mesh.uvs_count = triangles_count * 3;
+      model_mesh.material_index = -1;
+
+      if (scene->bones.count > 0) {
+         char *joint_data = malloc(model_mesh.positions_count * size_of(model_mesh.joint_data[0]));
+         model_mesh.joint_data = (typeof(model_mesh.joint_data))joint_data;
+      }
+   }
+
+   // Set default material if node has materials
+   if (node->materials.count > 0) {
+      model_mesh.material_index = material_index_from_ufbx_scene(node->materials.data[0], scene);
+   }
+
+   assert_msg(mesh->skin_deformers.count <= 1, "Only one Skeleton and one Animation supported");
+   ufbx_skin_deformer *skin = mesh->skin_deformers.count > 0 ? mesh->skin_deformers.data[0] : nullptr;
+
+   // Initialize surface tracking
+   isz current_surface_index = 0;
+   isz current_indices_start = 0;
+
+   // Process faces by material part
+   if (mesh->material_parts.count > 0) {
+      // Multi-material mesh - process each material part
+      for (usz part_index = 0; part_index < mesh->material_parts.count; part_index++) {
+         auto material_part = mesh->material_parts.data[part_index];
+
+         // Set up surface for this material part
+         model_mesh.surfaces[current_surface_index].indices_start_index = current_indices_start;
+         model_mesh.surfaces[current_surface_index].material_index = material_part.index > 0 ? material_index_from_ufbx_scene(mesh->materials.data[material_part.index], scene) : -1;
+
+         isz part_indices_start = current_indices_start;
+         // Process faces for this material part
+         for (usz face_index = material_part.face_indices.data[0]; face_index < material_part.face_indices.data[0] + material_part.num_faces; face_index++) {
+
+            ufbx_face face = mesh->faces.data[face_index];
+            u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, mesh, face);
+
+            // Process each triangle in this face
+            for (isz tri_index = 0; tri_index < tri_count * 3; tri_index++) {
+               u32 index = tri_indices[tri_index];
+
+               // Extract vertex data
+               ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
+               ufbx_vec3 ufbx_normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, index);
+               ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&mesh->vertex_uv, index);
+
+               Vector3 position = {(f32)ufbx_position.x, (f32)ufbx_position.y, (f32)ufbx_position.z};
+               Vector3 normal = {(f32)ufbx_normal.x, (f32)ufbx_normal.y, (f32)ufbx_normal.z};
+               Vector2 uv = {(f32)ufbx_uv.x, (f32)ufbx_uv.y};
+
+               // Handle skinning data if present
+               if (skin) {
+                  uint32_t vertex = mesh->vertex_indices.data[index];
+                  ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
+                  size_t num_weights = skin_vertex.num_weights;
+                  if (num_weights > MAX_WEIGHTS)
+                     num_weights = MAX_WEIGHTS;
+
+                  float total_weight = 0.0f;
+                  Vector4 bone_weight = {0.0f, 0.0f, 0.0f, 0.0f};
+                  Vector4Int bone_indices = {-1, -1, -1, -1};
+
+                  for (size_t i = 0; i < num_weights; i++) {
+                     ufbx_skin_weight skin_weight = skin->weights.data[skin_vertex.weight_begin + i];
+                     ufbx_skin_cluster *cluster = skin->clusters.data[skin_weight.cluster_index];
+                     usz bone_index = joint_index_from_ufbx_bone_node(scene, cluster->bone_node);
+
+                     bone_indices.items[i] = (int)bone_index;
+                     bone_weight.items[i] = (float)skin_weight.weight;
+                     total_weight += (float)skin_weight.weight;
+                  }
+
+                  // Normalize weights
+                  if (total_weight > 0.0f) {
+                     for (size_t i = 0; i < num_weights; i++) {
+                        bone_weight.items[i] /= total_weight;
+                     }
+                  }
+
+                  model_mesh.joint_data[vertices_count].joint_indices = bone_indices;
+                  model_mesh.joint_data[vertices_count].joint_weights = bone_weight;
+               }
+
+               // Store vertex data
+               model_mesh.positions[vertices_count] = position;
+               model_mesh.normals  [vertices_count] = normal;
+               model_mesh.uvs      [vertices_count] = uv;
+               model_mesh.indices  [vertices_count] = vertices_count;
+
+               vertices_count += 1;
+               current_indices_start += 1;
+            }
+         }
+
+         // Finalize current surface
+         model_mesh.surfaces[current_surface_index].indices_count = current_indices_start - part_indices_start;
+         current_surface_index++;
+      }
+   }
+
+   trestore(checkpoint);
+
+   // Vertex deduplication
+   const bool reduce_indices = true;
+   if (reduce_indices) {
+      ufbx_vertex_stream streams[] = {
+          {model_mesh.positions, vertices_count, size_of(model_mesh.positions[0])},
+          {model_mesh.normals, vertices_count, size_of(model_mesh.normals[0])},
+          {model_mesh.uvs, vertices_count, size_of(model_mesh.uvs[0])},
+          {model_mesh.joint_data, vertices_count, size_of(model_mesh.joint_data[0])},
+      };
+      isz streams_count = model_mesh.joint_data ? count_of(streams) : count_of(streams) - 1;
+
+      isz vertices_count_new = (isz)ufbx_generate_indices(streams, streams_count, model_mesh.indices, indices_count, nullptr, nullptr);
+
+      model_mesh.positions_count = vertices_count_new;
+      model_mesh.normals_count = vertices_count_new;
+      model_mesh.uvs_count = vertices_count_new;
+      model_mesh.indices_count = indices_count;
+
+      if (vertices_count_new < vertices_count) {
+         trace_okay("ufbx_generate_indices optimized from %lld to %lld", vertices_count, vertices_count_new);
+      } else if (vertices_count_new == vertices_count) {
+         trace_info("ufbx_generate_indices did jack shit from %lld to %lld", vertices_count, vertices_count_new);
+      } else {
+         trace_error("ufbx_generate_indices worsened from %lld to %lld", vertices_count, vertices_count_new);
+      }
+   } else {
+      model_mesh.indices_count = indices_count;
+   }
+
+   return model_mesh;
+}
+
 Model create_model(const char *filepath) {
    Model model = {0};
    ZString scene_filepath = filepath;
-   ufbx_error error; // Optional, pass NULL if you don't care about errors
+   ufbx_error error; // Optional, pass nullptr if you don't care about errors
    ufbx_scene *scene = ufbx_load_file(scene_filepath, &ufbx_default_opts, &error);
    // scene = ufbx_evaluate_scene(scene, scene->anim, 0, nullptr, &error);
 
@@ -389,18 +984,9 @@ Model create_model(const char *filepath) {
       trace_error("%s failed: %s %s", __func__, error.info, err_buf);
       return model;
    }
-   ufbx_log_warnings(scene);
+   trace_ufbx_warnings(scene);
 
-   if (scene->texture_files.count > 0) {
-      trace_info("%d texture files for this scene: ", scene->texture_files.count);
-      for (size_t i = 0; i < scene->texture_files.count; i++) {
-         trace_info("    texture file (%d) filename = \"%s\";", i, scene->texture_files.data[i].filename.data);
-         trace_info("    texture file (%d) absolute_filename = \"%s\";", i, scene->texture_files.data[i].absolute_filename.data);
-         trace_info("    texture file (%d) relative_filename = \"%s\";", i, scene->texture_files.data[i].relative_filename.data);
-         trace_info("    texture file (%d) content.size = \"%lld\";", i, scene->texture_files.data[i].content.size);
-      }
-   }
-
+   trace_ufbx_scene_stats(scene);
 
    {   // Setup animations
        model.animations.count = 1;
@@ -415,6 +1001,10 @@ Model create_model(const char *filepath) {
        }
    }
 
+   {
+      setup_materials_from_ufbx_scene(&model, scene, scene_filepath);
+   }
+
    {  //  Setup le joints/bones
       model.joints = create_joint_list_from_ufbx_scene(scene);
    }
@@ -426,186 +1016,13 @@ Model create_model(const char *filepath) {
 
    model.meshes.count = 0;
    model.meshes.items = malloc(scene->meshes.count * size_of(model.meshes.items[0]));
-   for (usz node_idx = 0; node_idx < scene->nodes.count; node_idx++) {
-      ufbx_node *node = scene->nodes.data[node_idx];
+   for (usz node_index = 0; node_index < scene->nodes.count; node_index++) {
+      ufbx_node *node = scene->nodes.data[node_index];
       if (nullptr == node->mesh) {
          continue;
       }
-      if (node->is_root) {
-         trace_info("Node %s (%lld) is root. %lld faces\n", node->name.data, (isz)node_idx, node->mesh->faces.count);
-      }
-
-      {  // Setup Mesh data
-         auto mesh = node->mesh;
-         auto materials = node->materials;
-         isz vertices_count = 0;
-         usz triangles_count = mesh->num_triangles;
-         isz tri_indices_count = mesh->max_face_triangles * 3;
-         usz checkpoint = tsave();
-         u32 *tri_indices = talloc(tri_indices_count * size_of(u32));
-
-         usz indices_count = triangles_count * 3;
-
-         // Malloc once and set the pointers
-         Mesh model_mesh = {0};
-         {
-            usz positions_size = triangles_count * 3 * size_of(model_mesh.positions[0]);
-            usz normals_size   = triangles_count * 3 * size_of(model_mesh.normals[0]);
-            usz uvs_size       = triangles_count * 3 * size_of(model_mesh.uvs[0]);
-            isz indices_size   = indices_count   * size_of(u32);
-            // Final indices will occupy less memory that we're setting here
-            char* data = malloc(positions_size + normals_size + uvs_size + indices_size);
-
-            model_mesh.positions = (Vector3*)(data + 0);
-            model_mesh.normals   = (Vector3*)(data + positions_size);
-            model_mesh.uvs       = (Vector2*)(data + positions_size + normals_size);
-            model_mesh.indices   = (u32*    )(data + positions_size + normals_size + uvs_size);
-
-            model_mesh.positions_count = triangles_count * 3;
-            model_mesh.normals_count   = triangles_count * 3;
-            model_mesh.uvs_count       = triangles_count * 3;
-
-            if (scene->bones.count > 0) {
-               assert(size_of(model_mesh.joint_data[0]) == (4+4) * size_of(float));
-               // TODO: Condense into 1 malloc call
-               char* data = malloc(model_mesh.positions_count*size_of(model_mesh.joint_data[0]));
-               model_mesh.joint_data = (typeof(model_mesh.joint_data))data;
-
-            }
-         }
-
-         assert(1 == mesh->skin_deformers.count);
-         auto skin = mesh->skin_deformers.data[0];
-         for (usz face_idx = 0; face_idx < mesh->faces.count; face_idx++) {
-            ufbx_face face = mesh->faces.data[face_idx];
-            u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, mesh, face);
-            // Iterate over each triangle corner contiguously.
-            for (isz tri_idx = 0; tri_idx < tri_count * 3; tri_idx++) {
-               u32 index = tri_indices[tri_idx];
-               ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
-               ufbx_vec3 ufbx_normal   = ufbx_get_vertex_vec3(&mesh->vertex_normal, index);
-               ufbx_vec2 ufbx_uv       = ufbx_get_vertex_vec2(&mesh->vertex_uv, index);
-
-               // ufbx_position  = ufbx_transform_position(&node->geometry_to_world, ufbx_position);
-
-               Vector3 position = {(f32)ufbx_position.x, (f32)ufbx_position.y, (f32)ufbx_position.z};
-               Vector3 normal   = {(f32)ufbx_normal.x,   (f32)ufbx_normal.y,   (f32)ufbx_normal.z};
-               Vector2 uv       = {(f32)ufbx_uv.x,       (f32)ufbx_uv.y};
-               uint32_t vertex = mesh->vertex_indices.data[index];
-               ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
-               size_t num_weights = skin_vertex.num_weights;
-               if (num_weights > MAX_WEIGHTS) {
-                   num_weights = MAX_WEIGHTS;
-               }
-
-               float total_weight = 0.0f;
-               Vector4    bone_weight    = {-1., -1., -1., -1.};
-               Vector4Int bone_idxs = {-1,  -1,  -1,  -1 };
-               for (size_t i = 0; i < num_weights; i++) {
-                  ufbx_skin_weight skin_weight = skin->weights.data[skin_vertex.weight_begin + i];
-
-                  // Nonchalantly finding the index by ptr comparison (uh!) in O(bones_count*num_wights*everysingle_vertice).
-                  // Pray we ain't got thousands of bones, this is a job for either a hash or see it ufbx has some way to get the index from cluster to bones?
-                  ufbx_skin_cluster *cluster = skin->clusters.data[skin_weight.cluster_index];
-                  usz bone_idx = joint_index_from_ufbx_bone_node(scene, cluster->bone_node);
-                  bone_idxs.items[i]   = (int  )bone_idx;
-                  bone_weight.items[i] = (float)skin_weight.weight;
-                  total_weight        += (float)skin_weight.weight;
-               }
-
-               // FBX does not guarantee that skin weights are normalized, and we may even
-               // be dropping some, so we must renormalize them.
-               for (size_t i = 0; i < num_weights; i++) {
-                   bone_weight.items[i] /= total_weight;
-               }
-
-               model_mesh.positions [vertices_count] = position;
-               model_mesh.normals   [vertices_count] = normal;
-               model_mesh.uvs       [vertices_count] = uv;
-               model_mesh.indices   [vertices_count] = vertices_count;
-               model_mesh.joint_data[vertices_count].joint_idxs    = bone_idxs;
-               model_mesh.joint_data[vertices_count].joint_weights = bone_weight;
-               vertices_count += 1;
-            }
-         }
-
-         trestore(checkpoint);
-
-         assert((isz)vertices_count == (isz)triangles_count * 3
-               && model_mesh.positions_count == vertices_count
-               && model_mesh.normals_count   == vertices_count
-               && model_mesh.uvs_count       == vertices_count
-         );
-
-
-         const bool reduce_indices = true; // DONE: Adjust for joint data
-         if (reduce_indices) {
-            // Generate the index buffer.
-
-            ufbx_vertex_stream streams[] = {
-                {model_mesh.positions,  vertices_count, size_of(model_mesh.positions[0]) },
-                {model_mesh.normals,    vertices_count, size_of(model_mesh.normals[0])   },
-                {model_mesh.uvs,        vertices_count, size_of(model_mesh.uvs[0])       },
-                {model_mesh.joint_data, vertices_count, size_of(model_mesh.joint_data[0])},
-
-            };
-            isz streams_count = model_mesh.joint_data ? count_of(streams) : count_of(streams) - 1;
-
-
-            // This call will deduplicate vertices, modifying the arrays passed in `streams[]`,
-            // indices are written in `indices[]` and the number of unique vertices is returned.
-            isz vertices_count_new = (isz)ufbx_generate_indices(streams, streams_count, model_mesh.indices, indices_count, NULL, NULL);
-            model_mesh.positions_count = vertices_count_new;
-            model_mesh.normals_count   = vertices_count_new;
-            model_mesh.uvs_count       = vertices_count_new;
-
-            // model_mesh.indices_count   = vertices_count_new;
-            model_mesh.indices_count = indices_count;
-
-
-            if (vertices_count_new < vertices_count) {
-               trace_okay("ufbx_generate_indices optimized from %lld to %lld", vertices_count, vertices_count_new);
-            } else if (vertices_count_new == vertices_count) {
-               trace_info("ufbx_generate_indices did jack shit from %lld to %lld", vertices_count, vertices_count_new);
-            } else {
-               trace_error("ufbx_generate_indices did worsened (? ?) from %lld to %lld", vertices_count, vertices_count_new);
-            }
-
-         } else {
-            model_mesh.indices_count = indices_count;
-         }
-         model.meshes.items[model.meshes.count++] = model_mesh;
-      }
-
-      {  // Setup Textures
-         if (scene->textures.count > 0) {
-            trace_info("%d textures for this scene: ", scene->textures.count);
-            for (size_t i = 0; i < scene->textures.count; i++) {
-               auto texture = *scene->textures.data[i];
-               ZString base_name = path_base_name(texture.relative_filename.data);
-               trace_info("    texture (%d): base_name %s", i, base_name);
-               trace_info("    texture (%d): %s", i, texture.relative_filename.data);
-               trace_info("    texture (%d): file_textures.count %ld ", i, texture.file_textures.count);
-            }
-         }
-         assert(node->materials.count == 1);
-         for (usz material_idx = 0; material_idx < node->materials.count; material_idx += 1) {
-            ufbx_material material = *node->materials.data[material_idx];
-            trace_okay("material_idx = %lld name = %s", material_idx, material.name);
-
-            // Diffuse
-            model.materials.diffuse = filepath_from_ufbx_material_map(scene_filepath, material.pbr.base_color);
-            model.materials.diffuse = model.materials.specular ?: filepath_from_ufbx_material_map(scene_filepath, material.fbx.diffuse_color);
-
-            // Specular
-            model.materials.specular = filepath_from_ufbx_material_map(scene_filepath, material.fbx.specular_color);
-            model.materials.specular = model.materials.specular ?: filepath_from_ufbx_material_map(scene_filepath, material.fbx.reflection_factor);
-            trace_info("specular_color texture path %s", model.materials.specular);
-
-            model.materials.emissive = filepath_from_ufbx_material_map(scene_filepath, material.fbx.emission_color);
-            trace_info("emission_color texture path %s", model.materials.specular);
-         }
-      }
+      auto mesh = create_mesh_from_ufbx_node(node, scene);
+      model.meshes.items[model.meshes.count++] = mesh;
    }
 
    assert(scene->meshes.count == (usz)model.meshes.count);
@@ -645,7 +1062,7 @@ Vector3_List bone_positions(const char *filepath, double time) {
    static Vector3_List list = {0};
    ZString scene_filepath = "res/models/boy/boy_animation.fbx";
 
-   ufbx_error error; // Optional, pass NULL if you don't care about errors
+   ufbx_error error; // Optional, pass nullptr if you don't care about errors
    static ufbx_scene *orig_scene = nullptr;
    if (!orig_scene) {
       orig_scene = ufbx_load_file(scene_filepath, &ufbx_default_opts, &error);
@@ -655,8 +1072,8 @@ Vector3_List bone_positions(const char *filepath, double time) {
    ufbx_scene *scene = ufbx_evaluate_scene(orig_scene, orig_scene->anim, time, &eval_opts, &error);
 
    ufbx_pose* bind_pose = nullptr;
-   for (usz pose_idx = 0; pose_idx < scene->poses.count; pose_idx++) {
-      ufbx_pose* pose = scene->poses.data[pose_idx];
+   for (usz pose_index = 0; pose_index < scene->poses.count; pose_index++) {
+      ufbx_pose* pose = scene->poses.data[pose_index];
       if (pose->is_bind_pose) {
          trace_info("Found bind pose %p", pose);
          bind_pose = pose;
@@ -671,7 +1088,7 @@ Vector3_List bone_positions(const char *filepath, double time) {
       trace_error("%s failed: %s %s", __func__, error.info, err_buf);
       return list;
    }
-   ufbx_log_warnings(scene);
+   trace_ufbx_warnings(scene);
 
    if (!list.positions) {
       list.positions = malloc(size_of(list.positions[0]) * scene->bones.count);
@@ -679,12 +1096,12 @@ Vector3_List bone_positions(const char *filepath, double time) {
       assert(list.count == scene->bones.count);
    }
    list.count = 0;
-   for (usz bones_idx = 0; bones_idx < scene->bones.count; bones_idx++) {
-      auto bone = scene->bones.data[bones_idx];
+   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index++) {
+      auto bone = scene->bones.data[bones_index];
       assert_msg(1 == bone->instances.count, "We're assuming instances is how we get THE (as in only one makes sense for us as this moment) node from a bone");
       auto bone_node = bone->instances.data[0];
 
-      trace_info("%d bone (%s):", bones_idx, bone_node->name.data);
+      trace_info("%d bone (%s):", bones_index, bone_node->name.data);
       ufbx_vec3   pos                   = {0};
       ufbx_matrix ground_truth          = bone_node->geometry_to_world; // ufbx_matrix mat = bone_node->node_to_world;
       ufbx_matrix computed_ground_truth = get_node_to_model_space_matrix(bone_node);
@@ -696,7 +1113,7 @@ Vector3_List bone_positions(const char *filepath, double time) {
       Matrix  raymat = get_node_to_model_space_matrix2(bone_node);
       Vector3 rayresult = mul(raymat, (Vector3){0});
       result = rayresult;
-      trace_debug("res(%d) = {%f  %f  %f}", bones_idx, result.x, result.y, result.z);
+      trace_debug("res(%d) = {%f  %f  %f}", bones_index, result.x, result.y, result.z);
       list.positions[list.count++] = result;
    }
    ufbx_free_scene(scene);
@@ -740,10 +1157,10 @@ static inline void interpolate_from_keyframes(const typeof(((Joint_Animation *)0
    }
 
    assert(keyframes.count > 1);
-   int idx = find_keyframe_interval(keyframes.items, keyframes.count, time);
-   if (idx >= 0) {
-      auto a = keyframes.items[idx];
-      auto b = keyframes.items[idx + 1];
+   int index = find_keyframe_interval(keyframes.items, keyframes.count, time);
+   if (index >= 0) {
+      auto a = keyframes.items[index];
+      auto b = keyframes.items[index + 1];
       float alpha = (float)((time - a.time) / (b.time - a.time));
       if (out_vector3) {
          *out_vector3 = Vector3Lerp(a.vec3, b.vec3, alpha);
@@ -805,7 +1222,7 @@ Geometry_To_World_List joint_matrices_original(double time) {
    ZString scene_filepath = "res/models/boy/boy_animation_textured.fbx";
    // Options: https://ufbx.github.io/reference#ufbx_load_opts
 
-   ufbx_error error; // Optional, pass NULL if you don't care about errors
+   ufbx_error error; // Optional, pass nullptr if you don't care about errors
    static ufbx_scene *orig_scene = nullptr;
    if (!orig_scene) {
       orig_scene = ufbx_load_file(scene_filepath, &ufbx_default_opts, &error);
@@ -820,7 +1237,7 @@ Geometry_To_World_List joint_matrices_original(double time) {
       trace_error("%s failed: %s %s", __func__, error.info, err_buf);
       return list;
    }
-   ufbx_log_warnings(scene);
+   trace_ufbx_warnings(scene);
 
    if (!list.matrices) {
       list.matrices = malloc(size_of(list.matrices[0]) * scene->bones.count);
@@ -829,11 +1246,11 @@ Geometry_To_World_List joint_matrices_original(double time) {
    }
    list.count = 0;
    auto joint_list = create_joint_list_from_ufbx_scene(scene);
-   for (usz idx = 0; idx < joint_list.count; idx++) {
-      auto joint = &joint_list.joints[idx];
+   for (usz index = 0; index < joint_list.count; index++) {
+      auto joint = &joint_list.joints[index];
       Matrix node_to_world     = joint_calculate_node_to_world_matrix(&joint_list, joint);
       Matrix geometry_to_world = mul(node_to_world, joint->matrices.geometry_to_node);
-      trace_debug("%d joint (%s):\n\tgeometry_to_node", idx, joint_list.names[idx]);
+      trace_debug("%d joint (%s):\n\tgeometry_to_node", index, joint_list.names[index]);
       list.matrices[list.count++] = MatrixToFloatV(geometry_to_world);
    }
    destroy_joint_list(&joint_list);
@@ -846,7 +1263,7 @@ Geometry_To_World_List joint_matrices_using_animation(double time) {
    ZString scene_filepath = "res/models/boy/boy_animation.fbx";
    // Options: https://ufbx.github.io/reference#ufbx_load_opts
 
-   ufbx_error error; // Optional, pass NULL if you don't care about errors
+   ufbx_error error; // Optional, pass nullptr if you don't care about errors
    static ufbx_scene *orig_scene = nullptr;
    if (!orig_scene || UFBX_ERROR_NONE != error.type) {
       orig_scene = ufbx_load_file(scene_filepath, &ufbx_default_opts, &error);
@@ -857,7 +1274,7 @@ Geometry_To_World_List joint_matrices_using_animation(double time) {
    }
 
    ufbx_scene *scene = orig_scene;
-   ufbx_log_warnings(scene);
+   trace_ufbx_warnings(scene);
 
    if (!list.matrices) {
       list.matrices = malloc(size_of(list.matrices[0]) * scene->bones.count);
@@ -884,11 +1301,11 @@ Geometry_To_World_List joint_matrices_using_animation(double time) {
    assert(animation.joint_animations.items);
 
    update_joints_transforms(&joint_list, &animation, time);
-   for (usz idx = 0; idx < joint_list.count; idx++) {
-      auto joint = &joint_list.joints[idx];
+   for (usz index = 0; index < joint_list.count; index++) {
+      auto joint = &joint_list.joints[index];
       Matrix node_to_world     = joint_calculate_node_to_world_matrix(&joint_list, joint);
       Matrix geometry_to_world = mul(node_to_world, joint->matrices.geometry_to_node);
-      trace_debug("%d joint (%s):\n\tgeometry_to_node", idx, joint_list.names[idx]);
+      trace_debug("%d joint (%s):\n\tgeometry_to_node", index, joint_list.names[index]);
       Matrix scene_hierarchy_matrix = MatrixCompose(joint_list.hierarchy_transform);
       geometry_to_world = mul(scene_hierarchy_matrix, geometry_to_world);
       float16 values = MatrixToFloatV(geometry_to_world);
@@ -920,18 +1337,18 @@ Geometry_To_World_List joint_matrices_from_animation(Joint_List *joints, const A
    assert(animation->joint_animations.items);
 
    update_joints_transforms(joints, animation, time);
-   for (usz idx = 0; idx < joints->count; idx++) {
-      auto joint = &joints->joints[idx];
+   for (usz index = 0; index < joints->count; index++) {
+      auto joint = &joints->joints[index];
       Matrix node_to_world = joint_calculate_node_to_world_matrix(joints, joint);
       if (false) {
          Matrix scene_hierarchy_matrix = MatrixCompose(joints->hierarchy_transform);
          Matrix geometry_to_world = mul(scene_hierarchy_matrix, mul(node_to_world, joint->matrices.geometry_to_node));
       }
       Matrix geometry_to_world = mul(node_to_world, joint->matrices.geometry_to_node);
-      trace_debug("%d joint (%s):\n\tgeometry_to_node", idx, joints->names[idx]);
+      trace_debug("%d joint (%s):\n\tgeometry_to_node", index, joints->names[index]);
       Matrix scene_hierarchy_matrix = MatrixCompose(joints->hierarchy_transform);
       geometry_to_world = mul(scene_hierarchy_matrix, geometry_to_world);
-      list.matrices[idx] = MatrixToFloatV(geometry_to_world);
+      list.matrices[index] = MatrixToFloatV(geometry_to_world);
    }
    return list;
 }
@@ -941,7 +1358,7 @@ Geometry_To_World_List joint_matrices_roubadinha(double time) {
    ZString scene_filepath = "res/models/boy/boy_animation.fbx";
    // Options: https://ufbx.github.io/reference#ufbx_load_opts
 
-   ufbx_error error; // Optional, pass NULL if you don't care about errors
+   ufbx_error error; // Optional, pass nullptr if you don't care about errors
    static ufbx_scene *orig_scene = nullptr;
    if (!orig_scene) {
       orig_scene = ufbx_load_file(scene_filepath, &ufbx_default_opts, &error);
@@ -956,7 +1373,7 @@ Geometry_To_World_List joint_matrices_roubadinha(double time) {
       trace_error("%s failed: %s %s", __func__, error.info, err_buf);
       return list;
    }
-   ufbx_log_warnings(scene);
+   trace_ufbx_warnings(scene);
 
    if (!list.matrices) {
       list.matrices = malloc(size_of(list.matrices[0]) * scene->bones.count);
@@ -967,8 +1384,8 @@ Geometry_To_World_List joint_matrices_roubadinha(double time) {
 
    ufbx_pose *bind_pose = nullptr;
    auto bind_poses_count = 0;
-   for (usz poses_idx = 0; poses_idx < scene->poses.count; poses_idx++) {
-     auto pose = scene->poses.data[poses_idx];
+   for (usz poses_index = 0; poses_index < scene->poses.count; poses_index++) {
+     auto pose = scene->poses.data[poses_index];
      if (pose->is_bind_pose) {
        bind_pose = pose;
        bind_poses_count++;
@@ -977,14 +1394,14 @@ Geometry_To_World_List joint_matrices_roubadinha(double time) {
 
    assert(bind_pose && bind_poses_count == 1);
 
-   for (usz bones_idx = 0; bones_idx < scene->bones.count; bones_idx++) {
-      auto bone = scene->bones.data[bones_idx];
+   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index++) {
+      auto bone = scene->bones.data[bones_index];
       assert_msg(1 == bone->instances.count, "We're assuming instances is how we get THE (as in only one makes sense for us as this moment) node from a bone");
       auto bone_node = bone->instances.data[0];
 
       ufbx_matrix geometry_to_node = ufbx_identity_matrix;
-      for (usz bone_poses_idx = 0; bone_poses_idx < bind_pose->bone_poses.count; bone_poses_idx++) {
-         auto bone_pose = bind_pose->bone_poses.data[bone_poses_idx];
+      for (usz bone_poses_index = 0; bone_poses_index < bind_pose->bone_poses.count; bone_poses_index++) {
+         auto bone_pose = bind_pose->bone_poses.data[bone_poses_index];
          if (bone_node == bone_pose.bone_node) {
             // geometry_to_node = bone_pose.bone_to_world;
             ufbx_matrix world_to_bind = ufbx_matrix_invert(&bone_pose.bone_to_world);
@@ -993,8 +1410,8 @@ Geometry_To_World_List joint_matrices_roubadinha(double time) {
          }
       }
 
-      for (usz cluster_idx = 0; cluster_idx < scene->skin_clusters.count; cluster_idx++) {
-         auto cluster = scene->skin_clusters.data[cluster_idx];
+      for (usz cluster_index = 0; cluster_index < scene->skin_clusters.count; cluster_index++) {
+         auto cluster = scene->skin_clusters.data[cluster_index];
          if (bone_node == cluster->bone_node) {
             geometry_to_node = cluster->geometry_to_bone;
             break;
@@ -1023,10 +1440,8 @@ Geometry_To_World_List joint_matrices(Model *model, double time) {
    auto m1 = joint_matrices_roubadinha(time);
    auto m2 = joint_matrices_original(time);
    auto m3 = joint_matrices_using_animation(time);
-   trace_info("Time before is %f", time);
    Geometry_To_World_List result = {0};
    static int val = 4;
-   trace_info("Time after is %f", time);
 
    if (is_button_pressed(BUTTON_1)) {
       val = 1;

@@ -107,22 +107,12 @@ Vertex_Array create_vertex_array(const Vertex *vertices, usz vertex_count, const
    return va;
 }
 
-Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
+Vertex_Array create_vertex_array_from_arrays(Vector3 *positions, Vector3 *normals, Vector2* uvs, isz count, u32* indices, isz indices_count) {
    Vertex_Array va = {0};
-
-   assert(mesh != NULL);
-   assert(mesh->vertices != NULL);
-   assert(mesh->normals != NULL);
-   assert(mesh->uvs != NULL);
-   assert(mesh->indices != NULL);
-   assert(mesh->vertices_count > 0);
-   assert(mesh->indices_count > 0);
-   assert_msg(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count, "vertices=%d normals=%d uvs=%d", mesh->vertices_count,mesh->normals_count, mesh->uvs_count);
-
    // Calculate sizes
-   usz positions_size = mesh->vertices_count * size_of(Vector3);
-   usz normals_size   = mesh->normals_count  * size_of(Vector3);
-   usz uvs_size       = mesh->uvs_count      * size_of(Vector2);
+   usz positions_size = count * size_of(positions[0]);
+   usz normals_size   = count * size_of(normals[0]);
+   usz uvs_size       = count * size_of(uvs[0]);
    usz total_size     = positions_size + normals_size + uvs_size;
 
    // Create VAO
@@ -132,37 +122,28 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    // But buffers can be queried with '.length()' from shader. I just dk if it's portable?
 
    const bool is_continuous_buffer =
-         (u64)mesh->positions + positions_size == (u64)mesh->normals
-      && (u64)mesh->normals   + normals_size == (u64)mesh->uvs;
+         (u64)positions + positions_size == (u64)normals
+      && (u64)normals   + normals_size == (u64)uvs;
    ;
 
    isz positions_offset = 0;
-
-   isz normals_offset = positions_size;
-
-   isz uvs_offset = positions_size + normals_size;
+   isz normals_offset   = positions_size;
+   isz uvs_offset       = positions_size + normals_size;
 
    if (is_continuous_buffer) {
       trace_okay("Detected continuous buffer in vertex array creation from mesh. Optimization: no update calls will be needed.");
-      va.vb = create_vertex_buffer(mesh->vertices, total_size + size_of(f32), mesh->vertices_count);
+      va.vb = create_vertex_buffer(positions, total_size + size_of(f32), count);
    } else {
-      va.vb = create_vertex_buffer(nullptr, total_size + size_of(f32), mesh->vertices_count);
-
+      va.vb = create_vertex_buffer(nullptr, total_size + size_of(f32), count);
       isz offset = 0;
-
-      if (false) { // Make first float be the vertices count. But I don't think we need that even if we're using as storage buffer
-         f32 vertex_count = (f32)mesh->vertices_count;
-         offset = update_buffer(&va.vb.buffer, &vertex_count, size_of(vertex_count), offset); // metadata the first element is
-      }
-
       positions_offset = offset;
-      offset = update_buffer(&va.vb.buffer, mesh->vertices, positions_size, offset);
+      offset = update_buffer(&va.vb.buffer, positions, positions_size, offset);
 
       normals_offset = offset;
-      offset = update_buffer(&va.vb.buffer, mesh->normals,  normals_size, offset);
+      offset = update_buffer(&va.vb.buffer, normals,  normals_size, offset);
 
       uvs_offset = offset;
-      offset = update_buffer(&va.vb.buffer, mesh->uvs,      uvs_size,     offset);
+      offset = update_buffer(&va.vb.buffer, uvs,      uvs_size,     offset);
    }
 
 
@@ -186,8 +167,59 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
 
 
    // Create and upload index buffer and link to va
-   va.ib = create_index_buffer(mesh->indices, mesh->indices_count);
+   va.ib = create_index_buffer(indices, indices_count);
    glVertexArrayElementBuffer(va.handle, va.ib.buffer.handle);
+   return va;
+}
+
+void create_vertex_arrays_from_mesh(const Mesh *mesh, Vertex_Array *out_items) {
+   assert(mesh != NULL);
+   assert(mesh->vertices != NULL);
+   assert(mesh->normals != NULL);
+   assert(mesh->uvs != NULL);
+   assert(mesh->indices != NULL);
+   assert(mesh->vertices_count > 0);
+   assert(mesh->indices_count > 0);
+   assert_msg(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count,
+         "vertices=%d normals=%d uvs=%d", mesh->vertices_count, mesh->normals_count, mesh->uvs_count);
+
+   // Create vertex arrays for each surface
+   for (size_t surface_idx = 0; surface_idx < mesh->surfaces_count; surface_idx++) {
+      auto surface = mesh->surfaces[surface_idx];
+      Vertex_Array *va = &out_items[surface_idx];
+      Vector3 *positions = mesh->positions;
+      Vector3 *normals   = mesh->normals;
+      Vector2* uvs       = mesh->uvs;
+      isz count = mesh->positions_count;
+      u32* indices = mesh->indices + surface.indices_start_index;
+      isz  indices_count = surface.indices_count;
+      // We're retardedly creating a new vertex buffer for no reason other than its convenient right now, and we're gonna refactor into something comepletly different anyhow
+      *va = create_vertex_array_from_arrays(positions, normals, uvs, count, indices, indices_count);
+   }
+}
+
+
+Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
+   Vertex_Array va = {0};
+
+   assert(mesh != NULL);
+   assert(mesh->vertices != NULL);
+   assert(mesh->normals != NULL);
+   assert(mesh->uvs != NULL);
+   assert(mesh->indices != NULL);
+   assert(mesh->vertices_count > 0);
+   assert(mesh->indices_count > 0);
+   assert_msg(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count, "vertices=%d normals=%d uvs=%d", mesh->vertices_count,mesh->normals_count, mesh->uvs_count);
+
+   Vector3 *positions = mesh->positions;
+   Vector3 *normals   = mesh->normals;
+   Vector2* uvs       = mesh->uvs;
+   isz  count = mesh->positions_count;
+
+   u32* indices       = mesh->indices;
+   isz  indices_count = mesh->indices_count;
+   // We're retardedly creating a new vertex buffer for no reason other than its convenient right now, and we're gonna refactor into something comepletly different anyhow
+   va = create_vertex_array_from_arrays(positions, normals, uvs, count, indices, indices_count);
    return va;
 }
 
