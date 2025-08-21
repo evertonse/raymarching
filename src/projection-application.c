@@ -1,4 +1,5 @@
 #include "raymath.h"
+#include <minwindef.h>
 typedef struct {
     Vector3 position; f32 pad0;
     Vector3 ambient;  f32 pad1;
@@ -175,10 +176,13 @@ static void update_and_draw_model_and_its_gpu_data(typeof(((Projection_Applicati
    }
    auto animation = &bundle->model.animations.items[0];
    animation->time_current += time_delta();
+   // TODO: Check why a frame before the animation ends, we fuck up somehow making the model disappear
+   animation->time_end = 17.0;
+   animation->time_current = min(animation->time_current, animation->time_end);
    // animation->time_curent += 0.025; // for debugging do not relyu on actual passing time because time it's warped in debug space;
-   // TODO: Animation.time_end
    if (animation->time_current >= animation->time_end) {
-      animation->time_current = 0.0;
+      trace_info("Animation about to restart curr %f begin %f end %f", animation->time_current, animation->time_begin, animation->time_end);
+      animation->time_current = animation->time_begin;
    }
    auto list = joint_matrices(&bundle->model, animation->time_current);
    isz  list_data_size = (size_of(list.matrices[0])*list.count);
@@ -251,7 +255,7 @@ void projection_init(Projection_Application *app) {
 
    app->shader       = create_shader(shader_paths[0], 0);
    // TODO: Investigate why loading 2 shaders bugs all the paths
-   // app->light_shader = create_shader(shader_paths[1], 0);
+   app->light_shader = create_shader(shader_paths[1], 0);
 
 
 
@@ -326,6 +330,9 @@ void projection_init(Projection_Application *app) {
 void projection_update(Projection_Application *app, f64 dt) {
 
    static GLsync sync = nullptr;
+   if (!sync) {
+      trace_warn("Sync object is null");
+   }
    wait_sync_point(sync);
    app->ub.offset = 0; // reset for next frame
 

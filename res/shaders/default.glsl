@@ -227,6 +227,7 @@ vec3 direction_light() {
 
    vec3 diffuse_color  = texture(diffuse_texture, TexCoord).xyz;
    // vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
+   // vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
    vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
 
 
@@ -460,7 +461,6 @@ vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, 
    }
 
    if (has_specular) {
-   // if (false && has_specular) {
       light_specular_color = vec3(1.0);
       fragment_specular_color = vec3(1.0);
       fragment_specular_color = texture(specular_texture, TexCoord).xyz;

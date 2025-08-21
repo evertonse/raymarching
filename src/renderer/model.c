@@ -1437,9 +1437,14 @@ inline bool is_button_pressed(Button input);
 Geometry_To_World_List joint_matrices(Model *model, double time) {
    set_trace_level(LOG_INFO);
    auto m4 = joint_matrices_from_model(model, time);
-   auto m1 = joint_matrices_roubadinha(time);
-   auto m2 = joint_matrices_original(time);
-   auto m3 = joint_matrices_using_animation(time);
+
+   auto m1 = m4;
+   auto m2 = m4;
+   auto m3 = m4;
+
+   // auto m1 = joint_matrices_roubadinha(time);
+   // auto m2 = joint_matrices_original(time);
+   // auto m3 = joint_matrices_using_animation(time);
    Geometry_To_World_List result = {0};
    static int val = 4;
 
