@@ -5,6 +5,7 @@ typedef enum {
    BUFFER_TYPE_UNIFORM,
    BUFFER_TYPE_STORAGE,
    BUFFER_TYPE_TEXTURE_BUFFER,
+   // BUFFER_TYPE_DRAW_COMMAND,
 } Buffer_Type;
 
 // NOTE: What I like about not using enum flags is that the full state is valid, from the user's point of view you choose 1 single enum and go to town as theres no possibily of incorrect flags combination.
@@ -159,6 +160,7 @@ Buffer create_buffer_extended(Buffer_Type type, Buffer_Usage usage, const void *
         default: break; // No binding needed for others (Vertex, Index, Texture buffers)
     }
 
+    // TODO: check for maximum biding allowed by the opengl implementation in this machine and tell the user
     if (binding != -1 && target != 0) {
         glBindBufferBase(target, binding, buf.handle);
     }

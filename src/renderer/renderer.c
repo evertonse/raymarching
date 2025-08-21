@@ -32,6 +32,15 @@ typedef struct {
 } Vertex;
 
 typedef struct {
+    u32 index_count;
+    u32 instance_count;
+    u32 index_offset;
+    i32 vertex_offset;    // Base Vertex
+    u32 instance_offset; // Base Instance
+} Draw_Command;
+
+
+typedef struct {
     GLuint handle;
     Vertex_Buffer vb;
     Index_Buffer ib;
@@ -137,13 +146,13 @@ Vertex_Array create_vertex_array_from_arrays(Vector3 *positions, Vector3 *normal
       va.vb = create_vertex_buffer(nullptr, total_size + size_of(f32), count);
       isz offset = 0;
       positions_offset = offset;
-      offset = update_buffer(&va.vb.buffer, positions, positions_size, offset);
+      offset           = update_buffer(&va.vb.buffer, positions, positions_size, offset);
 
-      normals_offset = offset;
-      offset = update_buffer(&va.vb.buffer, normals,  normals_size, offset);
+      normals_offset   = offset;
+      offset           = update_buffer(&va.vb.buffer, normals,   normals_size,   offset);
 
-      uvs_offset = offset;
-      offset = update_buffer(&va.vb.buffer, uvs,      uvs_size,     offset);
+      uvs_offset       = offset;
+      offset           = update_buffer(&va.vb.buffer, uvs,       uvs_size,       offset);
    }
 
 

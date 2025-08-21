@@ -465,7 +465,6 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       // bind_buffer_slice_as_type(&pica_buffer, BUFFER_TYPE_STORAGE, 3, size_of(pica), 0);
       // bind_buffer_slice_as_type(&va.vb.buffer, BUFFER_TYPE_STORAGE, 3, mesh->vertices_count*size_of(*mesh->vertices), 0);
-      bind_buffer_as_type(&sb1.buffer, BUFFER_TYPE_STORAGE, 3);
       // Vector3 scale    = gui_vector3("Model Scale");
       static f32 scale_single    =  12.4;
       static f32 rotation_single =  0;
@@ -507,6 +506,7 @@ void projection_update(Projection_Application *app, f64 dt) {
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
          assert(is_valid_vertex_array(app->va));
+         bind_buffer_as_type(&app->va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
          glDrawElements(GL_TRIANGLES, app->va.ib.count, GL_UNSIGNED_INT, NULL);
 
       }

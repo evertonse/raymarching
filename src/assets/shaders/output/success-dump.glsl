@@ -54,9 +54,9 @@ layout(std140, binding = 4) uniform Per_Frame {
     Camera camera;
     float elapsed_time, delta_time;
 } per_frame;
-// You can call positions_xyz.lenght() to get the the count of positions
+// You can call vertex_buffer.length() to get the the count of positions
 layout(std430, binding = 3) buffer VertexData {
-   float positions_xyz[];
+   float vertex_buffer[];
 };
 layout(std430, binding = 12) buffer Animation_Matrices {
    mat4 geometry_to_model[];
@@ -412,15 +412,40 @@ mat2 rotation(float a) {
     return mat2(c, -s, s, c);
 }
 
+
+#define PULLING
+
+#ifdef PULLING
 vec3 pull_position(int id) {
    return vec3(
-      positions_xyz[id*3 + 0],
-      positions_xyz[id*3 + 1],
-      positions_xyz[id*3 + 2]
+      vertex_buffer[id*3 + 0],
+      vertex_buffer[id*3 + 1],
+      vertex_buffer[id*3 + 2]
    );
 
 }
-#define PULLING
+
+vec3 pull_normal(int id) {
+    int num_vertices = vertex_buffer.length() / 8;  // Total vertices
+    int normal_offset = num_vertices * 3;           // Offset to normals section
+    // return normal;
+    return vec3(
+        vertex_buffer[id*3 + 0 + normal_offset],
+        vertex_buffer[id*3 + 1 + normal_offset],
+        vertex_buffer[id*3 + 2 + normal_offset]
+    );
+}
+
+vec2 pull_uv(int id) {
+    int num_vertices = vertex_buffer.length() / 8;  // Total vertices
+    int uv_offset = num_vertices * 6;               // Offset to UV section (after positions + normals)
+    
+    return vec2(
+        vertex_buffer[id*2 + 0 + uv_offset], 
+        vertex_buffer[id*2 + 1 + uv_offset]
+    );
+}
+#endif
 
 const float aspect = 1600./800.;
 const float fov    = PI/3.;
@@ -431,11 +456,14 @@ void main() {
 
 #ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
+   vec3 normal   = pull_normal(gl_VertexID);
+   vec2 uv       = pull_uv(gl_VertexID);
+   // uv = vec2(0);
 #else
    vec4 position = vec4(position.xyz,  1.0);
 #endif
 
-   float positions_count = positions_xyz.length();
+   float positions_count = vertex_buffer.length();
    mat4  gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
 
    // World position send to next stage
