@@ -31,12 +31,38 @@ typedef struct {
    };
 } Vertex;
 
+// Struct for MultiDrawElements
 typedef struct {
     u32 index_count;
     u32 instance_count;
-    u32 index_offset;
-    i32 vertex_offset;    // Base Vertex
-    u32 instance_offset; // Base Instance
+    u32 index_offset;    // Start index   in index *not byte*
+    i32 vertex_offset;   // Base Vertex   in index *not byte*
+    u32 instance_offset; // Base Instance in index *not byte*
+    // Optional user-defined data goes here - if nothing, stride is 0
+
+   /*
+      unsigned int * indices = (unsigned int *)ELEMENT_ARRAY_BUFFER;
+      for (DrawElementsIndirectCommand cmd : GL_DRAW_INDIRECT_BUFFER) {
+          for (uint i = 0; i < cmd.count; ++i) {
+              int gl_VertexID = indices[cmd.firstIndex + i] + cmd.baseVertex;
+          }
+      }
+   */
+
+   /* source: https://ktstephano.github.io/rendering/opengl/mdi
+gl_VertexID
+   Vertex index with first index and base vertex offset
+gl_InstanceID
+   Current instance whenever instanceCount > 1, else 0
+gl_DrawID
+   The current draw command index we are on inside of the GL_DRAW_INDIRECT_BUFFER.
+   So if you submitted 30 draw commands in the buffer, this value will range from 0 to 29.
+   Useful for a situation such as needing to access a different transform matrix depending on the current draw command number.
+gl_BaseVertex
+   Base vertex of current draw command
+gl_BaseInstance
+   Base instance of current draw command (can use this to pass in any integer data you want if not using instanced vertex attributes)
+   */
 } Draw_Command;
 
 

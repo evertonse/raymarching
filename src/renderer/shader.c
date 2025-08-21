@@ -112,7 +112,7 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
    isz string_offset_in_buffer = append_unique_path(path);
    da_append(path_offets, string_offset_in_buffer);
 
-   stb_lexer lexer;
+   stb_lexer lexer = {0};
    char store[8192] = {0}; // WARNING: @Big Max possible path string in #include that we can read
    assert((sizeof store / sizeof store[0]) == 8192);
    stb_c_lexer_init(&lexer, source, source + strlen(source), store, (sizeof store / sizeof store[0]));
@@ -132,14 +132,15 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
                const char* resolved_path = nullptr;
 
                {
-                  auto checkpoint = tsave();
                   if (strlen(lexer.string) >= 2 && include_path[0] == '.' && include_path[1] == PATH_SEPARATOR_CHAR) {
                      resolved_path = tprintf("%s%s", path_dir_of(path), &include_path[1]);
                      trace_debug("Realtive path from #include = %s", resolved_path);
+                     if (!file_exists(resolved_path)) { // @REMOVEME
+                        debug_break();
+                     }
                   } else {
                      resolved_path = include_path;
                   }
-                  trestore(checkpoint);
                }
 
                if (!pre_process_shader(resolved_path, ds, path_offets, offset_compute, offset_fragment, offset_vertex)) {
@@ -307,6 +308,8 @@ Shader create_shader(const char* path, Shader_Type type) {
    Shader result = shader_invalid;
    i64 offset_compute = -1, offset_fragment = -1, offset_vertex = -1;
    // WARNING: We don't detect cyclic includes. #include "a" in b and #include "b" in a will not halt the programa and loop fo'ever
+
+   auto checkpoint = tsave();
    if (pre_process_shader(path, &ds, &path_offsets, &offset_compute, &offset_fragment, &offset_vertex)) {
       ds_write_zero(&ds);
 
@@ -347,6 +350,7 @@ Shader create_shader(const char* path, Shader_Type type) {
 
       result.path = path;
    }
+   trestore(checkpoint);
 
 
    if (INVALID_SHADER_HANDLE != result.handle) {
@@ -517,7 +521,7 @@ int needs_rebuild_from_paths2(ZString output_path, ZString *input_paths, usz inp
   return 0;
 }
 
-// TODO: Mark time of compilation in the shader itself on top of .time files
+// TODO: Mark time of compilation in the shader struct itself on top of .time files
 bool shader_needs_reload(Shader shader) {
    GLuint shader_handle = shader.handle;
    if (INVALID_SHADER_HANDLE == shader_handle) {

@@ -489,7 +489,7 @@ void main() {
             + joint_weights[1] * (geometry_to_model[joint_idxs[1]] * position)
             + joint_weights[2] * (geometry_to_model[joint_idxs[2]] * position)
             + joint_weights[3] * (geometry_to_model[joint_idxs[3]] * position);
-         // position = model * position;
+         position = model * position;
       } else {
          position = model * position;
       }

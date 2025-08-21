@@ -84,15 +84,15 @@ typedef struct {
 // TODO: By defauled we should just have a create buffer that takes  usage data and size, let the user decide the binding point whenever and also what type it is shouldn't concern us
 Buffer create_buffer_extended(Buffer_Type type, Buffer_Usage usage, const void *data, isz size, i64 binding) {
     Buffer buf = {0};
-    buf.type = type;
-    buf.binding = binding;
-    buf.size = size;
-    buf.usage = usage;
-    buf.mapped_ptr = NULL;
+    buf.type       = type;
+    buf.binding    = binding;
+    buf.size       = size;
+    buf.usage      = usage;
+    buf.mapped_ptr = nullptr;
 
     GLbitfield storage_flags = 0;
-    GLbitfield map_flags = 0;
-    bool should_map = false;
+    GLbitfield map_flags     = 0;
+    bool should_map          = false;
 
     // Determine appropriate flags based on usage
     switch (usage) {
@@ -175,7 +175,7 @@ Buffer create_buffer(const void *data, isz size) {
 Buffer create_buffer_copy(const Buffer *source, Buffer_Usage usage) {
   assert(source && source->size > 0);
   Buffer result = {0};
-  result = create_buffer_extended(source->type, usage, NULL,  source->size, source->binding);
+  result = create_buffer_extended(source->type, usage, nullptr,  source->size, source->binding);
   // Copy data directly on GPU
   glCopyNamedBufferSubData(source->handle, // Source buffer
                            result.handle,  // Destination buffer
@@ -449,7 +449,7 @@ Texture_Buffer create_texture_buffer(
     );
 
     result.texture = create_texture_extended(
-        0, 0, NULL,
+        0, 0, nullptr,
         format,
         TEXTURE_TYPE_BUFFER,
         1
@@ -480,7 +480,7 @@ Uniform_Buffer create_uniform_buffer(isz size, i64 binding) {
     result.buffer = create_buffer_extended(
         BUFFER_TYPE_UNIFORM,
         BUFFER_USAGE_DYNAMIC,
-        NULL,
+        nullptr,
         size,
         binding
     );

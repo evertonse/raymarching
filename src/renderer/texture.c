@@ -216,6 +216,12 @@ void update_texture(Texture* tex, int new_width, int new_height, const void* new
 void bind_texture(const Texture texture, usz binding) {
    // Access like this: ``layout(binding = binding) uniform sampler2D texturename;``
    glBindTextureUnit(binding, texture.handle);
+   auto error_code = glGetError();
+
+   if (error_code != GL_NO_ERROR) {
+      trace_error( "OpenGL Error (%d) in %s!\n", error_code, __func__);
+      debug_break();
+   }
 }
 
 void bind_texture_as_image(const Texture texture, usz binding, Texture_Access access) {

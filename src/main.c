@@ -188,7 +188,7 @@ int main() {
    camera = camera_default;
 
 
-   Application* apps[] = {(Application*)&raymarching_application, (Application*)&projection_application};
+   Application *apps[] = {(Application*)&raymarching_application, (Application*)&projection_application};
    // Application* apps[] = {(Application*)&projection_application};
    // Application* apps[] = {(Application*)&raymarching_application};
 
@@ -196,7 +196,7 @@ int main() {
    int window_height = get_window_height();
 
    for (isz idx = 0; idx < count_of(apps); idx++) {
-      auto app = apps[idx];
+      Application *app = apps[idx];
       app->window.handle       = __state.window.handle;
       app->window.width        = window_width;
       app->window.height       = window_height;
@@ -229,7 +229,7 @@ int main() {
       assert(nullptr != __state.window.handle);
       window_width = get_window_width(), window_height = get_window_height();
       for (isz idx = 0; idx < count_of(apps); idx++) {
-         auto app = apps[idx];
+         Application* app = apps[idx];
 
          app->camera = camera;
          app->time = (typeof(app->time)){

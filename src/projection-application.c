@@ -119,7 +119,7 @@ static void init_model_and_its_gpu_data(typeof(((Projection_Application *)0)->bo
    bundle->model = create_model(filepath);
 
    bundle->textures.count = bundle->model.materials.count;
-   bundle->textures.items = malloc(bundle->textures.count * size_of(bundle->textures.items[0]));
+   bundle->textures.items = calloc(bundle->textures.count, size_of(bundle->textures.items[0]));
 
    // TODO: mo' textures
    for (isz index = 0; index < bundle->model.materials.count; index += 1) {
@@ -164,12 +164,15 @@ static void init_model_and_its_gpu_data(typeof(((Projection_Application *)0)->bo
       );
       assert(bundle->animation.vertex_joints.size == bundle->model.meshes.items[0].positions_count * size_of(bundle->model.meshes.items[0].joint_data[0]));
    }
-   bundle->transform.scale       = (Vector3){50, 50, 50};
-   bundle->transform.rotation    = (Vector4){1, 0, 0, PI/2.};
-   bundle->transform.translation = (Vector3){30., 76., 20.};
+   bundle->transform.scale       = (Vector3){5., 5., 5.};
+   bundle->transform.rotation    = (Vector4){-1., 0, 0, PI/2.};
+   bundle->transform.translation = (Vector3){30., 16., 20.};
 }
 
 static void update_and_draw_model_and_its_gpu_data(typeof(((Projection_Application *)0)->boy) *bundle, Projection_Application *app) {
+   if (!is_valid_shader(app->shader)) {
+      return;
+   }
    auto animation = &bundle->model.animations.items[0];
    animation->time_current += time_delta();
    // animation->time_curent += 0.025; // for debugging do not relyu on actual passing time because time it's warped in debug space;
@@ -206,6 +209,8 @@ static void update_and_draw_model_and_its_gpu_data(typeof(((Projection_Applicati
          for (isz surface_index = 0; surface_index < mesh->surfaces_count; surface_index += 1) {
             auto surface = mesh->surfaces[surface_index];
             if (surface.material_index > -1) {
+               upload_uniform_bool(app->shader, "has_emissive", false);
+               upload_uniform_bool(app->shader, "has_specular", false);
                auto texture = bundle->textures.items[surface.material_index];
                if (is_valid_texture(texture.diffuse)) {
                   bind_texture(texture.diffuse, 3);
@@ -241,12 +246,13 @@ void projection_init(Projection_Application *app) {
    app->sphere_mesh = generate_sphere_mesh(0.5, 2*32, 2*32);
    app->sphere_va   = create_vertex_array_from_mesh(&app->sphere_mesh);
 
+   app->shader       = shader_invalid;
+   app->light_shader = shader_invalid;
+
    app->shader       = create_shader(shader_paths[0], 0);
    // TODO: Investigate why loading 2 shaders bugs all the paths
    // app->light_shader = create_shader(shader_paths[1], 0);
 
-   // app->shader       = shader_invalid;
-   // app->light_shader = shader_invalid;
 
 
    app->shader_countdown_to_reload = create_countdown(0.12, true);
@@ -268,8 +274,6 @@ void projection_init(Projection_Application *app) {
    app->per_frame_buffer = create_uniform_buffer(size_of(app->per_frame), ub_binding + 2);
    free(app->per_frame_buffer.cpu_mem);
    app->buffer = create_buffer_extended(BUFFER_TYPE_UNIFORM, BUFFER_USAGE_PERSISTENT, nullptr, size_of(app->per_frame), 5);
-
-   app->shader = shader_invalid;
 
    app->diffuse_texture           = create_texture_from_filepath(chosen_texture_path);
    app->wood_box.specular         = create_texture_from_filepath("res/textures/specular_container2.png");
