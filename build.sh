@@ -140,7 +140,7 @@ build() {
     #
 
     # Annoying warnings removed
-    flags_no_warn='-Wno-missing-braces -Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -Wno-unknown-warning-option -Wno-unused-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-keyword-macro -Wno-unused-variable -Wno-self-assign'
+    flags_no_warn='-Wno-unused-command-line-argument -Wno-missing-braces -Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -Wno-unknown-warning-option -Wno-unused-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-keyword-macro -Wno-unused-variable -Wno-self-assign'
 
     # Collection of decently extra extra warnings
     flags_ub='-fwrapv -fno-strict-aliasing -ftrapv'
@@ -162,6 +162,9 @@ build() {
     flags_warn_cast='-Wcast-qual -Wcast-align'
 
     flags_warn="-Wall -Wextra -Werror $flags_no_warn $flags_ub $flags_warn1 $flags_warn2"
+
+    # Check only
+    flags_warn="$flags_warn -fsyntax-only"
 
 
 

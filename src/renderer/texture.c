@@ -25,6 +25,7 @@ typedef enum {
 
 typedef struct {
    GLuint handle;
+   ZString path;
    i32 width;
    i32 height;
    i32 samples;

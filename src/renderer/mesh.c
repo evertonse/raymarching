@@ -177,4 +177,4 @@ Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
 
 
 // Mesh
-inline bool is_valid_mesh(Mesh mesh) { return mesh.vertices != NULL && mesh.indices != NULL && mesh.vertices_count > 0 && mesh.indices_count > 0; }
+inline bool is_valid_mesh(Mesh mesh)      { return mesh.vertices != nullptr && mesh.indices != nullptr && mesh.uvs != nullptr && mesh.vertices_count > 0 && mesh.indices_count > 0; }

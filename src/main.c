@@ -178,6 +178,7 @@ int main() {
    init_renderer();
    init_time();
    init_gui();
+   init_manager();
 
    f64 start_time = time_now();
 

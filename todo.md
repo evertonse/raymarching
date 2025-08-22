@@ -46,6 +46,9 @@
 - [ ] Bindless textures
 - [ ] MSAA manually
 
+- [ ] Big Buffers for all rendering data by a manager abstraction.
+- [ ] Manager bind vb and ib, you forgot
+
 - [x] Model Skeleton:  simple model
 - [x] Model Animation: simple model
 - [ ] Model Animation: various models with varying complexity

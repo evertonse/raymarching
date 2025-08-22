@@ -10,41 +10,27 @@ typedef enum {
 
 // NOTE: What I like about not using enum flags is that the full state is valid, from the user's point of view you choose 1 single enum and go to town as theres no possibily of incorrect flags combination.
 typedef enum {
-    // TODO: Is it ever necessary to make it mappable but not dynamic?
-    BUFFER_USAGE_DYNAMIC,              // Dynamic means can update with subdata calls, but is not mappable
-    BUFFER_USAGE_DYNAMIC_READ,         // Dynamic but can map for reading only
-    BUFFER_USAGE_DYNAMIC_WRITE,        // Dynamic but can map for writing only
-    BUFFER_USAGE_DYNAMIC_READ_WRITE,   // Dynamic, can map for read and write
-    BUFFER_USAGE_STATIC,               // GPU only memory, can ever be changed after is set, might allow some optimizations
-    BUFFER_USAGE_PERSISTENT,           // Mapped always and coherent
-    BUFFER_USAGE_PERSISTENT_READ_ONLY, // Mapped always
+    // Mutually exclusive
+    BUFFER_USAGE_STATIC,
+    BUFFER_USAGE_SUBDATA,
+    BUFFER_USAGE_STATIC_RESIZABLE,
+    BUFFER_USAGE_SUBDATA_RESIZABLE,
+    BUFFER_USAGE_MAP_READ,
+    BUFFER_USAGE_MAP_WRITE,
+    BUFFER_USAGE_MAP_READ_WRITE,
+    BUFFER_USAGE_MAP_PERSISTENT_READ,
+    BUFFER_USAGE_MAP_PERSISTENT_WRITE,
+    BUFFER_USAGE_MAP_PERSISTENT_READ_WRITE,
 } Buffer_Usage;
-
-
-
-typedef enum {
-    DATA_TYPE_FLOAT,
-    DATA_TYPE_VEC2,
-    DATA_TYPE_VEC3,
-    DATA_TYPE_VEC4,
-    DATA_TYPE_MAT4,
-    DATA_TYPE_FLOAT_ARRAY,
-    DATA_TYPE_VEC2_ARRAY,
-    DATA_TYPE_VEC3_ARRAY,
-    DATA_TYPE_VEC4_ARRAY,
-    DATA_TYPE_MAT4_ARRAY,
-} Data_Type;
 
 typedef struct {
    u32   handle;
    isz   size;
-   u32   binding;    // Binding point      for      ub/SSBO
-   void* mapped_ptr; // For     persistent mappings or regular old-ass mapping
+   u32   binding;
+   void* mapped_ptr;
    Buffer_Usage usage;
    Buffer_Type  type;
 } Buffer;
-
-
 
 //--------------------------------------
 // Texture Buffer Object (Texture_Buffer)
@@ -74,117 +60,233 @@ typedef struct {
     isz count;   // How many vertex's
 } Vertex_Buffer;
 
-//--------------------------------------
-// Shader Storage Buffer Object (Storage_Buffer)
-//--------------------------------------
-typedef struct {
-    Buffer buffer;
-} Storage_Buffer;
+bool is_valid_buffer(const Buffer b) {
+   if (b.handle == 0) {
+      return false;
+   }
+   bool size_ok = b.size > 0;
 
-// TODO: By defauled we should just have a create buffer that takes  usage data and size, let the user decide the binding point whenever and also what type it is shouldn't concern us
-Buffer create_buffer_extended(Buffer_Type type, Buffer_Usage usage, const void *data, isz size, i64 binding) {
-    Buffer buf = {0};
-    buf.type       = type;
-    buf.binding    = binding;
-    buf.size       = size;
-    buf.usage      = usage;
-    buf.mapped_ptr = nullptr;
-
-    GLbitfield storage_flags = 0;
-    GLbitfield map_flags     = 0;
-    bool should_map          = false;
-
-    // Determine appropriate flags based on usage
-    switch (usage) {
-        case BUFFER_USAGE_DYNAMIC: {
-           storage_flags = GL_DYNAMIC_STORAGE_BIT;
-           map_flags     = 0;
-           should_map    = false;
-        } break;
-
-        case BUFFER_USAGE_DYNAMIC_WRITE: {
-           storage_flags = GL_DYNAMIC_STORAGE_BIT | GL_MAP_WRITE_BIT;
-           map_flags     = GL_MAP_WRITE_BIT;
-           should_map    = true;
-        } break;
-
-        case BUFFER_USAGE_DYNAMIC_READ: {
-           storage_flags = GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT;
-           map_flags     = GL_MAP_READ_BIT;
-           should_map    = true;
-        } break;
-
-        case BUFFER_USAGE_DYNAMIC_READ_WRITE: {
-           storage_flags = GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT | GL_MAP_WRITE_BIT;
-           map_flags     = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT;
-           should_map    = true;
-        } break;
-
-        case BUFFER_USAGE_STATIC: {
-           storage_flags = 0; // immutable, best for static data
-           map_flags     = 0;
-           should_map    = false;
-        } break;
-
-        case BUFFER_USAGE_PERSISTENT: {
-           storage_flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
-           map_flags     = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
-           should_map    = true;
-        } break;
-
-        case BUFFER_USAGE_PERSISTENT_READ_ONLY: {
-           storage_flags = GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT ;
-           map_flags     = GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT;
-           should_map    = true;
-        } break;
-
-        default: {
-            assert_msg(0, "Invalid Buffer_Usage value.");
-        } break;
-    }
-
-    // Create and allocate buffer
-    glCreateBuffers(1, &buf.handle);
-    glNamedBufferStorage(buf.handle, size, data, storage_flags);
-
-    // Map if needed
-    if (should_map) {
-        buf.mapped_ptr = glMapNamedBufferRange(buf.handle, 0, size, map_flags);
-    }
-
-    // Bind to UBO/SSBO if necessary
-    GLenum target = 0;
-    switch (type) {
-        case BUFFER_TYPE_UNIFORM: target = GL_UNIFORM_BUFFER; break;
-        case BUFFER_TYPE_STORAGE: target = GL_SHADER_STORAGE_BUFFER; break;
-        default: break; // No binding needed for others (Vertex, Index, Texture buffers)
-    }
-
-    // TODO: check for maximum biding allowed by the opengl implementation in this machine and tell the user
-    if (binding != -1 && target != 0) {
-        glBindBufferBase(target, binding, buf.handle);
-    }
-
-    return buf;
+// In debug also check that the size matches with OpenGL's opinion
+#if 1 || defined(DEBUG)
+   GLint size = 0;
+   glGetNamedBufferParameteriv(b.handle, GL_BUFFER_SIZE, &size);
+   size_ok = size_ok && (size == b.size);
+#endif
+  return size_ok;
 }
 
-Buffer create_buffer(const void *data, isz size) {
-    return create_buffer_extended(BUFFER_TYPE_NONE, BUFFER_USAGE_DYNAMIC_READ_WRITE, data,  size, -1);
+Buffer create_buffer(Buffer_Usage usage, const void *data, isz size) {
+   Buffer buffer = {0};
+   buffer.type       = BUFFER_TYPE_NONE;
+   buffer.binding    = -1;
+   buffer.size       = size;
+   buffer.usage      = usage;
+   buffer.mapped_ptr = nullptr;
+
+   GLbitfield storage_flags = 0;
+   GLbitfield map_flags     = 0;
+   bool       should_map    = false;
+   bool       use_mutable   = false;
+
+   // Determine appropriate flags based on usage
+   switch (usage) {
+      case BUFFER_USAGE_STATIC: {
+         storage_flags = 0; // immutable, best for static data
+         map_flags     = 0;
+         should_map    = false;
+         use_mutable   = false;
+         break;
+      }
+      case BUFFER_USAGE_SUBDATA: {
+         storage_flags = GL_DYNAMIC_STORAGE_BIT;
+         map_flags     = 0;
+         should_map    = false;
+         use_mutable   = false;
+         break;
+      }
+      case BUFFER_USAGE_STATIC_RESIZABLE: {
+         storage_flags = 0;
+         map_flags     = 0;
+         should_map    = false;
+         use_mutable   = true;
+         break;
+      }
+      case BUFFER_USAGE_SUBDATA_RESIZABLE: {
+         storage_flags = GL_DYNAMIC_STORAGE_BIT;
+         map_flags     = 0;
+         should_map    = false;
+         use_mutable   = true; // Must use mutable for resizing
+         break;
+      }
+      case BUFFER_USAGE_MAP_READ: {
+         storage_flags = GL_MAP_READ_BIT;
+         map_flags     = GL_MAP_READ_BIT;
+         should_map    = false; // Not persistent, user maps later
+         use_mutable   = false;
+         break;
+      }
+      case BUFFER_USAGE_MAP_WRITE: {
+         storage_flags = GL_MAP_WRITE_BIT;
+         map_flags     = GL_MAP_WRITE_BIT;
+         should_map    = false; // Not persistent, user maps later
+         use_mutable   = false;
+         break;
+      }
+      case BUFFER_USAGE_MAP_READ_WRITE: {
+         storage_flags = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT;
+         map_flags     = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT;
+         should_map    = false; // Not persistent, user maps later
+         use_mutable   = false;
+         break;
+      }
+      case BUFFER_USAGE_MAP_PERSISTENT_READ: {
+         storage_flags = GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+         map_flags     = GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+         should_map    = true; // Persistent, map immediately
+         use_mutable   = false;
+         break;
+      }
+      case BUFFER_USAGE_MAP_PERSISTENT_WRITE: {
+         storage_flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+         map_flags     = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+         should_map    = true; // Persistent, map immediately
+         use_mutable   = false;
+         break;
+      }
+      case BUFFER_USAGE_MAP_PERSISTENT_READ_WRITE: {
+         storage_flags = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+         map_flags     = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+         should_map    = true; // Persistent, map immediately
+         use_mutable   = false;
+         break;
+      }
+      default: {
+         assert_msg(0, "Invalid Buffer_Usage value.");
+      } break;
+   }
+
+   glCreateBuffers(1, &buffer.handle);
+
+   if (use_mutable) {
+      // Use mutable storage for resizable buffers (allows orphaning)
+      glNamedBufferData(buffer.handle, size, data, GL_DYNAMIC_DRAW);
+   } else {
+      // Use immutable storage for non-resizable buffers
+      glNamedBufferStorage(buffer.handle, size, data, storage_flags);
+   }
+
+   // Map only for persistent mappings
+   if (should_map) {
+      buffer.mapped_ptr = glMapNamedBufferRange(buffer.handle, 0, size, map_flags);
+      assert_msg(buffer.mapped_ptr != nullptr, "Failed to map buffer");
+   }
+
+   return buffer;
+}
+
+
+void *map_buffer(Buffer *buffer) {
+   assert(buffer && is_valid_buffer(*buffer));
+
+   // Return existing mapping if already mapped
+   if (buffer->mapped_ptr != nullptr) {
+      return buffer->mapped_ptr;
+   }
+
+   // Determine access flags based on buffer usage
+   GLbitfield access = 0;
+   switch (buffer->usage) {
+   case BUFFER_USAGE_MAP_READ:
+   case BUFFER_USAGE_MAP_PERSISTENT_READ:
+      access = GL_MAP_READ_BIT;
+      break;
+
+   case BUFFER_USAGE_MAP_WRITE:
+   case BUFFER_USAGE_MAP_PERSISTENT_WRITE:
+      access = GL_MAP_WRITE_BIT;
+      break;
+
+   case BUFFER_USAGE_MAP_READ_WRITE:
+   case BUFFER_USAGE_MAP_PERSISTENT_READ_WRITE:
+      access = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT;
+      break;
+
+   default:
+      assert_msg(0, "Buffer usage does not support mapping: %d", buffer->usage);
+      return nullptr;
+   }
+
+   if (buffer->usage == BUFFER_USAGE_MAP_PERSISTENT_READ || buffer->usage == BUFFER_USAGE_MAP_PERSISTENT_WRITE || buffer->usage == BUFFER_USAGE_MAP_PERSISTENT_READ_WRITE) {
+      access |= GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+   }
+
+   buffer->mapped_ptr = glMapNamedBufferRange(buffer->handle, 0, buffer->size, access);
+
+   if (buffer->mapped_ptr == nullptr) {
+      GLenum error = glGetError();
+      assert_msg(0, "Failed to map buffer. OpenGL error: 0x%x", error);
+   }
+
+   return buffer->mapped_ptr;
+}
+
+void unmap_buffer(Buffer* buffer) {
+   assert(buffer && is_valid_buffer(*buffer));
+
+   if (nullptr != buffer->mapped_ptr) {
+      GLboolean success = glUnmapNamedBuffer(buffer->handle);
+      buffer->mapped_ptr = nullptr;
+
+      if (GL_FALSE == success) {
+         trace_warn("Buffer unmapping failed - data may be corrupted");
+      }
+   }
+}
+
+void destroy_buffer(Buffer* buffer) {
+   if (!buffer) {
+      trace_warn("Don't you dare try to destroy a null buffer, this incident will be reported.");
+   }
+   if (buffer && !is_valid_buffer(*buffer)) {
+      return; // Already destroyed or invalid
+   }
+
+   if (buffer->mapped_ptr != nullptr) {
+      unmap_buffer(buffer);
+   }
+
+   glDeleteBuffers(1, &buffer->handle);
+
+   *buffer = (Buffer){0};
 }
 
 Buffer create_buffer_copy(const Buffer *source, Buffer_Usage usage) {
-  assert(source && source->size > 0);
-  Buffer result = {0};
-  result = create_buffer_extended(source->type, usage, nullptr,  source->size, source->binding);
-  // Copy data directly on GPU
-  glCopyNamedBufferSubData(source->handle, // Source buffer
-                           result.handle,  // Destination buffer
-                           0,              // Source offset
-                           0,              // Destination offset
-                           source->size    // Size in bytes
-  );
+   assert(source && is_valid_buffer(*source));
 
-  return result;
+   Buffer result = {0};
+
+   result = create_buffer(usage, nullptr, source->size);
+
+   result.type    = source->type;
+   result.binding = source->binding;
+
+   // Copy data directly on GPU
+   glCopyNamedBufferSubData(source->handle, // Source buffer
+                            result.handle,  // Destination buffer
+                            0,              // Source offset
+                            0,              // Destination offset
+                            source->size    // Size in bytes
+   );
+
+   GLenum error = glGetError();
+   if (error != GL_NO_ERROR) {
+       assert_msg(0, "Failed to copy buffer data. OpenGL error: 0x%x", error);
+      // If copy failed, clean up and return invalid buffer
+      destroy_buffer(&result);
+      result = (Buffer){0};
+   }
+
+   return result;
 }
 
 // You do this by creating a fence object. This is a token in the command stream that you can test to see if it has been completed. 
@@ -223,25 +325,11 @@ void wait_sync_point(GLsync sync) {
    trace_warn("Client Wait surpassed max tries (%d) each with a timeout of %d ns.", max_tries, timeout_ns);
 }
 
-bool is_valid_buffer(const Buffer b) {
-#if 1 || defined(DEBUG)
-    if (b.handle == 0) return false;
-
-    GLint size = 0;
-    glGetNamedBufferParameteriv(b.handle, GL_BUFFER_SIZE, &size);
-    return size > 0;
-#else
-    return b && b.handle != 0;
-#endif
-}
 
 bool is_valid_uniform_buffer(const Uniform_Buffer ub) {
     return is_valid_buffer(ub.buffer) && ub.cpu_mem;
 }
 
-bool is_valid_storage_buffer(const Storage_Buffer sb) {
-    return is_valid_buffer(sb.buffer);
-}
 
 bool is_valid_texture_buffer(const Texture_Buffer tb) {
 
@@ -267,73 +355,91 @@ inline bool is_valid_vertex_buffer(const Vertex_Buffer vb) {
 }
 
 
-
 // Return the index of one position after the last byte written;
-isz update_buffer_(const Buffer buf, const void* data, isz size, isz offset) {
-    glNamedBufferSubData(buf.handle, offset, size, data);
-    return offset + size;
+isz update_buffer(const Buffer *buffer, const void *data, isz offset, isz size) {
+   assert(buffer && is_valid_buffer(*(Buffer*)buffer));
+
+   if (offset + size > buffer->size) {
+      trace_error("Buffer write would exceed bounds. No data was written, fix your bounds.");
+      return offset;
+   }
+
+   if (buffer->mapped_ptr) {
+      assert(
+            BUFFER_USAGE_MAP_READ                  == buffer->usage
+         || BUFFER_USAGE_MAP_WRITE                 == buffer->usage
+         || BUFFER_USAGE_MAP_READ_WRITE            == buffer->usage
+         || BUFFER_USAGE_MAP_PERSISTENT_READ       == buffer->usage
+         || BUFFER_USAGE_MAP_PERSISTENT_WRITE      == buffer->usage
+         || BUFFER_USAGE_MAP_PERSISTENT_READ_WRITE == buffer->usage
+      );
+      memcpy((char *)buffer->mapped_ptr + offset, data, size);
+   } else {
+      glNamedBufferSubData(buffer->handle, offset, size, data);
+   }
+   return offset + size;
 }
 
-isz update_buffer_mapped_ptr(const Buffer buf, const void* data, isz size, isz offset) {
-    // Optional: Add bounds checking if you store buffer size in Buffer struct
-    #ifdef DEBUG
-    if (offset + size > buf.size) {
-        // Handle error - could assert, return error code, etc.
-        assert(0 && "Buffer write would exceed bounds");
-        return offset; // Return unchanged offset on error
-    }
-    #endif
-    memcpy((char*)buf.mapped_ptr + offset, data, size);
-    return offset + size;
+//
+// NOTE: The data in now undefined after calling this resize function. Maybe we can try to do a realloc, but
+//       for now just assume that it's lost. Caller probably have the data on cpu somewhere and can better judge.
+//
+// Buffer growth using orphaning if resize is in its usage, otherwise destroy the earlier buffer
+// its destroyed and return a new buffer with same characteristics with the new required size
+bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
+    assert(buffer && is_valid_buffer(*buffer));
+
+   // Check for shrinking
+   if (required_size < buffer->size) {
+      trace_warn("Buffer shrinking not supported. Current size: %zu, requested size: %zu", buffer->size, required_size);
+      return false;
+   }
+
+   // If buffer is already large enough, no resize needed
+   if (buffer->size >= required_size) {
+      return true;
+   }
+
+   // Check if buffer supports resizing (orphaning)
+   if (buffer->usage == BUFFER_USAGE_STATIC_RESIZABLE || buffer->usage == BUFFER_USAGE_SUBDATA_RESIZABLE) {
+
+
+      // Unmap if currently mapped (shouldn't be for resizable buffers, but safety check)
+      if (buffer->mapped_ptr != nullptr) {
+         glUnmapNamedBuffer(buffer->handle);
+         buffer->mapped_ptr = nullptr;
+      }
+
+      // Use orphaning reallocate the same buffer with new size
+      // This is efficient as it doesn't require creating a new buffer object
+      glNamedBufferData(buffer->handle, required_size, nullptr, GL_DYNAMIC_DRAW);
+
+      // Update buffer properties
+      buffer->size = required_size;
+
+   } else {
+      // Non-resizable buffer. Destroy old and create new with same characteristics
+
+      // Store the old buffer properties
+      Buffer_Usage old_usage = buffer->usage;
+      Buffer_Type  old_type  = buffer->type;
+      u32 old_binding        = buffer->binding;
+
+      // Destroy the old buffer
+      destroy_buffer(buffer);
+
+      // Create new buffer with same usage but new size
+      Buffer new_buffer  = create_buffer(old_usage, nullptr, required_size);
+      new_buffer.type    = old_type;
+      new_buffer.binding = old_binding;
+
+      // Replace the original buffer in-place
+      *buffer = new_buffer;
+   }
+   return true;
 }
 
-isz update_buffer(const void* buffer, const void* data, isz size, isz offset) {
-    const Buffer *buf = buffer;
-    assert(buf);
-
-    if (buf->mapped_ptr) {
-        assert(buf->usage == BUFFER_USAGE_PERSISTENT);
-        memcpy((char*)buf->mapped_ptr + offset, data, size);
-    } else {
-        glNamedBufferSubData(buf->handle, offset, size, data);
-    }
-    return offset + size;
-}
-
-
-// FIX gl explosed
-void* map_buffer(Buffer* buf, GLbitfield access) {
-   buf->mapped_ptr = glMapNamedBuffer(buf->handle, access);
-   return buf->mapped_ptr;
-}
-
-void unmap_buffer(Buffer* buf) {
-    glUnmapNamedBuffer(buf->handle);
-    buf->mapped_ptr = nullptr;
-}
-
-void destroy_buffer(Buffer* buf) {
-    glDeleteBuffers(1, &buf->handle);
-    if (buf->mapped_ptr) {
-        unmap_buffer(buf);
-    }
-    *buf = (Buffer){0};
-}
-
-void bind_buffer(Buffer* buf, i64 binding) {
-    GLenum target = 0;
-
-    switch (buf->type) {
-    case BUFFER_TYPE_UNIFORM: target = GL_UNIFORM_BUFFER; break;
-    case BUFFER_TYPE_STORAGE: target = GL_SHADER_STORAGE_BUFFER; break;
-    default: return; // Not bindable
-    }
-
-    glBindBufferBase(target, binding, buf->handle);
-    buf->binding = binding;
-}
-
-void bind_buffer_as_type(Buffer* buf, Buffer_Type type, i64 binding) {
+void bind_buffer(Buffer* buffer, Buffer_Type type, i64 binding) {
     GLenum target = 0;
 
     switch (type) {
@@ -342,25 +448,14 @@ void bind_buffer_as_type(Buffer* buf, Buffer_Type type, i64 binding) {
     default: return; // Not bindable
     }
 
-    glBindBufferBase(target, binding, buf->handle);
-    buf->binding = binding;
-    buf->type = type;
+    glBindBufferBase(target, binding, buffer->handle);
+    buffer->binding = binding;
+    buffer->type = type;
 }
 
-
-void bind_buffer_slice(const Buffer* buf, isz size, isz offset) {
-    GLenum target = 0;
-    switch (buf->type) {
-    case BUFFER_TYPE_UNIFORM: target = GL_UNIFORM_BUFFER; break;
-    case BUFFER_TYPE_STORAGE: target = GL_SHADER_STORAGE_BUFFER; break;
-    default: return; // Not bindable
-    }
-    glBindBufferRange(target, buf->binding, buf->handle, offset, size);
-}
-
-void bind_buffer_slice_as_type(Buffer* buf, Buffer_Type type, isz binding, isz size, isz offset) {
-    if (!buf || buf->handle == 0 || size <= 0) {
-        trace_error("bind_buffer_slice_as_type: Invalid buffer or size.\n");
+void bind_buffer_view(Buffer* buffer, Buffer_Type type, isz binding, isz size, isz offset) {
+    if (!buffer || buffer->handle == 0 || size <= 0) {
+        trace_error("%s Invalid buffer or size.\n", __func__);
         return;
     }
 
@@ -373,21 +468,19 @@ void bind_buffer_slice_as_type(Buffer* buf, Buffer_Type type, isz binding, isz s
         target = GL_SHADER_STORAGE_BUFFER;
         break;
     default:
-        trace_warn("bind_buffer_slice_as_type: Unsupported buffer type (%d).\n", type);
+        trace_warn("%s Invalid buffer or size.\n Unsupported buffer type. %d", __func__, type);
         return;
     }
 
-    glBindBufferRange(target, binding, buf->handle, offset, size);
-    buf->binding = binding;
-    buf->type = type;
+    glBindBufferRange(target, binding, buffer->handle, offset, size);
+    buffer->binding = binding;
+    buffer->type = type;
 }
 
-
-
-inline void delete_texture_buffer(Texture_Buffer* buf) {
-    destroy_texture(&buf->texture);
-    destroy_buffer(&buf->buffer);
-    *buf = (Texture_Buffer){0};
+inline void delete_texture_buffer(Texture_Buffer* buffer) {
+    destroy_texture(&buffer->texture);
+    destroy_buffer(&buffer->buffer);
+    *buffer = (Texture_Buffer){0};
 }
 
 void attach_buffer_to_texture(const Texture* texture, const Buffer* buffer) {
@@ -429,7 +522,7 @@ void attach_buffer_to_texture(const Texture* texture, const Buffer* buffer) {
          assert_msg(false, "Unsupported texture format\n");
          return;
       }
-   }
+      }
    glTextureBuffer(texture->handle, internal_format, buffer->handle);
 }
 
@@ -440,12 +533,10 @@ Texture_Buffer create_texture_buffer(
 ) {
     Texture_Buffer result = {0};
 
-    result.buffer = create_buffer_extended(
-        BUFFER_TYPE_TEXTURE_BUFFER,
+    result.buffer = create_buffer(
         BUFFER_USAGE_STATIC,
         data,
-        size,
-        -1 // Texture buffer doesn't use ub/SSBO binding points
+        size
     );
 
     result.texture = create_texture_extended(
@@ -465,7 +556,7 @@ Texture_Buffer create_texture_buffer(
         case TEXTURE_FORMAT_R8:      gl_internal_format = GL_R8;      break;
         default:
             assert_msg(0, "Unsupported texture format for buffer");
-    }
+        }
 
     glTextureBuffer(result.texture.handle, gl_internal_format, result.buffer.handle);
     return result;
@@ -477,12 +568,10 @@ Texture_Buffer create_texture_buffer(
 Uniform_Buffer create_uniform_buffer(isz size, i64 binding) {
     Uniform_Buffer result = {0};
 
-    result.buffer = create_buffer_extended(
-        BUFFER_TYPE_UNIFORM,
-        BUFFER_USAGE_DYNAMIC,
+    result.buffer = create_buffer(
+        BUFFER_USAGE_SUBDATA,
         nullptr,
-        size,
-        binding
+        size
     );
 
     result.offset = 0;
@@ -490,29 +579,16 @@ Uniform_Buffer create_uniform_buffer(isz size, i64 binding) {
     return result;
 }
 
-Storage_Buffer create_storage_buffer(isz size, i64 binding, const void* data, bool persistent) {
-    Storage_Buffer result = {0};
-    result.buffer = create_buffer_extended(
-        BUFFER_TYPE_STORAGE,
-        BUFFER_USAGE_DYNAMIC,
-        data,
-        size,
-        binding
-    );
-    return result;
-}
 
 // You might divy up the array of vertex in diffent ways, so we use vertices_count allow you to query how many was it. But the buffer is always buffer_size, not taking into account vertinces_count
 Vertex_Buffer create_vertex_buffer(const void* data, isz buffer_size, isz vertices_count) {
     Vertex_Buffer result = {0};
     result.count = vertices_count;
 
-    result.buffer = create_buffer_extended(
-        BUFFER_TYPE_VERTEX,
-        BUFFER_USAGE_DYNAMIC,
+    result.buffer = create_buffer(
+        BUFFER_USAGE_SUBDATA,
         data,
-        buffer_size,
-        -1
+        buffer_size
     );
 
     return result;
@@ -524,164 +600,14 @@ Index_Buffer create_index_buffer(const u32* data, isz index_count) {
     result.count = index_count;
     assert_msg(data, "We're using static memory, that means we can't update it, so we need to set it once, meaning right now!");
 
-    result.buffer = create_buffer_extended(
-        BUFFER_TYPE_INDEX,
+    result.buffer = create_buffer(
         BUFFER_USAGE_STATIC,
         data,
-        size,
-        -1
+        size
     );
 
     return result;
 }
-
-static isz std140_base_alignment(Data_Type type) {
-    switch (type) {
-        case DATA_TYPE_FLOAT:       return 4;
-        case DATA_TYPE_VEC2:        return 8;
-        case DATA_TYPE_VEC3:
-        case DATA_TYPE_VEC4:        return 16;
-        case DATA_TYPE_MAT4:        return 16;
-
-        case DATA_TYPE_FLOAT_ARRAY: return 16;
-        case DATA_TYPE_VEC2_ARRAY:  return 16;
-        case DATA_TYPE_VEC3_ARRAY:  return 16;
-        case DATA_TYPE_VEC4_ARRAY:  return 16;
-        case DATA_TYPE_MAT4_ARRAY:  return 16;
-        default: return 4;
-    }
-}
-
-static isz std140_element_size(Data_Type type, isz count) {
-    switch (type) {
-        case DATA_TYPE_FLOAT:       return size_of(f32);
-        case DATA_TYPE_VEC2:        return size_of(f32) * 2;
-
-        case DATA_TYPE_VEC3:
-        case DATA_TYPE_VEC4:        return size_of(f32) * 4;
-
-        case DATA_TYPE_MAT4:        return size_of(f32) * 16;
-
-        case DATA_TYPE_FLOAT_ARRAY: return 16 * count;
-        case DATA_TYPE_VEC2_ARRAY:  return 16 * count;
-        case DATA_TYPE_VEC3_ARRAY:  return 16 * count;
-        case DATA_TYPE_VEC4_ARRAY:  return 16 * count;
-        case DATA_TYPE_MAT4_ARRAY:  return 16 * 4 * count;
-        default: return 0;
-    }
-}
-
-void push_uniform(Uniform_Buffer* ub, Data_Type type, const void* data, isz count) {
-    assert(ub && ub->cpu_mem);
-
-    isz align = std140_base_alignment(type);
-    ub->offset = (ub->offset + align - 1) & ~(align - 1); // std140 align
-
-    switch (type) {
-        case DATA_TYPE_VEC3: {
-            const float* src = (const float*)data;
-            float tmp[4] = { src[0], src[1], src[2], 0.0f };
-            memcpy(ub->cpu_mem + ub->offset, tmp, sizeof(tmp));
-            ub->offset += 16;
-            return;
-        }
-
-        case DATA_TYPE_VEC3_ARRAY: {
-            const float* src = (const float*)data;
-            for (isz i = 0; i < count; ++i) {
-                float tmp[4] = { src[i*3+0], src[i*3+1], src[i*3+2], 0.0f };
-                memcpy(ub->cpu_mem + ub->offset, tmp, 16);
-                ub->offset += 16;
-            }
-            return;
-        }
-
-        case DATA_TYPE_VEC2_ARRAY: {
-            const float* src = (const float*)data;
-            for (isz i = 0; i < count; ++i) {
-                float tmp[4] = { src[i*2+0], src[i*2+1], 0, 0 };
-                memcpy(ub->cpu_mem + ub->offset, tmp, 16);
-                ub->offset += 16;
-            }
-            return;
-        }
-
-        case DATA_TYPE_FLOAT_ARRAY: {
-            const float* src = (const float*)data;
-            for (isz i = 0; i < count; ++i) {
-                float tmp[4] = { src[i], 0, 0, 0 };
-                memcpy(ub->cpu_mem + ub->offset, tmp, 16);
-                ub->offset += 16;
-            }
-            return;
-        }
-
-        case DATA_TYPE_VEC4_ARRAY: {
-            const float* src = (const float*)data;
-            for (isz i = 0; i < count; ++i) {
-                memcpy(ub->cpu_mem + ub->offset, &src[i*4], 16);
-                ub->offset += 16;
-            }
-            return;
-        }
-
-        case DATA_TYPE_MAT4_ARRAY: {
-            const float* src = (const float*)data;
-            for (isz i = 0; i < count; ++i) {
-                memcpy(ub->cpu_mem + ub->offset, &src[i*16], 64);
-                ub->offset += 64;
-            }
-            return;
-        }
-
-        case DATA_TYPE_MAT4: {
-            memcpy(ub->cpu_mem + ub->offset, data, sizeof(float) * 16);
-            ub->offset += 64;
-            return;
-        }
-
-        default: {
-            isz size = std140_element_size(type, count);
-            memcpy(ub->cpu_mem + ub->offset, data, size);
-            ub->offset += size;
-            return;
-        }
-    }
-}
-
-
-void push_uniform_float(Uniform_Buffer* ub, float value) {
-    push_uniform(ub, DATA_TYPE_FLOAT, &value, 1);
-}
-
-void push_uniform_vec3(Uniform_Buffer* ub, Vector3 v) {
-    push_uniform(ub, DATA_TYPE_VEC3, &v, 1);
-}
-
-void push_uniform_vec4(Uniform_Buffer* ub, Vector4 v) {
-    push_uniform(ub, DATA_TYPE_VEC4, &v, 1);
-}
-
-void push_uniform_mat4(Uniform_Buffer* ub, Matrix m) {
-    push_uniform(ub, DATA_TYPE_MAT4, &m, 1);
-}
-
-// Arrays
-void push_uniform_vec3_array(Uniform_Buffer* ub, Vector3* arr, isz count) {
-    push_uniform(ub, DATA_TYPE_VEC3_ARRAY, arr, count);
-}
-
-void push_uniform_vec4_array(Uniform_Buffer* ub, Vector4* arr, isz count) {
-    push_uniform(ub, DATA_TYPE_VEC4_ARRAY, arr, count);
-}
-
-void push_uniform_mat4_array(Uniform_Buffer* ub, Matrix* arr, isz count) {
-    push_uniform(ub, DATA_TYPE_MAT4_ARRAY, arr, count);
-}
-
-
-
-
 
 //--------------------------------------
 // Shader Binding Usage
@@ -705,5 +631,3 @@ void push_uniform_mat4_array(Uniform_Buffer* ub, Matrix* arr, isz count) {
 // - Texture Buffer: 1D only, best for tightly packed uniform-like arrays. Read-only in shaders.
 // - Storage_Buffer: Most flexible, larger storage, can read-write. Slower than Uniform_Buffers for small data.
 // - Image2D: Arbitrary read/write, good for GPGPU or post-processing passes. Requires memory barriers.
-
-
