@@ -164,7 +164,7 @@ build() {
     flags_warn="-Wall -Wextra -Werror $flags_no_warn $flags_ub $flags_warn1 $flags_warn2"
 
     # Check only
-    flags_warn="$flags_warn -fsyntax-only"
+    # flags_warn="$flags_warn -fsyntax-only"
 
 
 

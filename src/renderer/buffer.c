@@ -357,7 +357,14 @@ inline bool is_valid_vertex_buffer(const Vertex_Buffer vb) {
 
 // Return the index of one position after the last byte written;
 isz update_buffer(const Buffer *buffer, const void *data, isz offset, isz size) {
-   assert(buffer && is_valid_buffer(*(Buffer*)buffer));
+   assert(buffer);
+   if (!is_valid_buffer(*(Buffer*)buffer)) {
+      trace_error("Buffer invalid, %s denied.", __func__);
+      // debug_break();
+      // __debugbreak();
+      __builtin_trap();
+      return offset;
+   }
 
    if (offset + size > buffer->size) {
       trace_error("Buffer write would exceed bounds. No data was written, fix your bounds.");
@@ -387,7 +394,11 @@ isz update_buffer(const Buffer *buffer, const void *data, isz offset, isz size) 
 // Buffer growth using orphaning if resize is in its usage, otherwise destroy the earlier buffer
 // its destroyed and return a new buffer with same characteristics with the new required size
 bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
-    assert(buffer && is_valid_buffer(*buffer));
+    assert(buffer);
+    if (!is_valid_buffer(*buffer)) {
+      trace_warn("Buffer can't weasel your way outta calling 'create_buffer' with a cheeky resize on invalid buffer mate, nt tho.");
+      return false;
+    }
 
    // Check for shrinking
    if (required_size < buffer->size) {
@@ -400,10 +411,9 @@ bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
       return true;
    }
 
-   // Check if buffer supports resizing (orphaning)
-   if (buffer->usage == BUFFER_USAGE_STATIC_RESIZABLE || buffer->usage == BUFFER_USAGE_SUBDATA_RESIZABLE) {
-
-
+   GLbitfield storage_flags = buffer->usage == BUFFER_USAGE_SUBDATA_RESIZABLE ? GL_DYNAMIC_DRAW : 0;
+   GLbitfield supports_resize = buffer->usage == BUFFER_USAGE_STATIC_RESIZABLE || buffer->usage == BUFFER_USAGE_SUBDATA_RESIZABLE;
+   if (supports_resize) {
       // Unmap if currently mapped (shouldn't be for resizable buffers, but safety check)
       if (buffer->mapped_ptr != nullptr) {
          glUnmapNamedBuffer(buffer->handle);

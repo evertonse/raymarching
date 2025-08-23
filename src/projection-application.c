@@ -525,24 +525,26 @@ void projection_update(Projection_Application *app, f64 dt) {
          update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
          for (isz renderable_index = 0; renderable_index < (isz)renderables.count; renderable_index += 1) {
             auto r = renderables.items[renderable_index];
-            draw_renderable(&r);
+            if (true) {
+               draw_renderable(&r);
+            } else {
+               Vertex_Array va = {
+                  .handle = manager_buffers.vao,
+                  .vb = {
+                     .buffer = manager_buffers.vertex_buffer,
+                     .count  = manager_buffers.vertex_count,
+                  },
+                  .ib = {
+                     .buffer = manager_buffers.index_buffer,
+                     .count  = manager_buffers.index_count,
+                  },
+               };
 
-            Vertex_Array va = {
-               .handle = manager_buffers.vao,
-               .vb = {
-                  .buffer = manager_buffers.vertex_buffer,
-                  .count  = manager_buffers.vertex_count,
-               },
-               .ib = {
-                  .buffer = manager_buffers.index_buffer,
-                  .count  = manager_buffers.index_count,
-               },
-            };
+               glVertexArrayVertexBuffer (va.handle, 0, va.vb.buffer.handle, 0, 8*size_of(float));
+               glVertexArrayElementBuffer(va.handle, va.ib.buffer.handle);
 
-            glVertexArrayVertexBuffer (va.handle, 0, va.vb.buffer.handle, 0, 8*size_of(float));
-            glVertexArrayElementBuffer(va.handle, va.ib.buffer.handle);
-
-            draw_va(app, &va, position, scale, rotation);
+               draw_va(app, &va, position, scale, rotation);
+            }
          }
          upload_uniform_int(app->shader, "is_special", 0);
       }

@@ -115,19 +115,20 @@ void grow_manager_buffers_if_needed(u32 required_vertices, u32 required_indices)
       }
 
       // Reallocate CPU arrays
-      manager_buffers.positions = realloc(manager_buffers.positions, new_capacity * size_of(Vector3));
-      manager_buffers.normals   = realloc(manager_buffers.normals,   new_capacity * size_of(Vector3));
-      manager_buffers.uvs       = realloc(manager_buffers.uvs,       new_capacity * size_of(Vector2));
-      manager_buffers.joints    = realloc(manager_buffers.joints,    new_capacity * size_of(*manager_buffers.joints));
+      manager_buffers.positions = realloc(manager_buffers.positions, new_capacity * size_of(manager_buffers.positions[0]));
+      manager_buffers.normals   = realloc(manager_buffers.normals,   new_capacity * size_of(manager_buffers.normals  [0]));
+      manager_buffers.uvs       = realloc(manager_buffers.uvs,       new_capacity * size_of(manager_buffers.uvs      [0]));
 
       // Use the existing resize_buffer_if_needed function for GPU buffer
       // Buffer layout: [all positions][all normals][all uvs] per renderable
-      isz buffer_size = new_capacity * (size_of(Vector3) + size_of(Vector3) + size_of(Vector2)); // pos + normal + uv
+      isz buffer_size = new_capacity * (size_of(manager_buffers.positions[0]) + size_of(manager_buffers.normals[0]) + size_of(manager_buffers.uvs[0]));
       resize_buffer_if_needed(&manager_buffers.vertex_buffer, buffer_size);
 
       manager_buffers.vertex_capacity = new_capacity;
-      manager_buffers.vertex_dirty = true; // Mark for full upload
+      manager_buffers.vertex_dirty    = true; // Mark for full upload
    }
+
+      // manager_buffers.joints    = realloc(manager_buffers.joints,    new_capacity * size_of(*manager_buffers.joints));
 
    // Check if we need to grow index buffer
    if (manager_buffers.index_count + required_indices > manager_buffers.index_capacity) {
@@ -188,31 +189,35 @@ void update_manager_gpu_buffers() {
    if (manager_buffers.vertex_dirty) {
       // We need to pack data as: [all_positions][all_normals][all_uvs]
       // TODO: I dont like this stile of size_of
-      isz position_size = manager_buffers.vertex_count * size_of(Vector3);
-      isz normal_size   = manager_buffers.vertex_count * size_of(Vector3);
-      isz uv_size       = manager_buffers.vertex_count * size_of(Vector2);
+      isz positions_size = manager_buffers.vertex_count * size_of(Vector3);
+      isz normals_size   = manager_buffers.vertex_count * size_of(Vector3);
+      isz uvs_size       = manager_buffers.vertex_count * size_of(Vector2);
+
+      isz positions_offset = 0;
+      isz normals_offset   = positions_size;
+      isz uvs_offset       = positions_size + normals_size;
 
       // Upload positions first
-      update_buffer(&manager_buffers.vertex_buffer, manager_buffers.positions, position_size, 0);
+      update_buffer(&manager_buffers.vertex_buffer, manager_buffers.positions, positions_offset, positions_size);
 
       // Upload normals after positions
-      update_buffer(&manager_buffers.vertex_buffer, manager_buffers.normals, normal_size, position_size);
+      update_buffer(&manager_buffers.vertex_buffer, manager_buffers.normals,   normals_offset,   normals_size);
 
-      // Upload UVs after normals
-      update_buffer(&manager_buffers.vertex_buffer, manager_buffers.uvs, uv_size, position_size + normal_size);
+      // Upload uvs after normals
+      update_buffer(&manager_buffers.vertex_buffer, manager_buffers.uvs,       uvs_offset,       uvs_size);
 
       manager_buffers.vertex_dirty = false;
    }
 
    if (manager_buffers.joints_dirty) {
       isz joints_size = manager_buffers.vertex_count * size_of(*manager_buffers.joints);
-      update_buffer(&manager_buffers.joints_buffer, manager_buffers.joints, joints_size, 0);
+      update_buffer(&manager_buffers.joints_buffer, manager_buffers.joints, 0, joints_size);
       manager_buffers.joints_dirty = false;
    }
 
    if (manager_buffers.indices_dirty) {
       isz indices_size = manager_buffers.index_count * size_of(u32);
-      update_buffer(&manager_buffers.index_buffer, manager_buffers.indices, indices_size, 0);
+      update_buffer(&manager_buffers.index_buffer, manager_buffers.indices, 0, indices_size);
       manager_buffers.indices_dirty = false;
    }
 
