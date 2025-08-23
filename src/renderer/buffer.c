@@ -366,6 +366,11 @@ isz update_buffer(const Buffer *buffer, const void *data, isz offset, isz size) 
       return offset;
    }
 
+   if (0 == size) {
+      trace_warn("You might have switched offset with size. I ain't creating types for different index for type safety. Or maybe you wanna update 0 bytes, who knows, imma just be annoying to let you know.");
+      return offset;
+   }
+
    if (offset + size > buffer->size) {
       trace_error("Buffer write would exceed bounds. No data was written, fix your bounds.");
       return offset;
@@ -463,7 +468,7 @@ void bind_buffer(Buffer* buffer, Buffer_Type type, i64 binding) {
     buffer->type = type;
 }
 
-void bind_buffer_view(Buffer* buffer, Buffer_Type type, isz binding, isz size, isz offset) {
+void bind_buffer_view(Buffer* buffer, Buffer_Type type, isz binding, isz offset, isz size) {
     if (!buffer || buffer->handle == 0 || size <= 0) {
         trace_error("%s Invalid buffer or size.\n", __func__);
         return;

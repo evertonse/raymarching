@@ -25,6 +25,10 @@
 - [ ] Abstract every renderable into cpu data and gpu data counterpart.
 - [ ] Refactor Buffer to just have buffer with additional specific data, rather than multiple types.
 
+- [ ] Investigate animation problem
+
+- [ ] Shader remap error to correct line in folder
+
 - [x] Renderbuffer, SSBO, Uniform buffer objects create and use
 
 - [x] Vertex Pulling positions

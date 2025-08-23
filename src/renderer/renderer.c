@@ -176,25 +176,17 @@ Vertex_Array create_vertex_array_from_arrays(Vector3 *positions, Vector3 *normal
 }
 
 void create_vertex_arrays_from_mesh(const Mesh *mesh, Vertex_Array *out_items) {
-   assert(mesh != NULL);
-   assert(mesh->vertices != NULL);
-   assert(mesh->normals != NULL);
-   assert(mesh->uvs != NULL);
-   assert(mesh->indices != NULL);
-   assert(mesh->vertices_count > 0);
-   assert(mesh->indices_count > 0);
-   assert_msg(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count,
-         "vertices=%d normals=%d uvs=%d", mesh->vertices_count, mesh->normals_count, mesh->uvs_count);
+   assert(mesh && is_valid_mesh(*mesh));
 
    // Create vertex arrays for each surface
-   for (size_t surface_idx = 0; surface_idx < mesh->surfaces_count; surface_idx++) {
-      auto surface = mesh->surfaces[surface_idx];
+   for (size_t surface_idx = 0; surface_idx < mesh->surfaces.count; surface_idx++) {
+      auto surface = mesh->surfaces.items[surface_idx];
       Vertex_Array *va = &out_items[surface_idx];
-      Vector3 *positions = mesh->positions;
-      Vector3 *normals   = mesh->normals;
-      Vector2* uvs       = mesh->uvs;
-      isz count = mesh->positions_count;
-      u32* indices = mesh->indices + surface.indices_start_index;
+      Vector3 *positions = mesh->vertices.positions;
+      Vector3 *normals   = mesh->vertices.normals;
+      Vector2* uvs       = mesh->vertices.uvs;
+      isz count          = mesh->vertices.count;
+      u32* indices       = mesh->indices.items + surface.indices_offset;
       isz  indices_count = surface.indices_count;
       // We're retardedly creating a new vertex buffer for no reason other than its convenient right now, and we're gonna refactor into something comepletly different anyhow
       *va = create_vertex_array_from_arrays(positions, normals, uvs, count, indices, indices_count);
@@ -203,24 +195,16 @@ void create_vertex_arrays_from_mesh(const Mesh *mesh, Vertex_Array *out_items) {
 
 
 Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
+   assert(mesh && is_valid_mesh(*mesh));
    Vertex_Array va = {0};
 
-   assert(mesh != NULL);
-   assert(mesh->vertices != NULL);
-   assert(mesh->normals != NULL);
-   assert(mesh->uvs != NULL);
-   assert(mesh->indices != NULL);
-   assert(mesh->vertices_count > 0);
-   assert(mesh->indices_count > 0);
-   assert_msg(mesh->vertices_count == mesh->normals_count && mesh->vertices_count == mesh->uvs_count, "vertices=%d normals=%d uvs=%d", mesh->vertices_count,mesh->normals_count, mesh->uvs_count);
+   Vector3 *positions = mesh->vertices.positions;
+   Vector3 *normals   = mesh->vertices.normals;
+   Vector2* uvs       = mesh->vertices.uvs;
+   isz      count     = mesh->vertices.count;
 
-   Vector3 *positions = mesh->positions;
-   Vector3 *normals   = mesh->normals;
-   Vector2* uvs       = mesh->uvs;
-   isz  count = mesh->positions_count;
-
-   u32* indices       = mesh->indices;
-   isz  indices_count = mesh->indices_count;
+   u32* indices       = mesh->indices.items;
+   isz  indices_count = mesh->indices.count;
    // We're retardedly creating a new vertex buffer for no reason other than its convenient right now, and we're gonna refactor into something comepletly different anyhow
    va = create_vertex_array_from_arrays(positions, normals, uvs, count, indices, indices_count);
    return va;
@@ -279,7 +263,7 @@ Vertex_Array create_cube_vertex_array(void) {
    };
 
    static Mesh mesh = {0};
-   if (mesh.vertices == nullptr) {
+   if (!is_valid_mesh(mesh)) {
       mesh = create_mesh_from_interleaved(interleaved, count_of(interleaved));
    }
    return create_vertex_array_from_mesh(&mesh);

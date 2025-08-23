@@ -447,7 +447,9 @@ vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, 
    vec3 view_direction  = normalize(view_position - fragment_position);
 
    vec3 fragment_diffuse_color  = texture(diffuse_texture, TexCoord).xyz;
-   vec3 fragment_specular_color = vec3(0.8) + 0.2*fragment_diffuse_color;
+   // vec3 fragment_diffuse_color  = vec3(1);
+   // vec3 fragment_specular_color = vec3(0.7) + 0.2*fragment_diffuse_color;
+   vec3 fragment_specular_color = vec3(0);
 
    vec3 light_diffuse_color  = light.diffuse;
    vec3 light_ambient_color  = light.ambient;
@@ -562,6 +564,11 @@ void main() {
    if (is_special > 0) {
       color = vec3(1);
    }
+
+   // if (gl_BaseVertex < 10) {
+   //    color *= vec3(1.0, 0, 1.);
+   // }
+
 
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
    float attenuation_alpha = clamp(distance_to_view/distance_to_view, 0.2, 1.0);

@@ -2,59 +2,54 @@
 // void *data;
 // bool is_from_single_data_buffer;
 typedef struct {
-   union {
-      Vector3 *vertices;
+   struct {
       Vector3 *positions;
-   };
+      Vector3 *normals;
 
-   Vector3 *normals;
+      union {
+         Vector2 *uvs;
+         Vector2 *texcoords;
+      };
 
-   union {
-      Vector2 *uvs;
-      Vector2 *texcoords;
-   };
+      struct {
+         // Order is important
+         Vector4Int indices;
+         Vector4    weights;
+         // should have one of each per position or none
+      } *joints;
+      u32 count;
+   } vertices;
 
    struct {
-      // Order is important
-      Vector4Int joint_indices;
-      Vector4    joint_weights;
-      // should have one of each per position or none
-   } *joint_data;
+      struct {
+         isz indices_offset;
+         isz indices_count;
+         isz material_index;
+      } *items;
+      u32 count;
+   } surfaces;
 
    struct {
-      isz indices_start_index;
-      isz indices_count;
-      isz material_index;
-   } *surfaces;
-   u32 surfaces_count;
-
-   u32 *indices;
-
-   union {
-      u32 vertices_count;
-      u32 positions_count;
-   };
-   u32 uvs_count;
-   u32 normals_count;
-   u32 indices_count;
-   isz material_index;
-
+      u32 *items;
+      u32 count;
+   } indices;
 } Mesh;
 
 
 // Macro to define a mesh from OBJ data
-#define DEFINE_MESH(prefix, ext)                           \
-   static Mesh prefix##_mesh = {                           \
-      .vertices       = (Vector3 *)prefix##_objVerts,      \
-      .normals        = (Vector3 *)prefix##_objNormals,    \
-      .uvs            = (Vector2 *)prefix##_objTexCoords,  \
-      .indices        = (u32 *)prefix##_objIndexes,        \
-                                                           \
-      .vertices_count = prefix##_objVertsCount,            \
-      .uvs_count      = prefix##_objTexCoordsCount,        \
-      .normals_count  = prefix##_objNormalsCount,          \
-      .indices_count  = prefix##_objIndexesCount           \
-   };                                                      \
+#define DEFINE_MESH(prefix, ext)                              \
+   static Mesh prefix##_mesh = {                              \
+      .vertices = {                                      \
+         .positions      = (Vector3 *)prefix##_objVerts,      \
+         .normals        = (Vector3 *)prefix##_objNormals,    \
+         .uvs            = (Vector2 *)prefix##_objTexCoords,  \
+         .count          = prefix##_objVertsCount             \
+      },                                                      \
+      .indices = {                                            \
+         .items = (u32 *)prefix##_objIndexes,                 \
+         .count  = prefix##_objIndexesCount                   \
+      },                                                      \
+   };                                                         \
    static char *prefix##_texture_path = "res/textures/" #prefix ext
 
 DEFINE_MESH(bamboo, ".jpg");
@@ -63,15 +58,16 @@ DEFINE_MESH(tiger, "_yellow.png");
 DEFINE_MESH(horse, ".png");
 
 static Mesh cube_mesh = {
-   .vertices       = (Vector3 *)cube_objVerts,
-   .normals        = (Vector3 *)cube_objNormals,
-   .uvs            = (Vector2 *)cube_objTexCoords,
-   .indices        = (u32 *)cube_objIndexes,
-
-   .vertices_count = cube_objVertsCount,
-   .uvs_count      = cube_objTexCoordsCount,
-   .normals_count  = cube_objNormalsCount,
-   .indices_count  = cube_objIndexesCount
+   .vertices = {
+      .positions       = (Vector3 *)cube_objVerts,
+      .normals        = (Vector3 *)cube_objNormals,
+      .uvs            = (Vector2 *)cube_objTexCoords,
+      .count          = cube_objVertsCount
+   },
+   .indices = {
+      .items = (u32 *)cube_objIndexes,
+      .count =  cube_objIndexesCount
+   }
 };
 
 Mesh generate_sphere_mesh(float radius, int rings, int slices) {
@@ -86,18 +82,16 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
    void *memory = malloc(vertex_array_size + index_array_size);
    unsigned char *ptr = (unsigned char *)memory;
 
-   mesh.vertices = (Vector3 *)ptr;
+   mesh.vertices.positions = (Vector3 *)ptr;
    ptr += vertex_count * size_of(Vector3);
-   mesh.normals = (Vector3 *)ptr;
+   mesh.vertices.normals = (Vector3 *)ptr;
    ptr += vertex_count * size_of(Vector3);
-   mesh.uvs = (Vector2 *)ptr;
+   mesh.vertices.uvs = (Vector2 *)ptr;
    ptr += vertex_count * size_of(Vector2);
-   mesh.indices = (unsigned int *)ptr;
+   mesh.indices.items = (unsigned int *)ptr;
 
-   mesh.vertices_count = vertex_count;
-   mesh.normals_count = vertex_count;
-   mesh.uvs_count = vertex_count;
-   mesh.indices_count = index_count;
+   mesh.vertices.count = vertex_count;
+   mesh.indices.count       = index_count;
 
    int v = 0;
    for (int i = 0; i <= rings; i++) {
@@ -109,10 +103,10 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
          float y = cosf(phi);
          float z = sinf(phi) * sinf(theta);
 
-         mesh.vertices[v] = (Vector3){radius * x, radius * y, radius * z};
-         mesh.normals[v] = (Vector3){x, y, z};
-         mesh.uvs[v] = (Vector2){(float)j / slices, (float)i / rings};
-         v++;
+         mesh.vertices.positions[v] = (Vector3){radius * x, radius * y, radius * z};
+         mesh.vertices.normals[v] = (Vector3){x, y, z};
+         mesh.vertices.uvs[v] = (Vector2){(float)j / slices, (float)i / rings};
+         v += 1;
       }
    }
 
@@ -124,13 +118,13 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
          int i2 = i0 + slices + 1;
          int i3 = i2 + 1;
 
-         mesh.indices[k++] = i0;
-         mesh.indices[k++] = i2;
-         mesh.indices[k++] = i1;
+         mesh.indices.items[k++] = i0;
+         mesh.indices.items[k++] = i2;
+         mesh.indices.items[k++] = i1;
 
-         mesh.indices[k++] = i1;
-         mesh.indices[k++] = i2;
-         mesh.indices[k++] = i3;
+         mesh.indices.items[k++] = i1;
+         mesh.indices.items[k++] = i2;
+         mesh.indices.items[k++] = i3;
       }
    }
 
@@ -153,28 +147,33 @@ Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
    void *block = malloc(total_size);
 
    // Assign pointers within the block
-   mesh.vertices = (Vector3 *)block;
-   mesh.normals  = (Vector3 *)((char *)block + vertex_data_size);
-   mesh.uvs      = (Vector2 *)((char *)block + vertex_data_size + normal_data_size);
-   mesh.indices  = (u32 *)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size);
+   mesh.vertices.positions = (Vector3 *)block;
+   mesh.vertices.normals  = (Vector3 *)((char *)block + vertex_data_size);
+   mesh.vertices.uvs      = (Vector2 *)((char *)block + vertex_data_size + normal_data_size);
+   mesh.indices.items                = (u32 *)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size);
 
    // At last, fill in the data
    for (usz i = 0; i < vertex_count; i++) {
        const float *v = &interleaved[i * floats_per_vertex];
-       mesh.vertices[i] = (Vector3){v[0], v[1], v[2]};
-       mesh.normals[i]  = (Vector3){v[3], v[4], v[5]};
-       mesh.uvs[i]      = (Vector2){v[6], v[7]};
-       mesh.indices[i]  = (u32)i;
+       mesh.vertices.positions[i] = (Vector3){v[0], v[1], v[2]};
+       mesh.vertices.normals [i] = (Vector3){v[3], v[4], v[5]};
+       mesh.vertices.uvs     [i] = (Vector2){v[6], v[7]};
+       mesh.indices.items         [i] = (u32)i;
    }
 
-   mesh.vertices_count = vertex_count;
-   mesh.normals_count  = vertex_count;
-   mesh.uvs_count      = vertex_count;
-   mesh.indices_count  = vertex_count;
-
+   mesh.vertices.count = vertex_count;
+   mesh.indices.count        = vertex_count;
    return mesh;
 }
 
 
 // Mesh
-inline bool is_valid_mesh(Mesh mesh)      { return mesh.vertices != nullptr && mesh.indices != nullptr && mesh.uvs != nullptr && mesh.vertices_count > 0 && mesh.indices_count > 0; }
+inline bool is_valid_mesh(Mesh mesh) {
+   return nullptr != mesh.indices.items
+      &&  nullptr != mesh.vertices.positions
+      &&  nullptr != mesh.vertices.normals
+      &&  nullptr != mesh.vertices.uvs
+      &&  mesh.vertices.count > 0
+      &&  mesh.indices.count > 0
+   ;
+}

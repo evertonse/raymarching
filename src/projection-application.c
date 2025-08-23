@@ -146,7 +146,7 @@ static void init_model_and_its_gpu_data(typeof(((Projection_Application *)0)->bo
    {
       for (isz idx = 0; idx < bundle->model.meshes.count; idx += 1) {
          Mesh *mesh = &bundle->model.meshes.items[idx];
-         bundle->vas.count += mesh->surfaces_count;
+         bundle->vas.count += mesh->surfaces.count;
       }
       bundle->vas.items = malloc(bundle->vas.count * size_of(bundle->vas.items[0]));
    }
@@ -155,21 +155,22 @@ static void init_model_and_its_gpu_data(typeof(((Projection_Application *)0)->bo
       isz bundle_va_index = 0;
       for (isz mesh_index = 0; mesh_index < bundle->model.meshes.count; mesh_index += 1) {
          Mesh *mesh = &bundle->model.meshes.items[mesh_index];
-         mesh->uvs_count     = mesh->vertices_count;
-         mesh->normals_count = mesh->vertices_count;
 
          create_vertex_arrays_from_mesh(mesh, &bundle->vas.items[bundle_va_index]);
-         bundle_va_index += mesh->surfaces_count;
+         bundle_va_index += mesh->surfaces.count;
       }
    }
    {
       assert(bundle->model.meshes.count == 1);
+      auto joints_data  = bundle->model.meshes.items[0].vertices.joints;
+      auto joints_count = bundle->model.meshes.items[0].vertices.count;
+      auto joints_size  = joints_count * size_of(joints_data[0]);
       bundle->animation.vertex_joints = create_buffer(
          BUFFER_USAGE_STATIC,
-         bundle->model.meshes.items[0].joint_data,
-         bundle->model.meshes.items[0].positions_count * size_of(bundle->model.meshes.items[0].joint_data[0])
+         joints_data,
+         joints_size
       );
-      assert(bundle->animation.vertex_joints.size == bundle->model.meshes.items[0].positions_count * size_of(bundle->model.meshes.items[0].joint_data[0]));
+      assert(bundle->animation.vertex_joints.size == joints_size);
    }
    bundle->transform.scale       = (Vector3){5., 5., 5.};
    bundle->transform.rotation    = (Vector4){-1., 0, 0, PI/2.};
@@ -216,8 +217,8 @@ static void update_and_draw_model_and_its_gpu_data(typeof(((Projection_Applicati
       isz bundle_va_index = 0;
       for (isz mesh_index = 0; mesh_index < bundle->model.meshes.count; mesh_index += 1) {
          Mesh *mesh = &bundle->model.meshes.items[mesh_index];
-         for (isz surface_index = 0; surface_index < mesh->surfaces_count; surface_index += 1) {
-            auto surface = mesh->surfaces[surface_index];
+         for (isz surface_index = 0; surface_index < mesh->surfaces.count; surface_index += 1) {
+            auto surface = mesh->surfaces.items[surface_index];
             if (surface.material_index > -1) {
                upload_uniform_bool(app->shader, "has_emissive", false);
                upload_uniform_bool(app->shader, "has_specular", false);
@@ -526,24 +527,8 @@ void projection_update(Projection_Application *app, f64 dt) {
          for (isz renderable_index = 0; renderable_index < (isz)renderables.count; renderable_index += 1) {
             auto r = renderables.items[renderable_index];
             if (true) {
+               upload_uniform_int(app->shader, "is_special", 0);
                draw_renderable(&r);
-            } else {
-               Vertex_Array va = {
-                  .handle = manager_buffers.vao,
-                  .vb = {
-                     .buffer = manager_buffers.vertex_buffer,
-                     .count  = manager_buffers.vertex_count,
-                  },
-                  .ib = {
-                     .buffer = manager_buffers.index_buffer,
-                     .count  = manager_buffers.index_count,
-                  },
-               };
-
-               glVertexArrayVertexBuffer (va.handle, 0, va.vb.buffer.handle, 0, 8*size_of(float));
-               glVertexArrayElementBuffer(va.handle, va.ib.buffer.handle);
-
-               draw_va(app, &va, position, scale, rotation);
             }
          }
          upload_uniform_int(app->shader, "is_special", 0);

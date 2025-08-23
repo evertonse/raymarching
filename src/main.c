@@ -8,7 +8,8 @@
 #include "GLFW/glfw3.h"
 
 #define GLAD_GL_IMPLEMENTATION
-#include "glad/gl.h"
+// #include "glad/gl.h"
+#include "glad/gl_extended.h"
 
 #define overload __attribute__((overloadable))
 #define require  __must_check

@@ -108,7 +108,7 @@ static const ufbx_load_opts ufbx_default_opts = {
    // (.obj) Don't split geometry into meshes by object.
    .obj_merge_objects =  true,
    // (.obj) Don't split geometry into meshes by groups.
-   .obj_merge_groups = true,
+   .obj_merge_groups  = true,
    // (.obj) Force splitting groups even on object boundaries.
    .obj_split_groups = false,
 };
@@ -486,235 +486,95 @@ static void setup_materials_from_ufbx_scene(Model *model, ufbx_scene *scene, con
    }
 }
 
-static Mesh create_mesh_from_ufbx_node_original(ufbx_node *node, ufbx_scene *scene) {
-   static constexpr int MAX_WEIGHTS = 4;
-   // Setup Mesh data
-   auto mesh = node->mesh;
-   assert(mesh);
-   isz vertices_count = 0;
-   usz triangles_count = mesh->num_triangles;
-   isz tri_indices_count = mesh->max_face_triangles * 3;
-   usz checkpoint = tsave();
-   u32 *tri_indices = talloc(tri_indices_count * size_of(u32));
-
-   usz indices_count = triangles_count * 3;
-
-   // Malloc once and set the pointers
-   Mesh model_mesh = {0};
-   {
-      usz positions_size = triangles_count * 3 * size_of(model_mesh.positions[0]);
-      usz normals_size   = triangles_count * 3 * size_of(model_mesh.normals[0]);
-      usz uvs_size       = triangles_count * 3 * size_of(model_mesh.uvs[0]);
-      isz indices_size   = indices_count   * 1 * size_of(u32);
-      // Final indices will occupy less memory that we're setting here
-      char *data = malloc(positions_size + normals_size + uvs_size + indices_size);
-
-      model_mesh.positions = (Vector3 *)(data + 0);
-      model_mesh.normals   = (Vector3 *)(data + positions_size);
-      model_mesh.uvs       = (Vector2 *)(data + positions_size + normals_size);
-      model_mesh.indices   = (u32 *)    (data + positions_size + normals_size + uvs_size);
-
-      model_mesh.positions_count = triangles_count * 3;
-      model_mesh.normals_count   = triangles_count * 3;
-      model_mesh.uvs_count       = triangles_count * 3;
-      model_mesh.material_index  = -1;
-
-      if (scene->bones.count > 0) {
-         assert(size_of(model_mesh.joint_data[0]) == (4 + 4) * size_of(float));
-         // TODO: Condense into 1 malloc call
-         char *data = malloc(model_mesh.positions_count * size_of(model_mesh.joint_data[0]));
-         model_mesh.joint_data = (typeof(model_mesh.joint_data))data;
-      }
-   }
-
-   if (node->materials.count > 0) {
-      model_mesh.material_index = material_index_from_ufbx_scene(node->materials.data[0], scene);
-   }
-
-   assert_msg(1 == mesh->skin_deformers.count, "Only one Skeleton and one Animation supported");
-   auto skin = mesh->skin_deformers.data[0];
-   for (usz part_index = 0; part_index < mesh->material_parts.count; part_index++) {
-      auto material_part = mesh->material_parts.data[part_index];
-      trace_struct(material_part);
-   }
-   for (usz face_index = 0; face_index < mesh->faces.count; face_index++) {
-      ufbx_face face = mesh->faces.data[face_index];
-      u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, mesh, face);
-      // Iterate over each triangle corner contiguously.
-      for (isz tri_index = 0; tri_index < tri_count * 3; tri_index++) {
-         u32 index = tri_indices[tri_index];
-         ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
-         ufbx_vec3 ufbx_normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, index);
-         ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&mesh->vertex_uv, index);
-
-         // ufbx_position  = ufbx_transform_position(&node->geometry_to_world, ufbx_position);
-
-         Vector3 position = {(f32)ufbx_position.x, (f32)ufbx_position.y, (f32)ufbx_position.z};
-         Vector3 normal = {(f32)ufbx_normal.x, (f32)ufbx_normal.y, (f32)ufbx_normal.z};
-         Vector2 uv = {(f32)ufbx_uv.x, (f32)ufbx_uv.y};
-         uint32_t vertex = mesh->vertex_indices.data[index];
-         ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
-         size_t num_weights = skin_vertex.num_weights;
-         if (num_weights > MAX_WEIGHTS) {
-            num_weights = MAX_WEIGHTS;
-         }
-
-         float total_weight = 0.0f;
-         Vector4 bone_weight = {-1., -1., -1., -1.};
-         Vector4Int bone_indices = {-1, -1, -1, -1};
-         for (size_t i = 0; i < num_weights; i++) {
-            ufbx_skin_weight skin_weight = skin->weights.data[skin_vertex.weight_begin + i];
-
-            // Nonchalantly finding the index by ptr comparison (uh!) in O(bones_count*num_wights*everysingle_vertice).
-            // Pray we ain't got thousands of bones, this is a job for either a hash or see it ufbx has some way to get the index from cluster to bones?
-            ufbx_skin_cluster *cluster = skin->clusters.data[skin_weight.cluster_index];
-            usz bone_index = joint_index_from_ufbx_bone_node(scene, cluster->bone_node);
-            bone_indices.items[i] = (int)bone_index;
-            bone_weight.items[i] = (float)skin_weight.weight;
-            total_weight += (float)skin_weight.weight;
-         }
-
-         // FBX does not guarantee that skin weights are normalized, and we may even
-         // be dropping some, so we must renormalize them.
-         for (size_t i = 0; i < num_weights; i++) {
-            bone_weight.items[i] /= total_weight;
-         }
-
-         model_mesh.positions[vertices_count] = position;
-         model_mesh.normals[vertices_count] = normal;
-         model_mesh.uvs[vertices_count] = uv;
-         model_mesh.indices[vertices_count] = vertices_count;
-         model_mesh.joint_data[vertices_count].joint_indices = bone_indices;
-         model_mesh.joint_data[vertices_count].joint_weights = bone_weight;
-         vertices_count += 1;
-      }
-   }
-
-   trestore(checkpoint);
-
-   assert((isz)vertices_count == (isz)triangles_count * 3 && model_mesh.positions_count == vertices_count && model_mesh.normals_count == vertices_count && model_mesh.uvs_count == vertices_count);
-
-   const bool reduce_indices = true; // DONE: Adjust for joint data
-   if (reduce_indices) {
-      // Generate the index buffer.
-
-      ufbx_vertex_stream streams[] = {
-          {model_mesh.positions, vertices_count, size_of(model_mesh.positions[0])},
-          {model_mesh.normals, vertices_count, size_of(model_mesh.normals[0])},
-          {model_mesh.uvs, vertices_count, size_of(model_mesh.uvs[0])},
-          {model_mesh.joint_data, vertices_count, size_of(model_mesh.joint_data[0])},
-
-      };
-      isz streams_count = model_mesh.joint_data ? count_of(streams) : count_of(streams) - 1;
-
-      // This call will deduplicate vertices, modifying the arrays passed in `streams[]`,
-      // indices are written in `indices[]` and the number of unique vertices is returned.
-      isz vertices_count_new = (isz)ufbx_generate_indices(streams, streams_count, model_mesh.indices, indices_count, nullptr, nullptr);
-      model_mesh.positions_count = vertices_count_new;
-      model_mesh.normals_count = vertices_count_new;
-      model_mesh.uvs_count = vertices_count_new;
-
-      // model_mesh.indices_count   = vertices_count_new;
-      model_mesh.indices_count = indices_count;
-
-      if (vertices_count_new < vertices_count) {
-         trace_okay("ufbx_generate_indices optimized from %lld to %lld", vertices_count, vertices_count_new);
-      } else if (vertices_count_new == vertices_count) {
-         trace_info("ufbx_generate_indices did jack shit from %lld to %lld", vertices_count, vertices_count_new);
-      } else {
-         trace_error("ufbx_generate_indices did worsened (? ?) from %lld to %lld", vertices_count, vertices_count_new);
-      }
-
-   } else {
-      model_mesh.indices_count = indices_count;
-   }
-   return model_mesh;
-}
 static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    static constexpr int MAX_WEIGHTS = 4;
 
-   auto mesh = node->mesh;
-   assert(mesh);
+   auto fbx_mesh = node->mesh;
+   assert(fbx_mesh);
 
-   usz total_triangles = mesh->num_triangles;
-   usz total_indices = total_triangles * 3;
    usz checkpoint = tsave();
 
-   isz tri_indices_count = mesh->max_face_triangles * 3;
-   u32 *tri_indices = talloc(tri_indices_count * size_of(u32));
+   usz total_triangles = fbx_mesh->num_triangles;
+   usz total_indices   = total_triangles * 3;
+
+   isz  tri_indices_count = fbx_mesh->max_face_triangles * 3;
+   u32 *tri_indices       = talloc(tri_indices_count * size_of(u32));
+
    bool has_bones = scene->bones.count > 0;
-   usz surfaces_count = mesh->material_parts.count;
+
+   usz surfaces_count = fbx_mesh->material_parts.count;
 
    // Allocate mesh data
-   Mesh model_mesh = {0};
+   Mesh mesh = {0};
    {
       usz total_size = 0;
 
-      usz positions_size   = total_indices * size_of(model_mesh.positions[0]);
-      usz normals_size     = total_indices * size_of(model_mesh.normals[0]);
-      usz uvs_size         = total_indices * size_of(model_mesh.uvs[0]);
-      usz indices_size     = total_indices * size_of(u32);
-      usz surfaces_size    = surfaces_count * size_of(model_mesh.surfaces[0]);
-      usz joint_data_size  = has_bones ? total_indices * size_of(model_mesh.joint_data[0]) : 0;
+      usz positions_size   = total_indices             * size_of(mesh.vertices.positions[0]);
+      usz normals_size     = total_indices             * size_of(mesh.vertices.normals[0]);
+      usz uvs_size         = total_indices             * size_of(mesh.vertices.uvs[0]);
+      usz joints_size  = has_bones ?
+                             total_indices             * size_of(mesh.vertices.joints[0]) : 0;
+      usz indices_size     = total_indices             * size_of(u32);
+      usz surfaces_size    = surfaces_count            * size_of(mesh.surfaces.items[0]);
 
-      total_size = positions_size + normals_size + uvs_size + indices_size + surfaces_size + joint_data_size;
+      total_size = positions_size + normals_size + uvs_size + indices_size + surfaces_size + joints_size;
 
       // Allocate a single block of memory
       char *data = malloc(total_size);
 
       // Assign pointers
-      model_mesh.positions  =             (Vector3*)(data);
-      model_mesh.normals    =             (Vector3*)(data + positions_size);
-      model_mesh.uvs        =             (Vector2*)(data + positions_size + normals_size);
-      model_mesh.indices    =             (u32    *)(data + positions_size + normals_size + uvs_size);
-      model_mesh.surfaces   =             (void   *)(data + positions_size + normals_size + uvs_size + indices_size);
-      model_mesh.joint_data = has_bones ? (void   *)(data + positions_size + normals_size + uvs_size + indices_size + surfaces_size) : nullptr;
+      mesh.vertices.positions  = (Vector3*)(data);
+      mesh.vertices.normals    = (Vector3*)(data + positions_size);
+      mesh.vertices.uvs        = (Vector2*)(data + positions_size + normals_size);
+      mesh.vertices.joints =
+         has_bones ?                  (void   *)(data + positions_size + normals_size + uvs_size) : nullptr;
+      mesh.indices.items                  = (u32    *)(data + positions_size + normals_size + uvs_size + joints_size);
+      mesh.surfaces.items           = (void   *)(data + positions_size + normals_size + uvs_size + joints_size + indices_size);
    }
 
 
-   auto skin = mesh->skin_deformers.count > 0 ? mesh->skin_deformers.data[0] : nullptr;
+   auto skin = fbx_mesh->skin_deformers.count > 0 ? fbx_mesh->skin_deformers.data[0] : nullptr;
 
    isz total_vertex_count = 0;
    isz total_index_count = 0;
 
    // Process each material part (surface) - always at least 1
-   for (usz part_index = 0; part_index < mesh->material_parts.count; part_index++) {
-      auto material_part = mesh->material_parts.data[part_index];
+   for (usz part_index = 0; part_index < fbx_mesh->material_parts.count; part_index++) {
+      auto material_part = fbx_mesh->material_parts.data[part_index];
+
+      auto surface = &mesh.surfaces.items[part_index];
 
       // Set surface start
-      model_mesh.surfaces[part_index].indices_start_index = total_index_count;
-      model_mesh.surfaces[part_index].material_index = -1;
-
-      // Get material index for this part
-      if (part_index < node->materials.count) {
-         model_mesh.surfaces[part_index].material_index = material_index_from_ufbx_scene(node->materials.data[part_index], scene);
-      }
+      surface->indices_offset = total_index_count;
+      surface->material_index = part_index < node->materials.count ?
+            material_index_from_ufbx_scene(node->materials.data[part_index], scene)
+          :-1;
 
       isz part_vertex_start = total_vertex_count;
 
       // Process faces in this material part
       for (usz face_idx = 0; face_idx < material_part.face_indices.count; face_idx++) {
          u32 face_index = material_part.face_indices.data[face_idx];
-         ufbx_face face = mesh->faces.data[face_index];
+         ufbx_face face = fbx_mesh->faces.data[face_index];
 
-         u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, mesh, face);
+         u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, fbx_mesh, face);
 
          // Process triangles in this face
          for (isz tri_index = 0; tri_index < tri_count * 3; tri_index++) {
             u32 index = tri_indices[tri_index];
 
             // Get vertex data
-            ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
-            ufbx_vec3 ufbx_normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, index);
-            ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&mesh->vertex_uv, index);
+            ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&fbx_mesh->vertex_position, index);
+            ufbx_vec3 ufbx_normal = ufbx_get_vertex_vec3(&fbx_mesh->vertex_normal, index);
+            ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&fbx_mesh->vertex_uv, index);
 
             Vector3 position = {(f32)ufbx_position.x, (f32)ufbx_position.y, (f32)ufbx_position.z};
             Vector3 normal = {(f32)ufbx_normal.x, (f32)ufbx_normal.y, (f32)ufbx_normal.z};
             Vector2 uv = {(f32)ufbx_uv.x, (f32)ufbx_uv.y};
 
             // Handle skinning data
-            if (skin && model_mesh.joint_data) {
-               uint32_t vertex = mesh->vertex_indices.data[index];
+            if (skin && mesh.vertices.joints) {
+               uint32_t vertex = fbx_mesh->vertex_indices.data[index];
                ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
                size_t num_weights = skin_vertex.num_weights;
                if (num_weights > MAX_WEIGHTS)
@@ -741,15 +601,15 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
                   }
                }
 
-               model_mesh.joint_data[total_vertex_count].joint_indices = bone_indices;
-               model_mesh.joint_data[total_vertex_count].joint_weights = bone_weight;
+               mesh.vertices.joints[total_vertex_count].indices = bone_indices;
+               mesh.vertices.joints[total_vertex_count].weights = bone_weight;
             }
 
             // Store vertex data
-            model_mesh.positions[total_vertex_count] = position;
-            model_mesh.normals[total_vertex_count] = normal;
-            model_mesh.uvs[total_vertex_count] = uv;
-            model_mesh.indices[total_index_count] = total_vertex_count;
+            mesh.vertices.positions[total_vertex_count] = position;
+            mesh.vertices.normals[total_vertex_count] = normal;
+            mesh.vertices.uvs[total_vertex_count] = uv;
+            mesh.indices.items[total_index_count] = total_vertex_count;
 
             total_vertex_count++;
             total_index_count++;
@@ -757,17 +617,13 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
       }
 
       // Set surface index count
-      model_mesh.surfaces[part_index].indices_count = total_index_count - model_mesh.surfaces[part_index].indices_start_index;
-      trace_struct(model_mesh.surfaces[part_index]);
+      surface->indices_count = total_index_count - surface->indices_offset;
    }
 
    // Set final counts
-   model_mesh.positions_count = total_vertex_count;
-   model_mesh.normals_count   = total_vertex_count;
-   model_mesh.uvs_count       = total_vertex_count;
-   model_mesh.indices_count   = total_index_count;
-   model_mesh.material_index  = -1; // Not used when surfaces are present
-   model_mesh.surfaces_count  = surfaces_count;
+   mesh.vertices.count = total_vertex_count;
+   mesh.indices.count       = total_index_count;
+   mesh.surfaces.count      = surfaces_count;
 
    trestore(checkpoint);
 
@@ -775,201 +631,27 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    const bool reduce_indices = true;
    if (reduce_indices) {
       ufbx_vertex_stream streams[] = {
-          {model_mesh.positions, total_vertex_count, size_of(model_mesh.positions[0])},
-          {model_mesh.normals, total_vertex_count, size_of(model_mesh.normals[0])},
-          {model_mesh.uvs, total_vertex_count, size_of(model_mesh.uvs[0])},
-          {model_mesh.joint_data, total_vertex_count, size_of(model_mesh.joint_data[0])},
+          {mesh.vertices.positions,  total_vertex_count, size_of(mesh.vertices.positions[0])},
+          {mesh.vertices.normals,    total_vertex_count, size_of(mesh.vertices.normals[0])},
+          {mesh.vertices.uvs,        total_vertex_count, size_of(mesh.vertices.uvs[0])},
+          {mesh.vertices.joints,     total_vertex_count, size_of(mesh.vertices.joints[0])},
       };
-      isz streams_count = model_mesh.joint_data ? count_of(streams) : count_of(streams) - 1;
+      isz streams_count = mesh.vertices.joints ? count_of(streams) : count_of(streams) - 1;
 
-      isz vertices_count_new = (isz)ufbx_generate_indices(streams, streams_count, model_mesh.indices, total_index_count, nullptr, nullptr);
+      isz vertices_count_new = (isz)ufbx_generate_indices(streams, streams_count, mesh.indices.items, total_index_count, nullptr, nullptr);
 
-      model_mesh.positions_count = vertices_count_new;
-      model_mesh.normals_count = vertices_count_new;
-      model_mesh.uvs_count = vertices_count_new;
+      mesh.vertices.count = vertices_count_new;
 
       // Surface indices are still valid - they reference the same index buffer positions
       // ufbx_generate_indices only remaps vertex data and updates the index values
-      // but preserves the index buffer structure and ordering
+      // but preserves the index buffer structure and ordering. Or so I believe.
 
       trace_okay("ufbx_generate_indices optimized from %lld to %lld vertices", total_vertex_count, vertices_count_new);
    }
 
-   return model_mesh;
+   return mesh;
 }
 
-static Mesh create_mesh_from_ufbx_node1(ufbx_node *node, ufbx_scene *scene) {
-   static constexpr int MAX_WEIGHTS = 4;
-
-   auto mesh = node->mesh;
-   assert(mesh);
-
-   isz vertices_count = 0;
-   usz triangles_count = mesh->num_triangles;
-   isz tri_indices_count = mesh->max_face_triangles * 3;
-   usz checkpoint = tsave();
-   u32 *tri_indices = talloc(tri_indices_count * size_of(u32));
-   usz indices_count = triangles_count * 3;
-
-   // Count surfaces (material parts)
-   usz surfaces_count = mesh->material_parts.count;
-   if (surfaces_count == 0)
-      surfaces_count = 1; // At least one surface
-
-   Mesh model_mesh = {0};
-
-   // Allocate memory for mesh data
-   {
-      usz positions_size = triangles_count * 3 * size_of(model_mesh.positions[0]);
-      usz normals_size = triangles_count * 3 * size_of(model_mesh.normals[0]);
-      usz uvs_size = triangles_count * 3 * size_of(model_mesh.uvs[0]);
-      isz indices_size = indices_count * 1 * size_of(u32);
-      usz surfaces_size = surfaces_count * size_of(model_mesh.surfaces[0]);
-
-      char *data = malloc(positions_size + normals_size + uvs_size + indices_size + surfaces_size);
-
-      model_mesh.positions = (Vector3 *)(data + 0);
-      model_mesh.normals = (Vector3 *)(data + positions_size);
-      model_mesh.uvs = (Vector2 *)(data + positions_size + normals_size);
-      model_mesh.indices = (u32 *)(data + positions_size + normals_size + uvs_size);
-      model_mesh.surfaces = (typeof(model_mesh.surfaces))(data + positions_size + normals_size + uvs_size + indices_size);
-
-      model_mesh.positions_count = triangles_count * 3;
-      model_mesh.normals_count = triangles_count * 3;
-      model_mesh.uvs_count = triangles_count * 3;
-      model_mesh.material_index = -1;
-
-      if (scene->bones.count > 0) {
-         char *joint_data = malloc(model_mesh.positions_count * size_of(model_mesh.joint_data[0]));
-         model_mesh.joint_data = (typeof(model_mesh.joint_data))joint_data;
-      }
-   }
-
-   // Set default material if node has materials
-   if (node->materials.count > 0) {
-      model_mesh.material_index = material_index_from_ufbx_scene(node->materials.data[0], scene);
-   }
-
-   assert_msg(mesh->skin_deformers.count <= 1, "Only one Skeleton and one Animation supported");
-   ufbx_skin_deformer *skin = mesh->skin_deformers.count > 0 ? mesh->skin_deformers.data[0] : nullptr;
-
-   // Initialize surface tracking
-   isz current_surface_index = 0;
-   isz current_indices_start = 0;
-
-   // Process faces by material part
-   if (mesh->material_parts.count > 0) {
-      // Multi-material mesh - process each material part
-      for (usz part_index = 0; part_index < mesh->material_parts.count; part_index++) {
-         auto material_part = mesh->material_parts.data[part_index];
-
-         // Set up surface for this material part
-         model_mesh.surfaces[current_surface_index].indices_start_index = current_indices_start;
-         model_mesh.surfaces[current_surface_index].material_index = material_part.index > 0 ? material_index_from_ufbx_scene(mesh->materials.data[material_part.index], scene) : -1;
-
-         isz part_indices_start = current_indices_start;
-         // Process faces for this material part
-         for (usz face_index = material_part.face_indices.data[0]; face_index < material_part.face_indices.data[0] + material_part.num_faces; face_index++) {
-
-            ufbx_face face = mesh->faces.data[face_index];
-            u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, mesh, face);
-
-            // Process each triangle in this face
-            for (isz tri_index = 0; tri_index < tri_count * 3; tri_index++) {
-               u32 index = tri_indices[tri_index];
-
-               // Extract vertex data
-               ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&mesh->vertex_position, index);
-               ufbx_vec3 ufbx_normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, index);
-               ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&mesh->vertex_uv, index);
-
-               Vector3 position = {(f32)ufbx_position.x, (f32)ufbx_position.y, (f32)ufbx_position.z};
-               Vector3 normal = {(f32)ufbx_normal.x, (f32)ufbx_normal.y, (f32)ufbx_normal.z};
-               Vector2 uv = {(f32)ufbx_uv.x, (f32)ufbx_uv.y};
-
-               // Handle skinning data if present
-               if (skin) {
-                  uint32_t vertex = mesh->vertex_indices.data[index];
-                  ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
-                  size_t num_weights = skin_vertex.num_weights;
-                  if (num_weights > MAX_WEIGHTS)
-                     num_weights = MAX_WEIGHTS;
-
-                  float total_weight = 0.0f;
-                  Vector4 bone_weight = {0.0f, 0.0f, 0.0f, 0.0f};
-                  Vector4Int bone_indices = {-1, -1, -1, -1};
-
-                  for (size_t i = 0; i < num_weights; i++) {
-                     ufbx_skin_weight skin_weight = skin->weights.data[skin_vertex.weight_begin + i];
-                     ufbx_skin_cluster *cluster = skin->clusters.data[skin_weight.cluster_index];
-                     usz bone_index = joint_index_from_ufbx_bone_node(scene, cluster->bone_node);
-
-                     bone_indices.items[i] = (int)bone_index;
-                     bone_weight.items[i] = (float)skin_weight.weight;
-                     total_weight += (float)skin_weight.weight;
-                  }
-
-                  // Normalize weights
-                  if (total_weight > 0.0f) {
-                     for (size_t i = 0; i < num_weights; i++) {
-                        bone_weight.items[i] /= total_weight;
-                     }
-                  }
-
-                  model_mesh.joint_data[vertices_count].joint_indices = bone_indices;
-                  model_mesh.joint_data[vertices_count].joint_weights = bone_weight;
-               }
-
-               // Store vertex data
-               model_mesh.positions[vertices_count] = position;
-               model_mesh.normals  [vertices_count] = normal;
-               model_mesh.uvs      [vertices_count] = uv;
-               model_mesh.indices  [vertices_count] = vertices_count;
-
-               vertices_count += 1;
-               current_indices_start += 1;
-            }
-         }
-
-         // Finalize current surface
-         model_mesh.surfaces[current_surface_index].indices_count = current_indices_start - part_indices_start;
-         current_surface_index++;
-      }
-   }
-
-   trestore(checkpoint);
-
-   // Vertex deduplication
-   const bool reduce_indices = true;
-   if (reduce_indices) {
-      ufbx_vertex_stream streams[] = {
-          {model_mesh.positions, vertices_count, size_of(model_mesh.positions[0])},
-          {model_mesh.normals, vertices_count, size_of(model_mesh.normals[0])},
-          {model_mesh.uvs, vertices_count, size_of(model_mesh.uvs[0])},
-          {model_mesh.joint_data, vertices_count, size_of(model_mesh.joint_data[0])},
-      };
-      isz streams_count = model_mesh.joint_data ? count_of(streams) : count_of(streams) - 1;
-
-      isz vertices_count_new = (isz)ufbx_generate_indices(streams, streams_count, model_mesh.indices, indices_count, nullptr, nullptr);
-
-      model_mesh.positions_count = vertices_count_new;
-      model_mesh.normals_count = vertices_count_new;
-      model_mesh.uvs_count = vertices_count_new;
-      model_mesh.indices_count = indices_count;
-
-      if (vertices_count_new < vertices_count) {
-         trace_okay("ufbx_generate_indices optimized from %lld to %lld", vertices_count, vertices_count_new);
-      } else if (vertices_count_new == vertices_count) {
-         trace_info("ufbx_generate_indices did jack shit from %lld to %lld", vertices_count, vertices_count_new);
-      } else {
-         trace_error("ufbx_generate_indices worsened from %lld to %lld", vertices_count, vertices_count_new);
-      }
-   } else {
-      model_mesh.indices_count = indices_count;
-   }
-
-   return model_mesh;
-}
 
 Model create_model(const char *filepath) {
    Model model = {0};
