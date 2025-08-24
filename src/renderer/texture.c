@@ -39,8 +39,8 @@ inline bool is_valid_texture(Texture texture) {
     if (TEXTURE_FORMAT_UNDEFINED == texture.format) return false;
     if (TEXTURE_TYPE_UNDEFINED == texture.type) return false;
     // Actual OpenGL state check (costly, use only in debug)
-    #ifdef _DEBUG
-      return glIsTexture(tex.handle);
+    #if 1 || defined(_DEBUG)
+      return glIsTexture(texture.handle);
     #else
       return true;
     #endif

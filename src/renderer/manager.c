@@ -37,54 +37,71 @@ typedef struct {
    u32  material_index;    // Material index
    u32  vertex_count;      // How many vertices there are (1 vertex means that we have exaclty 1 position 1 normal 1 uv + 1 joints if skeleton is present)
    bool has_joints;        // Whether this renderable uses joint data
+   bool is_inverleaved;
 } Renderable;
 
 
 // Global buffer system with separate attribute buffers
+// Unalignment goes crazy with all these dirty flags @Flag
 typedef struct {
-   // Separate attribute buffers (non-interleaved)
-   Buffer vertex_buffer; // Sequence of Vertex data. First renderable will fill with all its Positions then Normals, then Uvs. Then we are back to Positions again for the next Renderable and so on
-   Buffer joints_buffer; // Optional, but likely
-   Buffer index_buffer;
-   Buffer indirect_buffer; // Draw Commands Buffer unused for now
-   Buffer renderable_buffer;  // Array os renderable that will be used in the glsl to do vertex pulling of both
-   bool vertex_dirty;
-   bool joints_dirty;
-   bool indices_dirty;
-   bool indirect_dirty;
-
    // CPU staging arrays
-   Vector3 *positions;
-   Vector3 *normals;
-   Vector2 *uvs;
-   struct {
-      // Order is important
-      Vector4Int joint_indices;
-      Vector4    joint_weights;
-      // should have one of each per position or none
-   } *joints;
-   u32 vertex_count;
-   u32 vertex_capacity;
 
-   u32 *indices;
-   u32 index_count;
-   u32 index_capacity;
+   struct {
+      Vector3 *positions;
+      Vector3 *normals;
+      Vector2 *uvs;
+
+
+      // Sequence of Vertex data. First renderable will fill with all its Positions then Normals, then Uvs. Then we are back to Positions again for the next Renderable and so on
+      Buffer buffer;
+      u32    count;
+      u32    capacity;
+      bool   dirty;
+   } vertices;
+
+
+   struct {
+      struct {
+         // Order is important
+         Vector4Int indices;
+         Vector4    weights;
+         // should have one of each per position or none
+      } *items;
+
+      Buffer buffer; // Optional, but likely
+      u32    count;
+      u32    capacity;
+      bool   dirty;
+   } joints;
+
+   struct {
+      u32   *items;
+      Buffer buffer;
+      u32    count;
+      u32    capacity;
+      bool   dirty;
+   } indices;
 
    // Material management
    struct {
-      const char *diffuse_path;
-      const char *specular_path;
-      const char *emissive_path;
-      Texture diffuse;
-      Texture specular;
-      Texture emissive;
-      bool    textures_loaded; // Track if paths have been converted to textures
-   } *materials;
-   u32  material_count;
-   u32  material_capacity;
-   bool materials_dirty;
+      struct {
+         Texture diffuse;
+         Texture specular;
+         Texture emissive;
+         bool    loaded; // Instead of that just is_valid or check the path
+      } *items;
+      u32  count;
+      u32  capacity;
+      bool dirty;
+   } materials;
+
 
    // Renderable management
+
+   Buffer indirect_buffer; // Draw Commands Buffer unused for now
+   Buffer renderable_buffer;  // Array os renderable that will be used in the glsl to do vertex pulling of both
+   bool indirect_dirty;
+
    Renderable *renderables;
    u32 renderable_count;
    u32 renderable_capacity;
@@ -94,7 +111,6 @@ typedef struct {
    u32 draw_command_capacity;
 
    GLuint vao;
-
 } Manager;
 
 static Manager manager = {0};
@@ -106,42 +122,40 @@ typedef struct {
 
 void grow_manager_if_needed(u32 required_vertices, u32 required_indices) {
    // Check if we need to grow vertex arrays
-   if (manager.vertex_count + required_vertices > manager.vertex_capacity) {
-      u32 new_capacity = manager.vertex_capacity + (manager.vertex_capacity / 2);
-      if (new_capacity < manager.vertex_count + required_vertices) {
-         new_capacity = manager.vertex_count + required_vertices;
+   if (manager.vertices.count + required_vertices > manager.vertices.capacity) {
+      u32 new_capacity = manager.vertices.capacity + (manager.vertices.capacity / 2);
+      if (new_capacity < manager.vertices.count + required_vertices) {
+         new_capacity = manager.vertices.count + required_vertices;
       }
 
       // Reallocate CPU arrays
-      manager.positions = realloc(manager.positions, new_capacity * size_of(manager.positions[0]));
-      manager.normals   = realloc(manager.normals,   new_capacity * size_of(manager.normals  [0]));
-      manager.uvs       = realloc(manager.uvs,       new_capacity * size_of(manager.uvs      [0]));
+      manager.vertices.positions = realloc(manager.vertices.positions, new_capacity * size_of(manager.vertices.positions[0]));
+      manager.vertices.normals   = realloc(manager.vertices.normals,   new_capacity * size_of(manager.vertices.normals  [0]));
+      manager.vertices.uvs       = realloc(manager.vertices.uvs,       new_capacity * size_of(manager.vertices.uvs      [0]));
 
       // Use the existing resize_buffer_if_needed function for GPU buffer
       // Buffer layout: [all positions][all normals][all uvs] per renderable
-      isz buffer_size = new_capacity * (size_of(manager.positions[0]) + size_of(manager.normals[0]) + size_of(manager.uvs[0]));
-      resize_buffer_if_needed(&manager.vertex_buffer, buffer_size);
+      isz buffer_size = new_capacity * (size_of(manager.vertices.positions[0]) + size_of(manager.vertices.normals[0]) + size_of(manager.vertices.uvs[0]));
+      resize_buffer_if_needed(&manager.vertices.buffer, buffer_size);
 
-      manager.vertex_capacity = new_capacity;
-      manager.vertex_dirty    = true; // Mark for full upload
+      manager.vertices.capacity = new_capacity;
+      manager.vertices.dirty    = true; // Mark for full upload
    }
 
-      // manager.joints    = realloc(manager.joints,    new_capacity * size_of(*manager.joints));
-
    // Check if we need to grow index buffer
-   if (manager.index_count + required_indices > manager.index_capacity) {
-      u32 new_capacity = manager.index_capacity + (manager.index_capacity / 2);
-      if (new_capacity < manager.index_count + required_indices) {
-         new_capacity = manager.index_count + required_indices;
+   if (manager.indices.count + required_indices > manager.indices.capacity) {
+      u32 new_capacity = manager.indices.capacity + (manager.indices.capacity / 2);
+      if (new_capacity < manager.indices.count + required_indices) {
+         new_capacity = manager.indices.count + required_indices;
       }
 
-      manager.indices = realloc(manager.indices, new_capacity * size_of(u32));
+      manager.indices.items = realloc(manager.indices.items, new_capacity * size_of(u32));
 
       isz buffer_size = new_capacity * size_of(u32);
-      resize_buffer_if_needed(&manager.index_buffer, buffer_size);
+      resize_buffer_if_needed(&manager.indices.buffer, buffer_size);
 
-      manager.index_capacity = new_capacity;
-      manager.indices_dirty = true;
+      manager.indices.capacity = new_capacity;
+      manager.indices.dirty = true;
    }
 }
 
@@ -155,8 +169,8 @@ Renderable push_arrays_to_manager(Vector3 *positions, Vector3 *normals, Vector2 
    // Create renderable descriptor
    Renderable renderable = {
       .draw_command = {
-         .vertex_offset  = manager.vertex_count,
-         .index_offset   = manager.index_count,
+         .vertex_offset  = manager.vertices.count,
+         .index_offset   = manager.indices.count,
          .index_count    = index_count,
          .instance_count = 1
       },
@@ -167,65 +181,92 @@ Renderable push_arrays_to_manager(Vector3 *positions, Vector3 *normals, Vector2 
    // Copy vertex data to CPU staging arrays
    // The key insight: we store data in separate sections per renderable
    // Layout: [pos0,pos1,pos2...][norm0,norm1,norm2...][uv0,uv1,uv2...]
-   memcpy(&manager.positions[manager.vertex_count], positions, vertex_count * size_of(Vector3));
-   memcpy(&manager.normals[manager.vertex_count], normals, vertex_count * size_of(Vector3));
-   memcpy(&manager.uvs[manager.vertex_count], uvs, vertex_count * size_of(Vector2));
+   memcpy(&manager.vertices.positions[manager.vertices.count], positions, vertex_count * size_of(Vector3));
+   memcpy(&manager.vertices.normals[manager.vertices.count], normals, vertex_count * size_of(Vector3));
+   memcpy(&manager.vertices.uvs[manager.vertices.count], uvs, vertex_count * size_of(Vector2));
 
    // Copy joint data if present
    if (joints) {
-      memcpy(&manager.joints[manager.vertex_count], joints, vertex_count * size_of(*manager.joints));
-      manager.joints_dirty = true;
+      memcpy(&manager.joints.items[manager.vertices.count], joints, vertex_count * size_of(manager.joints.items[0]));
+      manager.joints.dirty = true;
    }
 
    // Copy indices (they should already be relative to this renderable's vertices)
-   memcpy(&manager.indices[manager.index_count], indices, index_count * size_of(u32));
+   memcpy(&manager.indices.items[manager.indices.count], indices, index_count * size_of(u32));
 
    // Update counters
-   manager.vertex_count += vertex_count;
-   manager.index_count += index_count;
+   manager.vertices.count += vertex_count;
+   manager.indices.count += index_count;
 
    // Mark buffers as dirty for GPU upload
-   manager.vertex_dirty = true;
-   manager.indices_dirty = true;
+   manager.vertices.dirty = true;
+   manager.indices.dirty = true;
 
    return renderable;
 }
 
+// Load all textures from paths (call this after pushing all materials)
+void load_manager_textures() {
+   for (u32 index = 0; index < manager.materials.count; index++) {
+      auto material = &manager.materials.items[index];
+
+      if (material->loaded) {
+         continue;
+      }
+
+      if (material->diffuse.path) {
+         material->diffuse = create_texture_from_filepath(material->diffuse.path);
+      }
+      if (material->specular.path) {
+         material->specular = create_texture_from_filepath(material->specular.path);
+      }
+      if (material->emissive.path) {
+         material->emissive = create_texture_from_filepath(material->emissive.path);
+      }
+      material->loaded = true;
+   }
+   manager.materials.dirty = false;
+}
+
 // Only uploads what changed, using your update_buffer function
 void update_manager_gpu_buffers() {
-   if (manager.vertex_dirty) {
+   if (manager.vertices.dirty) {
       // We need to pack data as: [all_positions][all_normals][all_uvs]
       // TODO: I dont like this stile of size_of
-      isz positions_size = manager.vertex_count * size_of(Vector3);
-      isz normals_size   = manager.vertex_count * size_of(Vector3);
-      isz uvs_size       = manager.vertex_count * size_of(Vector2);
+      isz positions_size = manager.vertices.count * size_of(Vector3);
+      isz normals_size   = manager.vertices.count * size_of(Vector3);
+      isz uvs_size       = manager.vertices.count * size_of(Vector2);
 
       isz positions_offset = 0;
       isz normals_offset   = positions_size;
       isz uvs_offset       = positions_size + normals_size;
 
       // Upload positions first
-      update_buffer(&manager.vertex_buffer, manager.positions, positions_offset, positions_size);
+      update_buffer(&manager.vertices.buffer, manager.vertices.positions, positions_offset, positions_size);
 
       // Upload normals after positions
-      update_buffer(&manager.vertex_buffer, manager.normals,   normals_offset,   normals_size);
+      update_buffer(&manager.vertices.buffer, manager.vertices.normals,   normals_offset,   normals_size);
 
       // Upload uvs after normals
-      update_buffer(&manager.vertex_buffer, manager.uvs,       uvs_offset,       uvs_size);
+      update_buffer(&manager.vertices.buffer, manager.vertices.uvs,       uvs_offset,       uvs_size);
 
-      manager.vertex_dirty = false;
+      manager.vertices.dirty = false;
    }
 
-   if (manager.joints_dirty) {
-      isz joints_size = manager.vertex_count * size_of(*manager.joints);
-      update_buffer(&manager.joints_buffer, manager.joints, 0, joints_size);
-      manager.joints_dirty = false;
+   if (manager.joints.dirty) {
+      isz joints_size = manager.vertices.count * size_of(manager.joints.items[0]);
+      update_buffer(&manager.joints.buffer, manager.joints.items, 0, joints_size);
+      manager.joints.dirty = false;
    }
 
-   if (manager.indices_dirty) {
-      isz indices_size = manager.index_count * size_of(u32);
-      update_buffer(&manager.index_buffer, manager.indices, 0, indices_size);
-      manager.indices_dirty = false;
+   if (manager.indices.dirty) {
+      isz indices_size = manager.indices.count * size_of(u32);
+      update_buffer(&manager.indices.buffer, manager.indices.items, 0, indices_size);
+      manager.indices.dirty = false;
+   }
+
+   if (manager.materials.dirty) {
+      load_manager_textures();
    }
 
    // NOTE: indirect_buffer update would go here
@@ -234,12 +275,11 @@ void update_manager_gpu_buffers() {
 void draw_renderable(const Renderable *renderable) {
    update_manager_gpu_buffers();
    glBindVertexArray(manager.vao);
-   glVertexArrayElementBuffer(manager.vao, manager.index_buffer.handle);
-   glVertexArrayVertexBuffer (manager.vao, 0, manager.vertex_buffer.handle, 0, 8*size_of(float));
-
-
+   glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
+   glVertexArrayVertexBuffer (manager.vao, 0, manager.vertices.buffer.handle, 0, 8*size_of(float));
+   load_manager_textures();
    auto vertex_size = 2*size_of(Vector3) + size_of(Vector2);
-   bind_buffer_view(&manager.vertex_buffer, BUFFER_TYPE_STORAGE, 3, 0, manager.vertex_count * vertex_size);
+   bind_buffer_view(&manager.vertices.buffer, BUFFER_TYPE_STORAGE, 3, 0, manager.vertices.count * vertex_size);
    // Applies vertex_offset to all indices (so renderable can use local indices 0,1,2...)
    Draw_Command cmd = renderable->draw_command;
    glDrawElementsBaseVertex(GL_TRIANGLES,
@@ -289,39 +329,40 @@ Renderable* push_mesh_to_manager(const Mesh *mesh, u32 material_index_base, u32 
 }
 
 void grow_materials_if_needed(u32 required_materials) {
-   if (manager.material_count + required_materials <= manager.material_capacity) {
+   if (manager.materials.count + required_materials <= manager.materials.capacity) {
       return; // No growth needed
    }
 
-   u32 new_capacity = manager.material_capacity + (manager.material_capacity / 2);
-   if (new_capacity < manager.material_count + required_materials) {
-      new_capacity = manager.material_count + required_materials;
+   u32 new_capacity = manager.materials.capacity + (manager.materials.capacity / 2);
+   if (new_capacity < manager.materials.count + required_materials) {
+      new_capacity = manager.materials.count + required_materials;
    }
 
-   manager.materials = realloc(manager.materials, new_capacity * size_of(*manager.materials));
-   manager.material_capacity = new_capacity;
+   manager.materials.items    = realloc(manager.materials.items, new_capacity * size_of(manager.materials.items[0]));
+   manager.materials.capacity = new_capacity;
 }
 
 // Add a material to the manager and return its index
 u32 push_material_to_manager(const char* diffuse_path, const char* specular_path, const char* emissive_path) {
    grow_materials_if_needed(1);
 
-   u32 material_index = manager.material_count;
-   auto material = &manager.materials[material_index];
+   u32 material_index = manager.materials.count;
+   auto material = &manager.materials.items[material_index];
 
-   // Store paths (we'll load textures later in load_manager_textures())
-   material->diffuse_path = diffuse_path ? strdup(diffuse_path) : nullptr;
-   material->specular_path = specular_path ? strdup(specular_path) : nullptr;
-   material->emissive_path = emissive_path ? strdup(emissive_path) : nullptr;
-   material->textures_loaded = false;
-
-   // Initialize texture handles to 0
-   material->diffuse = (Texture){0};
+   // Zero Initialize
+   material->diffuse  = (Texture){0};
    material->specular = (Texture){0};
    material->emissive = (Texture){0};
 
-   manager.material_count++;
-   manager.materials_dirty = true;
+   // Store paths (we'll load textures later in load_manager_textures())
+   material->diffuse.path  = diffuse_path  ? strdup(diffuse_path)   : nullptr;
+   material->specular.path = specular_path ? strdup(specular_path) : nullptr;
+   material->emissive.path = emissive_path ? strdup(emissive_path) : nullptr;
+   material->loaded = false;
+
+
+   manager.materials.count += 1;
+   manager.materials.dirty = true;
 
    return material_index;
 }
@@ -335,7 +376,7 @@ Model_Renderables push_model_to_manager(const Model *model) {
    Model_Renderables result = {0};
 
    // First, push all materials from the model to the manager
-   u32 material_index_base = manager.material_count;
+   u32 material_index_base = manager.materials.count;
    for (isz material_idx = 0; material_idx < model->materials.count; material_idx++) {
       auto material = model->materials.items[material_idx];
 
@@ -374,27 +415,27 @@ Model_Renderables push_model_to_manager(const Model *model) {
 
 // Bind textures for a specific material index from the manager
 void bind_material_textures(u32 material_index, Shader shader) {
-   if (material_index >= manager.material_count) {
+   if (material_index >= manager.materials.count) {
       // Invalid material index, set defaults
       upload_uniform_bool(shader, "has_specular", false);
       upload_uniform_bool(shader, "has_emissive", false);
       return;
    }
 
-   auto material = &manager.materials[material_index];
+   auto material = &manager.materials.items[material_index];
 
    // Ensure textures are loaded
-   if (!material->textures_loaded) {
-      if (material->diffuse_path) {
-         material->diffuse = create_texture_from_filepath(material->diffuse_path);
+   if (!material->loaded) {
+      if (material->diffuse.path) {
+         material->diffuse = create_texture_from_filepath(material->diffuse.path);
       }
-      if (material->specular_path) {
-         material->specular = create_texture_from_filepath(material->specular_path);
+      if (material->specular.path) {
+         material->specular = create_texture_from_filepath(material->specular.path);
       }
-      if (material->emissive_path) {
-         material->emissive = create_texture_from_filepath(material->emissive_path);
+      if (material->emissive.path) {
+         material->emissive = create_texture_from_filepath(material->emissive.path);
       }
-      material->textures_loaded = true;
+      material->loaded = true;
    }
 
    // Set default states
@@ -450,50 +491,27 @@ void destroy_model_renderables(Model_Renderables *model_data) {
    *model_data = (Model_Renderables){0};
 }
 
-// Cleanup materials in manager (call when shutting down)
 void destroy_manager_materials() {
-   for (u32 i = 0; i < manager.material_count; i++) {
-      auto material = &manager.materials[i];
+   for (u32 i = 0; i < manager.materials.count; i++) {
+      auto material = &manager.materials.items[i];
 
-      // Free path strings
-      free((void *)material->diffuse_path);
-      free((void *)material->specular_path);
-      free((void *)material->emissive_path);
+      // Yes we allocated the path
+      free((void *)material->diffuse.path);
+      free((void *)material->specular.path);
+      free((void *)material->emissive.path);
 
-      // Destroy textures
       destroy_texture(&material->diffuse);
       destroy_texture(&material->specular);
       destroy_texture(&material->emissive);
    }
 
-   free(manager.materials);
-   manager.materials = nullptr;
-   manager.material_count = 0;
-   manager.material_capacity = 0;
+   free(manager.materials.items);
+   manager.materials.items = nullptr;
+   manager.materials.count = 0;
+   manager.materials.capacity = 0;
 }
 
 
-// Load all textures from paths (call this after pushing all materials)
-void load_manager_textures() {
-   for (u32 i = 0; i < manager.material_count; i++) {
-      auto material = &manager.materials[i];
-
-      if (material->textures_loaded)
-         continue;
-
-      if (material->diffuse_path) {
-         material->diffuse = create_texture_from_filepath(material->diffuse_path);
-      }
-      if (material->specular_path) {
-         material->specular = create_texture_from_filepath(material->specular_path);
-      }
-      if (material->emissive_path) {
-         material->emissive = create_texture_from_filepath(material->emissive_path);
-      }
-      material->textures_loaded = true;
-   }
-   manager.materials_dirty = false;
-}
 
 // Initialize the global buffer system
 void init_manager() {
@@ -506,49 +524,49 @@ void init_manager() {
    // Zero-initialize the manager
 
    // Initialize capacities
-   manager.vertex_capacity     = initial_vertex_capacity;
-   manager.index_capacity      = initial_index_capacity;
-   manager.material_capacity   = initial_material_capacity;
+   manager.vertices.capacity   = initial_vertex_capacity;
+   manager.indices.capacity    = initial_index_capacity;
+   manager.materials.capacity  = initial_material_capacity;
    manager.renderable_capacity = initial_renderable_capacity;
 
    // Allocate CPU staging arrays
-   manager.positions = malloc(initial_vertex_capacity * size_of(Vector3));
-   manager.normals   = malloc(initial_vertex_capacity * size_of(Vector3));
-   manager.uvs       = malloc(initial_vertex_capacity * size_of(Vector2));
-   manager.joints    = malloc(initial_vertex_capacity * size_of(*manager.joints));
-   manager.indices   = malloc(initial_index_capacity  * size_of(u32));
+   manager.vertices.positions = malloc(initial_vertex_capacity * size_of(manager.vertices.positions[0]));
+   manager.vertices.normals   = malloc(initial_vertex_capacity * size_of(manager.vertices.normals[0]));
+   manager.vertices.uvs       = malloc(initial_vertex_capacity * size_of(manager.vertices.uvs[0]));
+   manager.joints.items       = malloc(initial_vertex_capacity * size_of(manager.joints.items[0]));
+   manager.indices.items      = malloc(initial_index_capacity  * size_of(manager.indices.items[0]));
 
    // Allocate materials and renderables arrays
-   manager.materials   = malloc(initial_material_capacity * size_of(*manager.materials));
+   manager.materials.items   = malloc(initial_material_capacity * size_of(manager.materials.items[0]));
    manager.renderables = malloc(initial_renderable_capacity * size_of(Renderable));
 
    // Create GPU buffers
    isz vertex_buffer_size = initial_vertex_capacity * (size_of(Vector3) + size_of(Vector3) + size_of(Vector2));
-   manager.vertex_buffer  = create_buffer(BUFFER_USAGE_SUBDATA_RESIZABLE, nullptr, vertex_buffer_size);
+   manager.vertices.buffer  = create_buffer(BUFFER_USAGE_SUBDATA_RESIZABLE, nullptr, vertex_buffer_size);
 
-   isz joints_buffer_size = initial_vertex_capacity * size_of(*manager.joints);
-   manager.joints_buffer  = create_buffer(BUFFER_USAGE_SUBDATA_RESIZABLE, nullptr, joints_buffer_size);
+   isz joints_buffer_size = initial_vertex_capacity * size_of(manager.joints.items[0]);
+   manager.joints.buffer  = create_buffer(BUFFER_USAGE_SUBDATA_RESIZABLE, nullptr, joints_buffer_size);
 
 
    isz inidices_buffer_size = initial_index_capacity * size_of(u32);
-   manager.index_buffer   = create_buffer(BUFFER_USAGE_SUBDATA_RESIZABLE, nullptr, inidices_buffer_size);
+   manager.indices.buffer   = create_buffer(BUFFER_USAGE_SUBDATA_RESIZABLE, nullptr, inidices_buffer_size);
 
    // Create VAO
    glCreateVertexArrays(1, &manager.vao);
-   glVertexArrayElementBuffer(manager.vao, manager.index_buffer.handle);
+   glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
 
    // Initialize counters
-   manager.vertex_count       = 0;
-   manager.index_count        = 0;
-   manager.material_count     = 0;
+   manager.vertices.count     = 0;
+   manager.indices.count      = 0;
+   manager.materials.count    = 0;
    manager.renderable_count   = 0;
    manager.draw_command_count = 0;
 
    // Mark all as clean initially
-   manager.vertex_dirty    = false;
-   manager.joints_dirty    = false;
-   manager.indices_dirty   = false;
+   manager.vertices.dirty  = false;
+   manager.joints.dirty    = false;
+   manager.indices.dirty   = false;
    manager.indirect_dirty  = false;
-   manager.materials_dirty = false;
+   manager.materials.dirty = false;
 }
 
