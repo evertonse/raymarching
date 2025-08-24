@@ -526,10 +526,8 @@ void projection_update(Projection_Application *app, f64 dt) {
          update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
          for (isz renderable_index = 0; renderable_index < (isz)renderables.count; renderable_index += 1) {
             auto r = renderables.items[renderable_index];
-            if (true) {
-               upload_uniform_int(app->shader, "is_special", 0);
-               draw_renderable(&r);
-            }
+            upload_uniform_int(app->shader, "is_special", 0);
+            draw_renderable(&r, app->shader);
          }
          upload_uniform_int(app->shader, "is_special", 0);
       }

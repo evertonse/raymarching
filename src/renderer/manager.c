@@ -272,12 +272,60 @@ void update_manager_gpu_buffers() {
    // NOTE: indirect_buffer update would go here
 }
 
-void draw_renderable(const Renderable *renderable) {
+// Bind textures for a specific material index from the manager
+void bind_material_textures(u32 material_index, Shader shader) {
+   if (material_index >= manager.materials.count) {
+      // Invalid material index, set defaults
+      upload_uniform_bool(shader, "has_specular", false);
+      upload_uniform_bool(shader, "has_emissive", false);
+      return;
+   }
+
+   auto material = &manager.materials.items[material_index];
+
+   // Ensure textures are loaded
+   if (!material->loaded) {
+      if (material->diffuse.path) {
+         material->diffuse = create_texture_from_filepath(material->diffuse.path);
+      }
+      if (material->specular.path) {
+         material->specular = create_texture_from_filepath(material->specular.path);
+      }
+      if (material->emissive.path) {
+         material->emissive = create_texture_from_filepath(material->emissive.path);
+      }
+      material->loaded = true;
+   }
+
+   // Set default states
+   upload_uniform_bool(shader, "has_specular", false);
+   upload_uniform_bool(shader, "has_emissive", false);
+
+   // Bind textures
+   if (is_valid_texture(material->diffuse)) {
+      bind_texture(material->diffuse, 3);
+   }
+
+   if (is_valid_texture(material->specular)) {
+      bind_texture(material->specular, 4);
+      upload_uniform_bool(shader, "has_specular", true);
+   }
+
+   if (is_valid_texture(material->emissive)) {
+      bind_texture(material->emissive, 5);
+      upload_uniform_bool(shader, "has_emissive", true);
+   }
+}
+
+void draw_renderable(const Renderable *renderable, Shader shader) {
    update_manager_gpu_buffers();
+
    glBindVertexArray(manager.vao);
    glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
    glVertexArrayVertexBuffer (manager.vao, 0, manager.vertices.buffer.handle, 0, 8*size_of(float));
-   load_manager_textures();
+   // load_manager_textures();
+   bind_material_textures(renderable->material_index, shader);
+
    auto vertex_size = 2*size_of(Vector3) + size_of(Vector2);
    bind_buffer_view(&manager.vertices.buffer, BUFFER_TYPE_STORAGE, 3, 0, manager.vertices.count * vertex_size);
    // Applies vertex_offset to all indices (so renderable can use local indices 0,1,2...)
@@ -355,7 +403,7 @@ u32 push_material_to_manager(const char* diffuse_path, const char* specular_path
    material->emissive = (Texture){0};
 
    // Store paths (we'll load textures later in load_manager_textures())
-   material->diffuse.path  = diffuse_path  ? strdup(diffuse_path)   : nullptr;
+   material->diffuse.path  = diffuse_path  ? strdup(diffuse_path)  : nullptr;
    material->specular.path = specular_path ? strdup(specular_path) : nullptr;
    material->emissive.path = emissive_path ? strdup(emissive_path) : nullptr;
    material->loaded = false;
@@ -413,70 +461,6 @@ Model_Renderables push_model_to_manager(const Model *model) {
    return result;
 }
 
-// Bind textures for a specific material index from the manager
-void bind_material_textures(u32 material_index, Shader shader) {
-   if (material_index >= manager.materials.count) {
-      // Invalid material index, set defaults
-      upload_uniform_bool(shader, "has_specular", false);
-      upload_uniform_bool(shader, "has_emissive", false);
-      return;
-   }
-
-   auto material = &manager.materials.items[material_index];
-
-   // Ensure textures are loaded
-   if (!material->loaded) {
-      if (material->diffuse.path) {
-         material->diffuse = create_texture_from_filepath(material->diffuse.path);
-      }
-      if (material->specular.path) {
-         material->specular = create_texture_from_filepath(material->specular.path);
-      }
-      if (material->emissive.path) {
-         material->emissive = create_texture_from_filepath(material->emissive.path);
-      }
-      material->loaded = true;
-   }
-
-   // Set default states
-   upload_uniform_bool(shader, "has_specular", false);
-   upload_uniform_bool(shader, "has_emissive", false);
-
-   // Bind textures
-   if (is_valid_texture(material->diffuse)) {
-      bind_texture(material->diffuse, 3);
-   }
-
-   if (is_valid_texture(material->specular)) {
-      bind_texture(material->specular, 4);
-      upload_uniform_bool(shader, "has_specular", true);
-   }
-
-   if (is_valid_texture(material->emissive)) {
-      bind_texture(material->emissive, 5);
-      upload_uniform_bool(shader, "has_emissive", true);
-   }
-}
-
-// Draw a specific renderable with its material
-void draw_model_renderable(const Renderable *renderable, Shader shader) {
-   assert(renderable != nullptr);
-
-   // Bind material textures
-   bind_material_textures(renderable->material_index, shader);
-
-   // Draw the renderable
-   draw_renderable(renderable);
-}
-
-// Draw all renderables from a model
-void draw_model_renderables(const Model_Renderables *model_data, Shader shader) {
-   assert(model_data != nullptr);
-
-   for (u32 i = 0; i < model_data->count; i++) {
-      draw_model_renderable(&model_data->items[i], shader);
-   }
-}
 
 // Cleanup function to free model renderables data (materials stay in manager)
 void destroy_model_renderables(Model_Renderables *model_data) {
