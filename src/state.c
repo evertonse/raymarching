@@ -137,6 +137,17 @@ enum {
 };
 
 
+#define FPS_MAX_SAMPLES 60
+typedef struct {
+   f64 frame_times[FPS_MAX_SAMPLES];
+   int sample_count;
+   int current_index;
+   f64 last_frame_time;
+   f64 min_fps, max_fps, avg_fps;
+   int total_frames;
+} Fps;
+
+
 static struct {
    struct {
       GLFWwindow  *handle;
@@ -150,6 +161,8 @@ static struct {
       f64 previous;
       f64 delta;
    } time;
+
+   Fps fps;
 
    struct {
       int previous[BUTTON_MAX_VALUE];

@@ -24,14 +24,24 @@ typedef enum {
 } Texture_Access;
 
 typedef struct {
-   GLuint handle;
-   ZString path;
+   GLuint   handle;
+
+#if defined(RENDERER_USING_BINDLESS)
+   GLuint64 bindless_handle;
+#endif
+
+   ZString  path;
+   // This line was purposefully left in blank (e.g. for padding the struct to correct blank aligment, necesasry for maching gpu texture /s
+
    i32 width;
    i32 height;
    i32 samples;
+   // This line was purposefully left in blank
+
    Texture_Format format;
-   Texture_Type type;
+   Texture_Type   type;
 } Texture;
+
 
 inline bool is_valid_texture(Texture texture) {
     if (0 == texture.handle) return false;
@@ -39,7 +49,7 @@ inline bool is_valid_texture(Texture texture) {
     if (TEXTURE_FORMAT_UNDEFINED == texture.format) return false;
     if (TEXTURE_TYPE_UNDEFINED == texture.type) return false;
     // Actual OpenGL state check (costly, use only in debug)
-    #if 1 || defined(_DEBUG)
+    #if defined(RENDERER_DEBUG)
       return glIsTexture(texture.handle);
     #else
       return true;
@@ -122,6 +132,12 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
       glTextureParameteri(result.handle, GL_TEXTURE_MAG_FILTER, mag_filter);
       glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
       glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+      #if defined(RENDERER_USING_BINDLESS)
+         result.bindless_handle = glGetTextureHandleARB(result.handle);
+         glMakeTextureHandleResidentARB(result.bindless_handle);
+         assert_msg(0 != result.bindless_handle, "Texture bindless handle 0 is considered invalid. Is zero possibly valid? ", result.bindless_handle);
+      #endif
    }
 
    return result;
@@ -149,34 +165,47 @@ inline Texture create_shadow_texture(int width, int height) {
 }
 
 Texture create_texture_from_filepath(const char *filepath) {
-    int width, height, channels;
-    stbi_set_flip_vertically_on_load(true);
-    unsigned char *data = stbi_load(filepath, &width, &height, &channels, 0);
+   int width, height, channels;
+   stbi_set_flip_vertically_on_load(true);
+   unsigned char *data = stbi_load(filepath, &width, &height, &channels, 0);
 
-    if (!data) {
-        trace_error("Failed to load texture from: %s\n", filepath);
-        return (Texture){0};
-    }
+   if (!data) {
+      trace_error("Failed to load texture from: %s\n", filepath);
+      return (Texture){0};
+   }
 
-    Texture_Format format = TEXTURE_FORMAT_RGBA8;
-    switch (channels) {
-        case 4: format = TEXTURE_FORMAT_RGBA8; break;
-        case 3: format = TEXTURE_FORMAT_RGB8;  break;
-        case 2: format = TEXTURE_FORMAT_RG8;   break;
-        case 1: format = TEXTURE_FORMAT_R8;    break;
-        default:
-            assert_msg(false, "Unsupported texture channel count from image");
-            break;
-    }
+   Texture_Format format = TEXTURE_FORMAT_RGBA8;
+   switch (channels) {
+   case 4: format = TEXTURE_FORMAT_RGBA8; break;
+   case 3: format = TEXTURE_FORMAT_RGB8 ; break;
+   case 2: format = TEXTURE_FORMAT_RG8  ; break;
+   case 1: format = TEXTURE_FORMAT_R8   ; break;
+   default:
+      assert_msg(false, "Unsupported texture channel count from image");
+      break;
+   }
 
-    Texture result = create_texture_extended(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, 1);
-    stbi_image_free(data);
-    return result;
+   Texture result = create_texture_extended(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, 1);
+   // NOTE: I'm usure if the texture should hold this memory or not. A lota of times an externable memory is already alocatted idk.
+   result.path = filepath;
+
+#if defined(RENDERER_USING_BINDLESS)
+   trace_info("'%s' %lldx%lld handle = %d bindless_handle = 0x%x loaded.", result.path, result.width, result.height, result.handle, result.bindless_handle);
+#endif
+
+   stbi_image_free(data);
+   return result;
 }
 
-void destroy_texture(Texture* texture) {
-    glDeleteTextures(1, &texture->handle);
-    *texture = (Texture){0};
+void destroy_texture(Texture *texture) {
+   #if defined(RENDERER_USING_BINDLESS)
+      // NOTE: We're assuming it's always resident if there is a bindless handle
+      if (texture->bindless_handle) {
+         glMakeTextureHandleNonResidentARB(texture->bindless_handle);
+      }
+   #endif
+   glDeleteTextures(1, &texture->handle);
+   *texture = (Texture){0};
 }
 
 void update_texture(Texture* tex, int new_width, int new_height, const void* new_data) {

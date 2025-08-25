@@ -53,34 +53,75 @@ inline void update_time(void) {
    __state.time.previous = current_time;
 }
 
-// CPU-side FPS counter
-typedef struct {
-   f64 last_time;
-   f64 frame_accum;
-   int frame_count;
-   f64 fps;
-} FPS_Timer;
-
-void fps_timer_init(FPS_Timer *timer) {
-   timer->last_time = time_sec();
-   timer->frame_accum = 0.0;
-   timer->frame_count = 0;
-   timer->fps = 0.0;
+void init_fps() {
+   memset(&__state.fps, 0, size_of(Fps));
+   __state.fps.last_frame_time = time_now();
+   __state.fps.min_fps = 999999.0;
+   __state.fps.max_fps = 0.0;
 }
 
-void fps_timer_update(FPS_Timer *timer) {
-   f64 current_time = time_sec();
-   f64 delta = current_time - timer->last_time;
-   timer->last_time = current_time;
-   timer->frame_accum += delta;
-   timer->frame_count++;
+void update_fps() {
+   f64 current_time = time_now();
+   f64 frame_time = current_time - __state.fps.last_frame_time;
 
-   if (timer->frame_accum >= 1.0) {
-      timer->fps = timer->frame_count / timer->frame_accum;
-      timer->frame_accum = 0.0;
-      timer->frame_count = 0;
-      printf("FPS: %.2f\n", timer->fps);
+   if (frame_time > 0.0) {
+      f64 current_fps = 1.0 / frame_time;
+
+      // Update min/max
+      if (current_fps < __state.fps.min_fps)
+         __state.fps.min_fps = current_fps;
+      if (current_fps > __state.fps.max_fps)
+         __state.fps.max_fps = current_fps;
+      __state.fps.total_frames++;
+
+
+      // Add to circular buffer
+      __state.fps.frame_times[__state.fps.current_index] = frame_time;
+      __state.fps.current_index = (__state.fps.current_index + 1) % FPS_MAX_SAMPLES;
+
+      if (__state.fps.sample_count < FPS_MAX_SAMPLES) {
+         __state.fps.sample_count++;
+      }
+
+      // Calculate average
+      f64 total_time = 0.0;
+      for (int i = 0; i < __state.fps.sample_count; i++) {
+         total_time += __state.fps.frame_times[i];
+      }
+
+      __state.fps.avg_fps = __state.fps.sample_count / total_time;
    }
+
+   __state.fps.last_frame_time = current_time;
+}
+
+char* get_fps_string() {
+   static char str[512];
+
+   f64 variance = 0.0;
+   if (__state.fps.sample_count > 1) {
+      f64 avg_frame_time = 1.0 / __state.fps.avg_fps;
+      for (int i = 0; i < __state.fps.sample_count; i++) {
+         f64 diff = __state.fps.frame_times[i] - avg_frame_time;
+         variance += diff * diff;
+      }
+      variance /= __state.fps.sample_count;
+   }
+
+   f64 std_dev = sqrt(variance);
+   f64 consistency = __state.fps.avg_fps > 0 ? (1.0 - std_dev / (1.0 / __state.fps.avg_fps)) * 100.0 : 0.0;
+
+   if (consistency < 0.0) {
+      consistency = 0.0;
+   }
+   if (consistency > 100.0) {
+      consistency = 100.0;
+   }
+
+   snprintf(str, 256, "fps: %.1f | min: %.1f | max: %.1f | frames: %d | consistency: %.1f%%",
+         __state.fps.avg_fps, __state.fps.min_fps == 999999.0 ? 0.0 : __state.fps.min_fps, __state.fps.max_fps, __state.fps.total_frames, consistency);
+
+   return str;
 }
 
 typedef enum {
@@ -132,13 +173,15 @@ Countdown create_countdown(f64 seconds, bool repeat) {
 
 
 typedef struct {
-    GLuint gpu_query;
+    GLuint   gpu_query;
     GLuint64 gpu_time_ns;
     struct timespec cpu_start;
     bool gpu_valid, gpu_active;
 } Profile_Timer;
 
-constexpr static isz profile_timer_array_count = 200; // 200 functions deep at max
+
+// This count determine the max functions deep where each function uses the being_profile and no end counterpart in sight.
+constexpr static isz profile_timer_array_count = 200;
 static isz profile_timer_idx = 0;
 static Profile_Timer profile_timer_array[profile_timer_array_count] = {0};
 
@@ -169,7 +212,6 @@ void profile_end_old(const char *label) {
    GLenum err = glGetError();
    assert_msg(err == GL_NO_ERROR, "glEndQuery failed with error 0x%X", err);
 
-   // Optional: block until result is available
    GLint available = 0;
    for (isz max_tries = 100; !available && max_tries > 0; --max_tries) {
       glGetQueryObjectiv(profiler->gpu_query, GL_QUERY_RESULT_AVAILABLE, &available);
@@ -192,7 +234,7 @@ void profile_end_old(const char *label) {
    *profiler = (Profile_Timer){0}; // Clear after use
 }
 
-void profile_begin(void) {
+void begin_profile(void) {
    assert_msg(profile_timer_idx < profile_timer_array_count, "profile_timer_idx = %d profile_timer_array_count=%d", profile_timer_idx, profile_timer_array_count);
    Profile_Timer *profiler = &profile_timer_array[profile_timer_idx];
    profile_timer_idx += 1;
@@ -217,7 +259,7 @@ void profile_begin(void) {
    }
 }
 
-void profile_end(const char *label) {
+void end_profile(const char *label) {
    assert(profile_timer_idx > 0);
    profile_timer_idx -= 1;
    Profile_Timer *profiler = &profile_timer_array[profile_timer_idx];

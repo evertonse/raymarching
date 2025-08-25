@@ -7,8 +7,6 @@ typedef struct {
    Framebuffer compute_framebuffer;
 } Raymarching_Application;
 
-// static const char *compute_shader_path = "src/compute.glsl";
-// static const char *compute_shader_path = "src/shaders/Tunnel-Cylinders.glsl";
 
 
 constexpr f64 shader_needs_reload_timer_default = 1.1; // Seconds
@@ -25,31 +23,32 @@ void raymarching_application_init(Raymarching_Application* app) {
       fprintf(stderr, "Compute shader failed. Fix it and press 'R' to reload.\n");
    }
 
-   app->compute_shader_texture = create_texture(app->app.window.width, app->app.window.height);
+   app->compute_shader_texture = create_texture(window_width, window_height);
    app->compute_framebuffer = create_framebuffer_from_texture(app->compute_shader_texture);
    trace_info("Compute texture handle =%d\n", app->compute_shader_texture.handle);
    assert(is_valid_framebuffer(app->compute_framebuffer) && is_valid_texture(app->compute_shader_texture));
 }
 
 void raymarching_application_update(Raymarching_Application *app, f64 dt) {
-   if (false) {
-      return;
-   }
    Camera camera = app->app.camera;
    isz window_width = get_window_width(), window_height = get_window_height();
-   assert(window_width * window_height != 0);
+
 
    bool minimized = is_window_minimized();
 
-   shader_needs_reload_timer -= app->app.time.delta;
    // Resize texture only if need and is not minimized
-   if ((window_width != app->compute_shader_texture.width || window_height != app->compute_shader_texture.height) && !minimized) {
+   bool needs_resize =
+         (window_width != app->compute_shader_texture.width || window_height != app->compute_shader_texture.height)
+      && (!minimized)
+   ;
+   if (needs_resize) {
       destroy_texture(&app->compute_shader_texture);
       app->compute_shader_texture = create_texture(window_width, window_height);
-      trace_info("texture=%d\n", app->compute_shader_texture);
+      trace_info("%s texture = %ld\n", __func__, app->compute_shader_texture.handle);
       attach_texture_to_framebuffer(&app->compute_framebuffer, app->compute_shader_texture);
    }
 
+   shader_needs_reload_timer -= time_delta();
    if (shader_needs_reload_timer <= 0) {
       if (shader_needs_reload(app->compute_shader)) {
          auto old_handle = app->compute_shader.handle;
@@ -66,36 +65,33 @@ void raymarching_application_update(Raymarching_Application *app, f64 dt) {
    if (is_valid_shader(app->compute_shader)) {
       bind_shader(app->compute_shader);
 
-      { // Time uniform
-         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iTime");
-         glUniform1f(loc, (f32)app->app.time.elapsed);
+      {  // Time uniform
+         upload_uniform_float(app->compute_shader, "iTime",(f32)time_elapsed());
       }
 
-      { // Resolution uniform
-         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iResolution");
-         glUniform3f(loc, (f32)app->compute_shader_texture.width, (f32)app->compute_shader_texture.height, app->compute_shader_texture.width / (f32)app->compute_shader_texture.height);
+      {  // Resolution uniform
+         Vector3 resolution = {(f32)app->compute_shader_texture.width, (f32)app->compute_shader_texture.height, app->compute_shader_texture.width / (f32)app->compute_shader_texture.height };
+         upload_uniform_vec3(app->compute_shader, "iResolution", resolution);
       }
 
-      { // Position uniform
-         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iPosition");
-         glUniform3f(loc, camera.position.x, camera.position.y, camera.position.z);
+      {  // Position uniform
+         Vector3 camera_position = { camera.position.x, camera.position.y, camera.position.z };
+         upload_uniform_vec3(app->compute_shader, "iPosition", camera_position);
       }
 
-      { // Position uniform
-         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iRotation");
-         glUniform3f(loc, camera.rotation.x, camera.rotation.y, camera.rotation.z);
+      {  // Rotation uniform
+         Vector3 camera_rotation = { camera.rotation.x, camera.rotation.y, camera.rotation.z };
+         upload_uniform_vec3(app->compute_shader, "iRotation", camera_rotation);
       }
 
-      { // Position uniform
-         GLint loc = glGetUniformLocation(app->compute_shader.handle, "iZoom");
-         glUniform1f(loc, camera.zoom);
+      { // Zoom uniform
+         upload_uniform_float(app->compute_shader, "iZoom", camera.zoom);
       }
 
       { // Mouse uniform
-         GLint mouse_loc = glGetUniformLocation(app->compute_shader.handle, "iMouse");
-         f64 mouse_x, mouse_y;
-         glfwGetCursorPos(app->app.window.handle, &mouse_x, &mouse_y);
-         glUniform4f(mouse_loc, (f32)mouse_x, (f32)mouse_y, is_button_down(BUTTON_MOUSE_LEFT) ? 1.f : 0.0f, is_button_down(BUTTON_MOUSE_RIGHT) ? 1.f : 0.0f);
+         Vector2 mouse_position = cursor_position();
+         Vector4 mouse_data = { mouse_position.x, mouse_position.x, is_button_down(BUTTON_MOUSE_LEFT), is_button_down(BUTTON_MOUSE_RIGHT)};
+         upload_uniform_vec4(app->compute_shader, "iMouse", mouse_data);
       }
 
       bind_texture_as_image(app->compute_framebuffer.color, 0, TEXTURE_ACCESS_WRITE);
@@ -107,10 +103,22 @@ void raymarching_application_update(Raymarching_Application *app, f64 dt) {
       GLuint num_groups_x = (app->compute_shader_texture.width + work_group_size_x - 1) / work_group_size_x;
       GLuint num_groups_y = (app->compute_shader_texture.height + work_group_size_y - 1) / work_group_size_y;
       dispatch_compute_shader(app->compute_shader, num_groups_x, num_groups_y, 1);
+
       // Ensure all writes to the image are complete
       shader_image_acess_barrier();
 
-      blit_framebuffer_to_swapchain(app->compute_framebuffer);
+      auto fb = app->compute_framebuffer;
+      blit_framebuffer_to_swapchain(fb);
+
+      // glBlitNamedFramebuffer(
+      //    app->compute_framebuffer.handle,               // src framebuffer
+      //    0,                                // dst framebuffer (swapchain)
+      //    0, 0, app->compute_shader_texture.width, app->compute_shader_texture.height,   // source rectangle
+      //    0, 0, app->compute_shader_texture.width, app->compute_shader_texture.height,   // destination rectangle
+      //    GL_COLOR_BUFFER_BIT,
+      //    GL_LINEAR
+      // );
+      // blit_framebuffer_to_swapchain(app->compute_framebuffer);
    }
 }
 

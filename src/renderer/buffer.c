@@ -13,8 +13,7 @@ typedef enum {
     // Mutually exclusive
     BUFFER_USAGE_STATIC,
     BUFFER_USAGE_SUBDATA,
-    BUFFER_USAGE_STATIC_RESIZABLE,
-    BUFFER_USAGE_SUBDATA_RESIZABLE,
+    BUFFER_USAGE_ORPHANABLE, // Old opengl api had this concept i'll leave here for performance issues
     BUFFER_USAGE_MAP_READ,
     BUFFER_USAGE_MAP_WRITE,
     BUFFER_USAGE_MAP_READ_WRITE,
@@ -67,7 +66,7 @@ bool is_valid_buffer(const Buffer b) {
    bool size_ok = b.size > 0;
 
 // In debug also check that the size matches with OpenGL's opinion
-#if 1 || defined(DEBUG)
+#if defined(RENDERER_DEBUG)
    GLint size = 0;
    glGetNamedBufferParameteriv(b.handle, GL_BUFFER_SIZE, &size);
    size_ok = size_ok && (size == b.size);
@@ -104,18 +103,11 @@ Buffer create_buffer(Buffer_Usage usage, const void *data, isz size) {
          use_mutable   = false;
          break;
       }
-      case BUFFER_USAGE_STATIC_RESIZABLE: {
+      case BUFFER_USAGE_ORPHANABLE: {
          storage_flags = 0;
          map_flags     = 0;
          should_map    = false;
          use_mutable   = true;
-         break;
-      }
-      case BUFFER_USAGE_SUBDATA_RESIZABLE: {
-         storage_flags = GL_DYNAMIC_STORAGE_BIT;
-         map_flags     = 0;
-         should_map    = false;
-         use_mutable   = true; // Must use mutable for resizing
          break;
       }
       case BUFFER_USAGE_MAP_READ: {
@@ -260,12 +252,12 @@ void destroy_buffer(Buffer* buffer) {
    *buffer = (Buffer){0};
 }
 
-Buffer create_buffer_copy(const Buffer *source, Buffer_Usage usage) {
+Buffer create_buffer_copy(const Buffer *source) {
    assert(source && is_valid_buffer(*source));
 
    Buffer result = {0};
 
-   result = create_buffer(usage, nullptr, source->size);
+   result = create_buffer(source->usage, nullptr, source->size);
 
    result.type    = source->type;
    result.binding = source->binding;
@@ -287,6 +279,42 @@ Buffer create_buffer_copy(const Buffer *source, Buffer_Usage usage) {
    }
 
    return result;
+}
+
+bool copy_from_buffer(
+      Buffer *destination,  isz destination_offset,
+      const Buffer *source, isz source_offset,
+      isz size_in_bytes_to_copy
+) {
+   assert(source && is_valid_buffer(*source));
+   assert(destination && is_valid_buffer(*destination));
+   isz size = size_in_bytes_to_copy;
+
+   // Range checks
+   if (  source_offset      + size > source->size
+      || destination_offset + size > destination->size
+   ) {
+      trace_error("%s: out of range copy requested", __func__);
+      return false;
+   }
+
+
+   // Copy data directly on GPU
+   glCopyNamedBufferSubData(
+      source->handle,       // source buffer
+      destination->handle,  // destination buffer
+      source_offset,        // read from source offset
+      destination_offset,   // write to destination offset
+      size                  // size in bytes
+   );
+
+   GLenum error = glGetError();
+   if (error != GL_NO_ERROR) {
+       trace_error("Failed to copy buffer data. OpenGL error: 0x%x", error);
+       return false;
+   }
+
+   return true;
 }
 
 // You do this by creating a fence object. This is a token in the command stream that you can test to see if it has been completed. 
@@ -333,7 +361,7 @@ bool is_valid_uniform_buffer(const Uniform_Buffer ub) {
 
 bool is_valid_texture_buffer(const Texture_Buffer tb) {
 
-#if 1 || defined(DEBUG)
+#if defined(RENDERER_DEBUG)
     if (!is_valid_texture(tb.texture) || !is_valid_buffer(tb.buffer)) return false;
     if (tb.texture.handle == 0 || tb.buffer.handle == 0) return false;
 
@@ -342,7 +370,7 @@ bool is_valid_texture_buffer(const Texture_Buffer tb) {
     glGetTextureLevelParameteriv(tb.texture.handle, 0, GL_TEXTURE_BUFFER_DATA_STORE_BINDING, &type);
     return type != 0;
 #else
-    return tb && tb.texture.handle && tb.buffer.handle;
+    return tb.texture.handle && tb.buffer.handle;
 #endif
 }
 
@@ -401,7 +429,7 @@ isz update_buffer(const Buffer *buffer, const void *data, isz offset, isz size) 
 bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
     assert(buffer);
     if (!is_valid_buffer(*buffer)) {
-      trace_warn("Buffer can't weasel your way outta calling 'create_buffer' with a cheeky resize on invalid buffer mate, nt tho.");
+      trace_warn("Buffer can't weasel your way outta calling 'create_buffer' with a cheeky resize on a invalid buffer mate, nt tho.");
       return false;
     }
 
@@ -416,24 +444,15 @@ bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
       return true;
    }
 
-   GLbitfield storage_flags = buffer->usage == BUFFER_USAGE_SUBDATA_RESIZABLE ? GL_DYNAMIC_DRAW : 0;
-   GLbitfield supports_resize = buffer->usage == BUFFER_USAGE_STATIC_RESIZABLE || buffer->usage == BUFFER_USAGE_SUBDATA_RESIZABLE;
-   if (supports_resize) {
-      // Unmap if currently mapped (shouldn't be for resizable buffers, but safety check)
-      if (buffer->mapped_ptr != nullptr) {
-         glUnmapNamedBuffer(buffer->handle);
-         buffer->mapped_ptr = nullptr;
-      }
-
+   bool is_orphanable = buffer->usage == BUFFER_USAGE_ORPHANABLE;
+   if (is_orphanable) {
+      assert_msg(buffer->mapped_ptr == nullptr, "Buffers with orphaning shouldn't be mapped");
       // Use orphaning reallocate the same buffer with new size
-      // This is efficient as it doesn't require creating a new buffer object
       glNamedBufferData(buffer->handle, required_size, nullptr, GL_DYNAMIC_DRAW);
-
-      // Update buffer properties
       buffer->size = required_size;
 
    } else {
-      // Non-resizable buffer. Destroy old and create new with same characteristics
+      // Case when useing buffer with newer storage OpenGL API
 
       // Store the old buffer properties
       Buffer_Usage old_usage = buffer->usage;
@@ -443,7 +462,7 @@ bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
       // Destroy the old buffer
       destroy_buffer(buffer);
 
-      // Create new buffer with same usage but new size
+      // Create new buffer with same usage but new size, and obviously the handle
       Buffer new_buffer  = create_buffer(old_usage, nullptr, required_size);
       new_buffer.type    = old_type;
       new_buffer.binding = old_binding;
@@ -537,7 +556,7 @@ void attach_buffer_to_texture(const Texture* texture, const Buffer* buffer) {
          assert_msg(false, "Unsupported texture format\n");
          return;
       }
-      }
+   }
    glTextureBuffer(texture->handle, internal_format, buffer->handle);
 }
 

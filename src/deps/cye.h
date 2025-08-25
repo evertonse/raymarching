@@ -796,6 +796,10 @@ usz cye_path_size(ZString path);                                  // Size  in by
 ZString cye_path_real(ZString path);                              // Returns real path (resolve symlinks)
 ZString cye_path_absolute(ZString path);                          // Returns absolute path
 ZString cye_path_relative(ZString from, ZString target);          // Returns relative path
+bool    cye_path_equals(ZString path1, ZString path2);            // Returns true if they point to the same file considering different strings can resolve to the same file
+
+
+
 
 ZString cye_path_home(void);                                      //  Return home
 ZString cye_path_cwd(void);                                       //  Return current directory
@@ -3163,6 +3167,89 @@ ZString cye_path_relative(ZString from, ZString target) {
     cye_todo("New Functions to Work on");
 }
 
+bool cye_path_equals(ZString path1, ZString path2) {
+    if (!path1 || !path2) {
+        return false;
+    }
+
+    // Quick string comparison first
+    if (strcmp(path1, path2) == 0) {
+        return true;
+    }
+
+#ifdef _WIN32
+    // Windows implementation using GetFullPathName and file handles
+    char resolved1[PATH_MAX];
+    char resolved2[PATH_MAX];
+
+    // Get full path names
+    DWORD len1 = GetFullPathName(path1, PATH_MAX, resolved1, NULL);
+    DWORD len2 = GetFullPathName(path2, PATH_MAX, resolved2, NULL);
+
+    if (len1 == 0 || len2 == 0 || len1 >= PATH_MAX || len2 >= PATH_MAX) {
+        return false;
+    }
+
+    // Case-insensitive comparison for Windows
+    if (_stricmp(resolved1, resolved2) == 0) {
+        return true;
+    }
+
+    // If paths are different, check if they point to the same file
+    // by comparing file attributes and indices
+    HANDLE h1 = CreateFile(path1, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (h1 == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    HANDLE h2 = CreateFile(path2, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (h2 == INVALID_HANDLE_VALUE) {
+        CloseHandle(h1);
+        return false;
+    }
+
+    BY_HANDLE_FILE_INFORMATION info1, info2;
+    BOOL result1 = GetFileInformationByHandle(h1, &info1);
+    BOOL result2 = GetFileInformationByHandle(h2, &info2);
+
+    CloseHandle(h1);
+    CloseHandle(h2);
+
+    if (!result1 || !result2) {
+        return false;
+    }
+
+    // Compare volume serial number and file indices
+    return (info1.dwVolumeSerialNumber == info2.dwVolumeSerialNumber &&
+            info1.nFileIndexHigh == info2.nFileIndexHigh &&
+            info1.nFileIndexLow == info2.nFileIndexLow);
+
+#else
+    char resolved1[PATH_MAX];
+    char resolved2[PATH_MAX];
+
+    // Resolve symbolic links and relative paths
+    if (realpath(path1, resolved1) == NULL || realpath(path2, resolved2) == NULL) {
+        return false;
+    }
+
+    // Compare resolved paths
+    if (strcmp(resolved1, resolved2) == 0) {
+        return true;
+    }
+
+    // Compare inodes and devices
+    struct stat stat1, stat2;
+
+    if (stat(resolved1, &stat1) != 0 || stat(resolved2, &stat2) != 0) {
+        return false;
+    }
+
+    // Compare inode numbers
+    return (stat1.st_dev == stat2.st_dev && stat1.st_ino == stat2.st_ino);
+#endif
+}
+
 //  Return home
 ZString cye_path_home(void) {
     cye_todo("New Functions to Work on");
@@ -4998,6 +5085,8 @@ char *win32_error_message(DWORD err) {
 #define path_real                       cye_path_real
 #define path_absolute                   cye_path_absolute
 #define path_relative                   cye_path_relative
+#define path_equals                     cye_path_equals
+
 
 #define path_home                       cye_path_home
 #define path_cwd                        cye_path_cwd

@@ -556,7 +556,7 @@ bool shader_needs_reload(Shader shader) {
    }
 
 #else
-   profile_begin();
+   begin_profile();
    for (usz idx = 0; idx < paths.count; idx++) {
       char* curr_path = (char*)all_unique_paths.data + paths.items[idx];
       if (needs_rebuild(time_path, curr_path)) {
@@ -566,7 +566,7 @@ bool shader_needs_reload(Shader shader) {
          trace_debug("No we don't need reload, time_path=%s curr_path=%s", time_path, curr_path);
       }
    }
-   profile_end("after loop");
+   end_profile("after loop");
 #endif
 
 defer:
@@ -652,9 +652,14 @@ void upload_uniform_mat4(const Shader shader, const char* name, const Matrix val
     if (loc >= 0) glUniformMatrix4fv(loc, 1, GL_FALSE, MatrixToFloat(value));
 }
 
-void upload_uniform_vec3(const Shader shader, const char* name, const Vector3* value) {
+void upload_uniform_vec3(const Shader shader, const char* name, const Vector3 value) {
     GLint loc = glGetUniformLocation(shader.handle, name);
-    if (loc >= 0) glUniform3f(loc, value->x, value->y, value->z);
+    if (loc >= 0) glUniform3f(loc, value.x, value.y, value.z);
+}
+
+void upload_uniform_vec4(const Shader shader, const char* name, const Vector4 value) {
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniform4f(loc, value.x, value.y, value.z, value.w);
 }
 
 void upload_uniform_float(const Shader shader, const char* name, float value) {

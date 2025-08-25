@@ -410,7 +410,7 @@ void projection_update(Projection_Application *app, f64 dt) {
    upload_uniform_bool(app->shader, "has_emissive", false);
 
    {
-      upload_uniform_vec3(shader, "camera_position", &camera.position);
+      upload_uniform_vec3(shader, "camera_position", camera.position);
 
       upload_uniform_bool(shader, "is_light", false);
 
@@ -502,12 +502,14 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       }
 
-      static Model_Renderables renderables = {0};
-      if (0 == renderables.count) {
-         ZString model_filepath = "res/models/backpack/backpack.obj";
-         // ZString model_filepath = "res/models/mari/source/Mari.fbx";
-         Model m = create_model(model_filepath);
-         renderables = push_model_to_manager(&m);
+      static Draw_Index model_draw_index = {0};
+      if (0 == model_draw_index.count) {
+         begin_profile();
+            ZString model_filepath = "res/models/backpack/backpack.obj";
+            // ZString model_filepath = "res/models/mari/source/Mari.fbx";
+            Model m = create_model(model_filepath);
+            model_draw_index = push_model_to_manager(&m);
+         end_profile("model_draw_index");
       }
 
       {
@@ -524,11 +526,9 @@ void projection_update(Projection_Application *app, f64 dt) {
          Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
 
          update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-         for (isz renderable_index = 0; renderable_index < (isz)renderables.count; renderable_index += 1) {
-            auto r = renderables.items[renderable_index];
-            upload_uniform_int(app->shader, "is_special", 0);
-            draw_renderable(&r, app->shader);
-         }
+         upload_uniform_int(app->shader, "is_special", 0);
+
+         draw_from_index(model_draw_index, app->shader);
          upload_uniform_int(app->shader, "is_special", 0);
       }
 

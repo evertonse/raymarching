@@ -450,7 +450,9 @@ void init_renderer(void) {
    { // Some expected settings
       glEnable(GL_DEPTH_TEST);
       glEnable(GL_BLEND);
-      glEnable(GL_MULTISAMPLE);
+
+      // NOTE: Enabling GL_MULTISAMPLE might break raymarching because you can't bind a texture as image with multisample
+      // glEnable(GL_MULTISAMPLE);
       glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -462,3 +464,4 @@ void init_renderer(void) {
 
 void shutdown_renderer(void) {
 }
+

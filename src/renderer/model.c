@@ -106,11 +106,11 @@ static const ufbx_load_opts ufbx_default_opts = {
    #endif
 
    // (.obj) Don't split geometry into meshes by object.
-   .obj_merge_objects =  true,
+   .obj_merge_objects =  false,
    // (.obj) Don't split geometry into meshes by groups.
-   .obj_merge_groups  = true,
+   .obj_merge_groups  = false,
    // (.obj) Force splitting groups even on object boundaries.
-   .obj_split_groups = false,
+   .obj_split_groups = true,
 };
 
 Transform transform_from_ufbx_node(ufbx_node *node) {

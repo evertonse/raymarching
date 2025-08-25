@@ -30,23 +30,24 @@ void main() {
         return;
     }
 
-    ivec2 tex_size = imageSize(output_image); // Serves as 'iResolution' as well if cast to vec2
+    ivec2 texture_size = imageSize(output_image); // Serves as 'iResolution' as well if cast to vec2
 
     // These two lines doesn't matter if we're raymarching in shadertoy style anyway
     // But will keep here to keep opengl compiler checking this
-    vec2 normalized_coord = vec2(pixel_coord) / vec2(tex_size);
+    vec2 normalized_coord = vec2(pixel_coord) / vec2(texture_size);
     vec4 O = vec4(normalized_coord, 0.0, 1.0);
 
     vec2 I = vec2(pixel_coord);
     mainImage(O, I);
     imageStore(output_image, pixel_coord, O);
+    // imageStore(output_image, pixel_coord, vec4(1., 1., 0, 1.));
 }
 
 // Some options to test out, just uncomment and press F
 
-// #include "src/shaders/shadertoy/Hearts.glsl"
-// #include "src/shaders/shadertoy/ray-marching-primitives.glsl"
+// #include "src/assets/shaders/shadertoy/Hearts.glsl"
 #include "src/assets/shaders/shadertoy/March.glsl"
+// #include "src/shaders/shadertoy/ray-marching-primitives.glsl"
 
 // #include "src/shaders/shadertoy/orthographic-raymarching.glsl"
 

@@ -45,8 +45,10 @@ static void window_error_callback(int error, const char *description) {
 }
 
 void init_window(void) {
-   if (!glfwInit())
+   if (!glfwInit()) {
+      trace_error("Failure on window initialization.");
       exit(EXIT_FAILURE);
+   }
 
    {  // open gl hints
       glfwSetErrorCallback(window_error_callback);
@@ -70,9 +72,6 @@ void init_window(void) {
    int window_x = max_width - window_width - right_padding_from_windows_bar;  // 3/4 from the left
    int window_y = (max_height - window_height) / 2;                      // Centered vertically
 
-   // int width = 1280;
-   // int height = 720;
-
    __state.window.handle = glfwCreateWindow(window_width, window_height, title.base, NULL, NULL);
    if (!__state.window.handle) {
       glfwTerminate();
@@ -80,7 +79,7 @@ void init_window(void) {
    }
    auto window = __state.window.handle;
 
-   glfwSetWindowAttrib(window, GLFW_FLOATING, false); // sticky
+   glfwSetWindowAttrib(window, GLFW_FLOATING, true); // sticky
    glfwSetWindowPos(window, window_x, window_y);
    // GLFW_CURSOR_HIDDEN GLFW_CURSOR_NORMAL GLFW_CURSOR_DISABLED(fps style) GLFW_CURSOR_CAPTURED(Won't be able to leave window) GLFW_CURSOR_DISABLED
    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -92,7 +91,7 @@ void init_window(void) {
 
    glfwMakeContextCurrent(window);
    gladLoadGL(glfwGetProcAddress);
-   glfwSwapInterval(-1);
+   glfwSwapInterval(1);
    __state.window.initialized = true;
 
 }
@@ -123,19 +122,36 @@ void* platform_window_handle() {
 
 
 int get_window_height() {
-   int width, height;
-   glfwGetFramebufferSize(__state.window.handle, &width, &height);
+   {
+      int width, height;
+      glfwGetFramebufferSize(__state.window.handle, &width, &height);
+      (void)width;
+      return height;
+   }
 
-   (void)width;
+   {
+      int width, height;
+      glfwGetWindowSize(__state.window.handle, &width, &height);
+      (void)width;
+      return height;
+   }
 
-   return height;
 }
 
 int get_window_width() {
    int width, height;
-   glfwGetFramebufferSize(__state.window.handle, &width, &height);
-   (void)height;
-   return width;
+   {
+      glfwGetFramebufferSize(__state.window.handle, &width, &height);
+      (void)height;
+      return width;
+   }
+
+   {
+      int width, height;
+      glfwGetWindowSize(__state.window.handle, &width, &height);
+      (void)height;
+      return width;
+   }
 }
 
 Vector2 get_screen_resolution() {
@@ -218,6 +234,6 @@ void update_on_button(void) {
 
 inline void update_window(void) {
    update_on_button();
-   swap_window_buffers();
    pool_window_events();
+   swap_window_buffers();
 }

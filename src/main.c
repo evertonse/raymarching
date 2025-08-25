@@ -3,13 +3,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "defines.c"
 
 #define GLFW_INCLUDE_NONE
 #include "GLFW/glfw3.h"
 
 #define GLAD_GL_IMPLEMENTATION
-// #include "glad/gl.h"
-#include "glad/gl_extended.h"
+#if defined(RENDERER_USING_BINDLESS)
+#  include "glad/gl.h"
+#else
+#  include "glad/gl_extended.h"
+#endif
 
 #define overload __attribute__((overloadable))
 #define require  __must_check
@@ -98,16 +102,6 @@ constexpr Camera camera_default = {
 typedef struct {
    void (*init)  (void* self);
    void (*update)(void* self, f64 dt);
-
-   struct {
-      GLFWwindow *handle; // Why abstract ? I'm not gonna add anything to it besides "making it ours" bleh
-      int  width, height;
-   } window;
-
-   struct {
-      f64 current, delta, elapsed;
-   } time;
-
    Camera camera;
 } Application;
 
@@ -140,9 +134,19 @@ typedef struct {
 
 static void conditionally_change_windows_title(f64 dt) {
    static char fps[512];
+   static bool which_fps = false;
+   if (is_button_pressed(BUTTON_Y)) {
+      which_fps = !which_fps;
+   }
    if (dt > 0) {
-      int written = snprintf(fps, (sizeof fps / sizeof fps[0]),"%.2f", 1./dt);
-      title.fps = fps;
+      int written = snprintf(fps, count_of(fps),"%.2f", 1./dt);
+      if (which_fps) {
+         title.fps = fps;
+      } else {
+         auto checkpoint = tsave(); // just in case is uses temporary memory
+         title.fps = get_fps_string();
+         trestore(checkpoint);
+      }
    }
    bool sticky = is_window_sticky();
    if (sticky) {
@@ -166,7 +170,7 @@ static void conditionally_change_windows_title(f64 dt) {
    const char *new_title = (const char*)title.mem;
 
    const char* current_title =  current_window_title();
-   bool please_update =  0 == strcmp(new_title,  current_title);
+   bool please_update = 0 == strcmp(new_title,  current_title);
    if (!please_update) {
       change_window_title(new_title);
    }
@@ -178,10 +182,9 @@ int main() {
    init_window();
    init_renderer();
    init_time();
+   init_fps();
    init_gui();
    init_manager();
-
-   f64 start_time = time_now();
 
 
    Countdown window_title_countdown = create_countdown(0.15, true);
@@ -190,28 +193,22 @@ int main() {
    camera = camera_default;
 
 
-   Application *apps[] = {(Application*)&raymarching_application, (Application*)&projection_application};
-   // Application* apps[] = {(Application*)&projection_application};
-   // Application* apps[] = {(Application*)&raymarching_application};
-
-   int window_width  = get_window_width();
-   int window_height = get_window_height();
+   // Application *apps[] = {(Application*)&raymarching_application, (Application*)&projection_application};
+   // Application *apps[] = {(Application*)&projection_application};
+   Application *apps[] = {(Application*)&raymarching_application};
 
    for (isz idx = 0; idx < count_of(apps); idx++) {
       Application *app = apps[idx];
-      app->window.handle       = __state.window.handle;
-      app->window.width        = window_width;
-      app->window.height       = window_height;
       app->init(app);
    }
 
    while (!should_close_window()) {
       update_window();
-      // DONE: Timed operations struct instead
       update_time();
-      camera = move_camera(camera); // Update Camera
+      update_fps();
       update_gui();
 
+      camera = move_camera(camera); // Update Camera
       Framebuffer default_framebuffer = {
          .handle = 0,
          .color = {
@@ -228,35 +225,27 @@ int main() {
 
       update_countdown(&window_title_countdown, conditionally_change_windows_title(time_delta()));
 
+
       assert(nullptr != __state.window.handle);
-      window_width = get_window_width(), window_height = get_window_height();
       for (isz idx = 0; idx < count_of(apps); idx++) {
          Application* app = apps[idx];
 
+         {
+            /* setup global state */
+            glEnable(GL_BLEND);
+            glBlendEquation(GL_FUNC_ADD);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glEnable(GL_CULL_FACE);
+            glEnable(GL_DEPTH_TEST);
+            glDisable(GL_SCISSOR_TEST);
+         }
+
          app->camera = camera;
-         app->time = (typeof(app->time)){
-            .elapsed  = time_elapsed(),
-            .current  = time_now(),
-            .delta    = time_delta(),
-         };
-         app->window.width  = window_width;
-         app->window.height = window_height;
-         /* setup global state */
-         glEnable(GL_BLEND);
-         glBlendEquation(GL_FUNC_ADD);
-         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-         glDisable(GL_CULL_FACE);
-         glEnable(GL_DEPTH_TEST);
-         glEnable(GL_SCISSOR_TEST);
-         // glActiveTexture(GL_TEXTURE0);
          app->update(app, time_delta());
       }
 
 
       render_gui(default_framebuffer);
-
-      // swap_window_buffers();
-      // pool_window_events();
    }
 
    shutdown_gui();
