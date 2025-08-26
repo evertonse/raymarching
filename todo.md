@@ -27,6 +27,8 @@
 
 - [ ] Investigate animation problem
 
+- [ ] Make shared binary compatible types that gets included by both
+
 - [ ] Shader remap error to correct line in folder
 
 - [x] Renderbuffer, SSBO, Uniform buffer objects create and use

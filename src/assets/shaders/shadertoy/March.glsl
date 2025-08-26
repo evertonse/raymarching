@@ -4,8 +4,8 @@
 
 #define RAYMARCH_MAX_STEPS 200
 // #define NEAR 0.000001
-float NEAR = 0.0001;
-float FAR = 200.0;
+float NEAR = 0.00001;
+float FAR = 155.0;
 float time;      // time
 
 #ifndef PI

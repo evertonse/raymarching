@@ -422,10 +422,6 @@ vec3 spot_light_hard() {
          const vec3 emissive_color = texture(emissive_texture, TexCoord).xyz;
          color += specular_color * (emissive_color.y + emissive_color.x + emissive_color.z);
       }
-      // color += (specular_color * texture(emissive_texture, TexCoord).xyz);
-      // FragColor.xyz += (vec3(0.2)-specular_color/2) * texture(emissive_texture, TexCoord).xyz;
-      // FragColor.xyz = texture(emissive_texture, TexCoord).xyz;
-      // FragColor.xyz = vec3(1.);
    }
    if (is_light) {
       return light_ambient_color;
@@ -500,12 +496,12 @@ vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, 
 }
 
 void main() {
-   // return;
-   // vec3 color = direction_light();
-   // vec3 color = point_light();
+   vec3 color = vec3(gl_FragCoord.z);
+   // vec3 color = vec3(0);
 
-   // vec3 color = spot_light_smooth();
-   // vec3 color = spot_light();
+   // gl_FragDepth = gl_FragCoord.z + 0.1; // Ensure depth is written correctly. Messing with this might force no early depth test by opengl .
+   FragColor.xyzw = vec4(color, 1.0);
+   return;
    vec3 position = Position;
 
    vec3 camera_direction = camera_forward(spherical);
@@ -519,7 +515,6 @@ void main() {
 
 
    // vec3 color = calculate_color(per_frame.light, position, per_frame.camera.position, Normal);
-   vec3 color = vec3(0);
 
    {
       Light point_lights[3];
@@ -568,7 +563,6 @@ void main() {
    //    color *= vec3(1.0, 0, 1.);
    // }
 
-   gl_FragDepth = gl_FragCoord.z + 0.1; // Ensure depth is written correctly
 
 
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
@@ -576,5 +570,4 @@ void main() {
    FragColor = vec4(color, attenuation_alpha);
    FragColor.xyz = gamma_correction(FragColor.xyz);
 
-   // FragColor.xyz = vec3(gl_FragCoord.z);
 }

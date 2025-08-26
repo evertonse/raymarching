@@ -1,20 +1,23 @@
-typedef struct {
-   u32 index_count;
-   u32 instance_count;  // For instanced rendering (usually 1)
-   u32 index_offset;    // Start index in index *not byte*
-   u32 vertex_offset;   // Base Vertex in index *not byte*
-   u32 instance_offset; // Base Instance in index *not byte*
+typedef u32 uint; // Match glsl types
+// This sequence can't change, and to be in this order and must come first.
+#define DRAW_COMMAND_BASE                                           \
+   uint index_count;                                                \
+   uint instance_count;    /* For instanced rendering (usually 1)*/ \
+   uint index_offset;      /* Start index in index *not byte*    */ \
+   uint vertex_offset;     /* Base Vertex in index *not byte*    */ \
+   uint instance_offset    /* Base Instance in index *not byte*  */
 
-   // Optional user-defined data goes here - if nothing, stride is 0
 
-   /*
-      unsigned int * indices = (unsigned int *)ELEMENT_ARRAY_BUFFER;
-      for (DrawElementsIndirectCommand cmd : GL_DRAW_INDIRECT_BUFFER) {
-          for (uint i = 0; i < cmd.count; ++i) {
-              int gl_VertexID = indices[cmd.firstIndex + i] + cmd.baseVertex;
-          }
-      }
-   */
+// Optional user-defined data goes here - if nothing, stride is 0
+
+/*
+   unsigned int * indices = (unsigned int *)ELEMENT_ARRAY_BUFFER;
+   for (DrawElementsIndirectCommand cmd : GL_DRAW_INDIRECT_BUFFER) {
+       for (uint i = 0; i < cmd.count; ++i) {
+           int gl_VertexID = indices[cmd.firstIndex + i] + cmd.baseVertex;
+       }
+   }
+*/
 
    /* source: https://ktstephano.github.io/rendering/opengl/mdi
 gl_VertexID
@@ -30,23 +33,24 @@ gl_BaseVertex
 gl_BaseInstance
    Base instance of current draw command (can use this to pass in any integer data you want if not using instanced vertex attributes)
    */
-} Draw_Command_Base;
 
 
 typedef struct {
-   Draw_Command_Base base;
+   DRAW_COMMAND_BASE;      // Ocuppies 5 u32
    u32  material_index;    // Material index
    u32  vertex_count;      // How many vertices there are (1 vertex means that we have exaclty 1 position 1 normal 1 uv + 1 joints if skeleton is present)
-   bool has_joints;        // Whether this draw_command uses joint data
-   bool is_inverleaved;
+   u32  has_joints;        // Whether this draw_command uses joint data
+   u32  is_inverleaved;
+   u32  has_animation;
+   u32  pad1, pad2, pad3, pad4, pad5, pad6;
 } Draw_Command;
 
 typedef struct {
-   u32 index;
+   u32 index; // Index into draw_commands.items
    u32 count; // Allocated in sequence, Index+0 ... Index + count-1
 } Draw_Index;
 
-static_assert(sizeof(Draw_Command) % 16 == 0);
+static_assert(size_of(Draw_Command) % 16 == 0);
 
 
 // Global buffer system with separate attribute buffers
@@ -163,12 +167,12 @@ Draw_Index push_draw_command_to_manager(const Draw_Command command) {
       manager.draw_commands.items = realloc(manager.draw_commands.items, buffer_size);
 
       manager.draw_commands.capacity = new_capacity;
-      manager.draw_commands.dirty = true;
    }
    Draw_Index index = { .index = manager.draw_commands.count, .count = 1 };
 
    manager.draw_commands.count += 1;
    manager.draw_commands.items[index.index] = command;
+   manager.draw_commands.dirty = true;
 
    return index;
 }
@@ -183,12 +187,10 @@ Draw_Index push_arrays_to_manager(
 
    // Create description for the command
    Draw_Command draw_command = {
-      .base = {
-         .vertex_offset  = manager.vertices.count,
-         .index_offset   = manager.indices.count,
-         .index_count    = index_count,
-         .instance_count = 1
-      },
+      .vertex_offset  = manager.vertices.count,
+      .index_offset   = manager.indices.count,
+      .index_count    = index_count,
+      .instance_count = 1,
       .has_joints   = (joints != nullptr),
       .vertex_count = vertex_count
    };
@@ -221,32 +223,11 @@ Draw_Index push_arrays_to_manager(
    return draw_index;
 }
 
-// Load all textures from paths (call this after pushing all materials)
-void load_manager_textures() {
-   for (u32 index = 0; index < manager.materials.count; index++) {
-      auto material = &manager.materials.items[index];
-
-      if (material->loaded) {
-         continue;
-      }
-
-      if (material->diffuse.path) {
-         material->diffuse = create_texture_from_filepath(material->diffuse.path);
-      }
-      if (material->specular.path) {
-         material->specular = create_texture_from_filepath(material->specular.path);
-      }
-      if (material->emissive.path) {
-         material->emissive = create_texture_from_filepath(material->emissive.path);
-      }
-      material->loaded = true;
-   }
-   manager.materials.dirty = false;
-}
 
 // Only uploads what changed, using your update_buffer function
 void update_manager_gpu_resources() {
    if (manager.vertices.dirty) {
+      trace_info("[Manager] Vertices were dirty");
 
       isz vertex_size = size_of(manager.vertices.positions[0]) + size_of(manager.vertices.normals[0]) +  size_of(manager.vertices.uvs[0]);
 
@@ -278,6 +259,7 @@ void update_manager_gpu_resources() {
 
    if (manager.joints.dirty) {
 
+      trace_info("[Manager] Joints were dirty");
       // Always sync the gpu buffer size to the cpu capacity, not the cpu size just so we do less resizes as resize won't occurs if we already have enough
       isz required_buffer_size = manager.joints.capacity * size_of(manager.joints.items[0]);
       resize_buffer_if_needed(&manager.joints.buffer, required_buffer_size);
@@ -289,6 +271,7 @@ void update_manager_gpu_resources() {
 
    if (manager.indices.dirty) {
 
+      trace_info("[Manager] Indices were dirty");
       // Always sync the gpu buffer size to the cpu capacity, not the cpu size just so we do less resizes as resize won't occurs if we already have enough
       isz required_buffer_size = manager.indices.capacity * size_of(manager.indices.items[0]);
       resize_buffer_if_needed(&manager.indices.buffer, required_buffer_size);
@@ -298,11 +281,41 @@ void update_manager_gpu_resources() {
       manager.indices.dirty = false;
    }
 
-   if (manager.materials.dirty) {
-      load_manager_textures();
+   if (manager.draw_commands.dirty) {
+      trace_info("[Manager] Draw Commands were dirty");
+
+      isz required_buffer_size = manager.draw_commands.capacity * size_of(manager.draw_commands.items[0]);
+      resize_buffer_if_needed(&manager.draw_commands.buffer, required_buffer_size);
+
+      isz draw_commands_size = manager.draw_commands.count * size_of(manager.draw_commands.items[0]);
+      update_buffer(&manager.draw_commands.buffer, manager.draw_commands.items, 0, draw_commands_size);
+      manager.draw_commands.dirty = false;
    }
 
-   // NOTE: indirect_buffer update would go here
+   if (manager.materials.dirty) {
+      // Load all textures from paths should that should be set when pushing all materials.
+      trace_info("[Manager] Materials were dirty");
+      for (u32 material_index = 0; material_index < manager.materials.count; material_index++) {
+         auto material = &manager.materials.items[material_index];
+
+         if (material->loaded) {
+            continue;
+         }
+
+         // TODO: Set a default texture for each of these
+         if (material->diffuse.path) {
+            material->diffuse = create_texture_from_filepath(material->diffuse.path);
+         }
+         if (material->specular.path) {
+            material->specular = create_texture_from_filepath(material->specular.path);
+         }
+         if (material->emissive.path) {
+            material->emissive = create_texture_from_filepath(material->emissive.path);
+         }
+         material->loaded = true;
+      }
+      manager.materials.dirty = false;
+   }
 }
 
 // Bind textures for a specific material index from the manager
@@ -353,6 +366,7 @@ void bind_material_textures(u32 material_index, Shader shader) {
 
 // TODO: Should we just draw everything instead of calling this, or is there a point into choosing certain draw items to be draw and others not?
 //       We could do a begin_frame end_frame and collect the commands into a buffer and renders those. Or comabine draw_index into draw_index with bigger counts to make it faster. But idk tho
+// TODO: change to this instead https://docs.gl/gl4/glDrawElementsIndirect
 void draw_from_index(const Draw_Index draw_index, Shader shader) {
    if (draw_index.index + draw_index.count > manager.draw_commands.count) {
       trace_error("%s: You are tripping dawg", __func__);
@@ -363,16 +377,15 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
    glBindVertexArray(manager.vao);
    glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
 
-   for (u32 index = 0; index < draw_index.count;  index += 1) {
-      auto draw_command = &manager.draw_commands.items[draw_index.index + index];
+   for (u32 sequential_index = 0; sequential_index < draw_index.count;  sequential_index += 1) {
+      auto draw_command = &manager.draw_commands.items[draw_index.index + sequential_index];
 
-      // load_manager_textures();
       bind_material_textures(draw_command->material_index, shader); // NOTE: This load lazily, which might cause spikes
 
       auto vertex_size = 2*size_of(Vector3) + size_of(Vector2);
       bind_buffer_view(&manager.vertices.buffer, BUFFER_TYPE_STORAGE, 3, 0, manager.vertices.count * vertex_size);
       // Applies vertex_offset to all indices (so draw_command can use local indices 0,1,2...)
-      Draw_Command_Base cmd = draw_command->base;
+      Draw_Command cmd = *draw_command;
       glDrawElementsBaseVertex(GL_TRIANGLES,
          cmd.index_count,                           // How many indices
          GL_UNSIGNED_INT,                           // Index type
@@ -380,6 +393,57 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
          cmd.vertex_offset                          // Base vertex offset
       );
    }
+}
+
+// Draw all indices ever created
+void draw_indirect(Shader shader) {
+   update_manager_gpu_resources();
+   assert_msg(is_valid_buffer(manager.draw_commands.buffer), "Draw Comands Buffer is should always be valid in this function");
+
+   glBindVertexArray(manager.vao);
+   glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
+
+   glBindBuffer(GL_DRAW_INDIRECT_BUFFER, manager.draw_commands.buffer.handle);
+   bind_buffer(&manager.draw_commands.buffer, BUFFER_TYPE_STORAGE, 8);
+
+   auto vertex_size = 2*size_of(Vector3) + size_of(Vector2);
+   bind_buffer_view(&manager.vertices.buffer, BUFFER_TYPE_STORAGE, 3, 0, manager.vertices.count * vertex_size);
+   // bind_material_textures(manager.draw_commands.items[0].material_index, shader); // NOTE: This mostly wrong
+
+   {
+      GLenum err = glGetError();
+      if (err != GL_NO_ERROR) {
+         trace_error("[OpenGL Error] %s buffer stuff failed (0x%X).", __func__, err);
+      }
+   }
+
+   {
+      GLint vaoBound = 0, eboBound = 0, dibBound = 0;
+      glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vaoBound);
+      glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &eboBound);
+      glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, &dibBound);
+      if (!vaoBound || !eboBound || !dibBound) {
+          trace_error("Indirect setup missing: VAO=%d EBO=%d DIB=%d", vaoBound, eboBound, dibBound);
+      }
+   }
+
+   glMultiDrawElementsIndirect(
+       GL_TRIANGLES, GL_UNSIGNED_INT,
+       (const void *)0,           // No offset into draw command buffer
+       manager.draw_commands.count,
+       // manager.draw_commands.count * size_of(manager.draw_commands.items[0]),
+       size_of(manager.draw_commands.items[0])      // Stride, 0 if the data is tightly packed
+   );
+
+   {
+      GLenum err = glGetError();
+      if (err != GL_NO_ERROR) {
+         trace_error("[OpenGL Error] glMultiDrawElementsIndirect failed (0x%X).", err);
+      }
+   }
+
+   // glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+   // glFinish();
 }
 
 
@@ -557,8 +621,8 @@ void init_manager() {
 
    manager.materials.items     = malloc(initial_material_capacity * size_of(manager.materials.items[0]));
 
-   // auto buffer_flag = BUFFER_USAGE_SUBDATA;
-   auto buffer_flag = BUFFER_USAGE_ORPHANABLE;
+   auto buffer_flag = BUFFER_USAGE_SUBDATA;
+   // auto buffer_flag = BUFFER_USAGE_ORPHANABLE;
 
    // Create GPU buffers
    isz vertex_item_size     = size_of(manager.vertices.positions[0]) + size_of(manager.vertices.normals[0]) + size_of(manager.vertices.uvs[0]);
@@ -569,19 +633,22 @@ void init_manager() {
    manager.joints.buffer    = create_buffer(buffer_flag, nullptr, joints_buffer_size);
 
 
-   isz inidices_buffer_size = initial_index_capacity * size_of(u32);
-   manager.indices.buffer   = create_buffer(buffer_flag, nullptr, inidices_buffer_size);
+   isz indices_buffer_size = initial_index_capacity * size_of(manager.indices.items[0]);
+   manager.indices.buffer   = create_buffer(buffer_flag, nullptr, indices_buffer_size);
+
+   isz draw_commands_buffer_size = initial_index_capacity * size_of(manager.draw_commands.items[0]);
+   manager.draw_commands.buffer  = create_buffer(buffer_flag, nullptr, draw_commands_buffer_size);
 
    // Create VAO
    glCreateVertexArrays(1, &manager.vao);
    glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
 
    // Initialize counters
-   manager.vertices.count     = 0;
-   manager.indices.count      = 0;
-   manager.joints.count       = 0;
-   manager.materials.count    = 0;
-   manager.draw_commands.count   = 0;
+   manager.vertices.count      = 0;
+   manager.indices.count       = 0;
+   manager.joints.count        = 0;
+   manager.materials.count     = 0;
+   manager.draw_commands.count = 0;
 
    // Mark all as clean initially
    manager.vertices.dirty      = false;

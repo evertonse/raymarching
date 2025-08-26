@@ -347,7 +347,7 @@ Framebuffer create_framebuffer_multisample_with_renderbuffers(int width, int hei
 
 
 Framebuffer create_framebuffer_from_texture(const Texture texture) {
-   Framebuffer result;
+   Framebuffer result  = {0};
 
    glCreateFramebuffers(1, &result.handle);
 
@@ -382,9 +382,7 @@ inline void blit_framebuffer_to_swapchain_src_and_dst(
     GLbitfield mask,
     GLenum filter
 ) {
-   assert_msg(is_valid_framebuffer(framebuffer),
-              tprintf("Invalid framebuffer: format=%d, samples=%d\n",
-                      framebuffer.color.format, framebuffer.color.samples));
+   assert_msg(is_valid_framebuffer(framebuffer), tprintf("Invalid framebuffer: format=%d, samples=%d\n", framebuffer.color.format, framebuffer.color.samples));
    if (framebuffer.color.samples > 1) {
       int src_width  = src_x1 - src_x0;
       int src_height = src_y1 - src_y0;
@@ -393,15 +391,15 @@ inline void blit_framebuffer_to_swapchain_src_and_dst(
       int dst_height = dst_y1 - dst_y0;
 
       if (src_width != dst_width || src_height != dst_height) {
-         printf("[Error] Blitting MSAA framebuffer with mismatched dimensions (%dx%d vs %dx%d).\n", src_width, src_height, dst_width, dst_height);
+         trace_error("[Error] Blitting MSAA framebuffer with mismatched dimensions (%dx%d vs %dx%d).\n", src_width, src_height, dst_width, dst_height);
          return;
       }
       if (filter != GL_NEAREST) {
-         printf("[Warning] Attempting to blit multisampled framebuffer with GL_LINEAR — only GL_NEAREST is allowed for MSAA blits.\n");
+         trace_error("[Warning] Attempting to blit multisampled framebuffer with GL_LINEAR — only GL_NEAREST is allowed for MSAA blits.\n");
       }
 
       if (mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) {
-         printf("[Warning] Attempting to blit depth/stencil from multisampled framebuffer — this is not allowed between different sample counts.\n");
+         trace_error("[Warning] Attempting to blit depth/stencil from multisampled framebuffer — this is not allowed between different sample counts.\n");
       }
 
    }
@@ -458,86 +456,78 @@ inline void blit_framebuffer_to_swapchain_rect(
 }
 
 Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
-    static Framebuffer static_resolve_fb = {0};
-
-    if (!is_valid_framebuffer(msaa_fb)) {
-        trace_error("resolve_multisample_framebuffer: input framebuffer is not valid.\n");
-        return (Framebuffer){0};
-    }
-
-    const Texture* src = &msaa_fb.color;
-
-    // Not multisampled? Return original
-    if (src->samples <= 1) {
-        return msaa_fb;
-    }
-
-    // Create (or recreate) the static resolve framebuffer if needed
-    bool recreate =
-        !is_valid_framebuffer(static_resolve_fb) ||
-        static_resolve_fb.color.width != src->width ||
-        static_resolve_fb.color.height != src->height ||
-        static_resolve_fb.color.format != src->format;
-
-    if (recreate) {
-        if (is_valid_framebuffer(static_resolve_fb)) {
-            destroy_framebuffer(&static_resolve_fb);
-        }
-
-        Texture resolved_color = create_texture_extended(
-            src->width, src->height,
-            nullptr, src->format,
-            TEXTURE_TYPE_2D, 1 // single-sample resolve target
-        );
-
-        static_resolve_fb = create_framebuffer_from_textures(resolved_color, (Texture){0});
-        if (!is_valid_framebuffer(static_resolve_fb)) {
-            printf("[Error] resolve_multisample_framebuffer: failed to create resolve framebuffer.\n");
-            return (Framebuffer){0};
-        }
-    }
-
-    // Blit color only — no depth
-    glBlitNamedFramebuffer(
-        msaa_fb.handle,
-        static_resolve_fb.handle,
-        0, 0, src->width, src->height,
-        0, 0, src->width, src->height,
-        GL_COLOR_BUFFER_BIT,
-        GL_NEAREST
-    );
-
-    GLenum err = glGetError();
-    if (err != GL_NO_ERROR) {
-        printf("[Error] glBlitNamedFramebuffer failed during resolve: GL error 0x%X\n", err);
-        return (Framebuffer){0};
-    }
-
-    return static_resolve_fb;
-}
-
-Framebuffer resolve_multisample_framebuffer_old(const Framebuffer* msaa_fb) {
    static Framebuffer static_resolve_fb = {0};
-
-   // Null passed? Use static framebuffer
-   if (!msaa_fb) {
-      if (!is_valid_framebuffer(static_resolve_fb)) {
-         printf("[Error] resolve_multisample_framebuffer: static resolve framebuffer not yet initialized.\n");
-      }
-      return static_resolve_fb;
+   if (!is_valid_framebuffer(msaa_fb)) {
+      trace_error("resolve_multisample_framebuffer: input framebuffer is not valid.\n");
+      return (Framebuffer){0};
    }
 
+   const Texture *src = &msaa_fb.color;
+
+   // Not multisampled? Return original
+   if (src->samples <= 1) {
+      return msaa_fb;
+   }
+
+   // Create (or recreate) the static resolve framebuffer if needed
+   bool recreate = !is_valid_framebuffer(static_resolve_fb)
+      || static_resolve_fb.color.width  != src->width
+      || static_resolve_fb.color.height != src->height
+      || static_resolve_fb.color.format != src->format
+   ;
+
+   trace_debug("recreate = %d, static{ %d, %dx%d }, src{ %d, %dx%d }",
+      recreate,
+      static_resolve_fb.handle, static_resolve_fb.color.width, static_resolve_fb.color.height,
+      msaa_fb.handle, msaa_fb.color.width, msaa_fb.color.height
+   );
+
+   if (recreate) {
+      if (is_valid_framebuffer(static_resolve_fb)) {
+         destroy_framebuffer(&static_resolve_fb);
+      }
+
+      Texture resolved_color = create_texture_extended(
+            src->width, src->height, nullptr, src->format,
+            TEXTURE_TYPE_2D, 1 // single-sample resolve target
+      );
+
+      static_resolve_fb = create_framebuffer_from_texture(resolved_color);
+
+      if (!is_valid_framebuffer(static_resolve_fb)) {
+         printf("[Error] resolve_multisample_framebuffer: failed to create resolve framebuffer.\n");
+         return (Framebuffer){0};
+      }
+   }
+
+   assert_msg(is_valid_framebuffer(static_resolve_fb) && is_valid_framebuffer(msaa_fb), "Getting here all must be valid");
+
+   // Blit color only — no depth
+   glBlitNamedFramebuffer(msaa_fb.handle, static_resolve_fb.handle, 0, 0, src->width, src->height, 0, 0, src->width, src->height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+   GLenum err = glGetError();
+   if (err != GL_NO_ERROR) {
+      trace_error("[Error] glBlitNamedFramebuffer failed during resolve: GL error 0x%X\n", err);
+      return (Framebuffer){0};
+   }
+
+   return static_resolve_fb;
+}
+
+Framebuffer resolve_multisample_framebuffer_old(const Framebuffer msaa_fb) {
+   static Framebuffer static_resolve_fb = {0};
+
    // Validate input framebuffer
-   if (!is_valid_framebuffer(*msaa_fb)) {
+   if (!is_valid_framebuffer(msaa_fb)) {
       printf("[Error] resolve_multisample_framebuffer: input framebuffer is not valid.\n");
       return (Framebuffer){0};
    }
 
-   const Texture* src = &msaa_fb->color;
+   const Texture* src = &msaa_fb.color;
 
    // Not multisampled? Just return the input framebuffer
    if (src->samples <= 1) {
-      return *msaa_fb;
+      return msaa_fb;
    }
 
    // Create the static resolve framebuffer if not yet done or size mismatch
@@ -571,7 +561,7 @@ Framebuffer resolve_multisample_framebuffer_old(const Framebuffer* msaa_fb) {
 
    // Blit from MSAA framebuffer to resolved framebuffer
    glBlitNamedFramebuffer(
-      msaa_fb->handle,
+      msaa_fb.handle,
       static_resolve_fb.handle,
       0, 0, src->width, src->height,
       0, 0, src->width, src->height,

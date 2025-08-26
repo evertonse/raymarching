@@ -10,7 +10,8 @@
 
 #define GLAD_GL_IMPLEMENTATION
 #if defined(RENDERER_USING_BINDLESS)
-#  include "glad/gl.h"
+// #  include "glad/gl.h"
+#  include "glad/gl_extended.h"
 #else
 #  include "glad/gl_extended.h"
 #endif

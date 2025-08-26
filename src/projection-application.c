@@ -15,7 +15,7 @@ typedef struct {
 
    Shader         shader, light_shader;
    Countdown      shader_countdown_to_reload;
-   Vertex_Array   va, cube_va, sphere_va;
+   Vertex_Array   chosen_mesh_va, cube_va, sphere_va;
    Texture        diffuse_texture, cube_texture;
    struct {
       Texture diffuse, specular, specular_colored, emissive;
@@ -255,10 +255,10 @@ static void update_and_draw_model_and_its_gpu_data(typeof(((Projection_Applicati
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void projection_init(Projection_Application *app) {
-   app->va          = create_vertex_array_from_mesh(&chosen_mesh);
-   app->cube_va     = create_vertex_array_from_mesh(&cube_mesh);
-   app->sphere_mesh = generate_sphere_mesh(0.5, 2*32, 2*32);
-   app->sphere_va   = create_vertex_array_from_mesh(&app->sphere_mesh);
+   app->chosen_mesh_va = create_vertex_array_from_mesh(&chosen_mesh);
+   app->cube_va        = create_vertex_array_from_mesh(&cube_mesh);
+   app->sphere_mesh    = generate_sphere_mesh(0.5, 2*32, 2*32);
+   app->sphere_va      = create_vertex_array_from_mesh(&app->sphere_mesh);
 
    app->shader       = shader_invalid;
    app->light_shader = shader_invalid;
@@ -272,9 +272,9 @@ void projection_init(Projection_Application *app) {
    app->shader_countdown_to_reload = create_countdown(0.12, true);
 
 
-   app->fb = create_framebuffer(1600, 800);
+   // app->fb = create_framebuffer(1600, 800);
    // app->fb = create_framebuffer_multisample(1600, 800, 16);
-   // app->fb = create_framebuffer_multisample_with_renderbuffers(1600, 800, 16);
+   app->fb = create_framebuffer_multisample_with_renderbuffers(1600, 800, 16);
 
    app->destination = (Rectanglei32) {
       .x = 100/4.,
@@ -294,7 +294,7 @@ void projection_init(Projection_Application *app) {
    app->wood_box.diffuse          = create_texture_from_filepath("res/textures/diffuse_container2.png");
    app->wood_box.emissive         = create_texture_from_filepath("res/textures/matrix_emissive.jpg");
    app->cube_texture              = create_texture_from_filepath("res/textures/ocean6.png");
-   trace_info("va.handle = %d\n", app->va.handle);
+   trace_info("va.handle = %d\n", app->chosen_mesh_va.handle);
 
 
    // ZString scene_filepath = "res/models/medieval-sword-pack-10-low-poly-game-ready/source/Medieval Sword pack 1_0 (Oakeshott Classification) .fbx";
@@ -324,7 +324,7 @@ void projection_init(Projection_Application *app) {
    assert_msg(
          is_valid_framebuffer_and_its_textures(app->fb)
       && is_valid_framebuffer                 (app->fb)
-      && is_valid_vertex_array                (app->va)
+      && is_valid_vertex_array                (app->chosen_mesh_va)
       && is_valid_vertex_array                (app->cube_va)
       && is_valid_texture                     (app->diffuse_texture)
       && is_valid_texture                     (app->cube_texture)
@@ -334,136 +334,10 @@ void projection_init(Projection_Application *app) {
    );
 }
 
+void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
 
-void projection_update(Projection_Application *app, f64 dt) {
-
-   static GLsync sync = nullptr;
-   if (!sync) {
-      trace_warn("Sync object is null");
-   }
-   wait_sync_point(sync);
-
-   static Vector3 light_position = {110.0f,  16.f, 4.0f};
-   gui_vector3("Light Position", &light_position);
-
-   static bool light_move_by_itself = true;
-   gui_check_box("Light Move?", &light_move_by_itself);
-   if (light_move_by_itself) {
-      const float slow_down_time = 0.34;
-      light_position.x = 150.0f * (sin(time_elapsed() * slow_down_time)/2. + 0.5);
-   }
-
-
-
-
-   {  //  Update the main uniform buffer
-      auto per_frame = &app->per_frame;
-      Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
-      Matrix  view      = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
-
-      *per_frame   =  (typeof(app->per_frame)) {
-         .model           = MatrixToFloatV(MatrixIdentity()),
-         .pespective      = MatrixToFloatV(MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0)),
-         .view            = MatrixToFloatV(view),
-         .light = {
-            .position  = light_position,
-            .ambient     = {0.89f,  0.85f,  0.99f },
-            .diffuse     = {0.99f,  0.85f,  0.80f },
-            .specular    = {0.88f,  0.99f,  0.75f },
-         },
-         .camera = {
-            .position = camera.position,
-            .theta    = camera.rotation.x,
-            .phi      = camera.rotation.y,
-         },
-         .elapsed_time    = time_elapsed(),
-         .delta_time      = time_delta()
-      };
-
-      assert(size_of(typeof(app->per_frame)) == size_of(app->per_frame));
-
-      update_buffer(&app->per_frame_buffer.buffer, &app->per_frame, 0, size_of(app->per_frame));
-      *(Vector4*)app->buffer.mapped_ptr = (Vector4){69.0, 70., 71., 72.};
-   }
-
-
-
-   update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
-
-   bind_framebuffer(app->fb);
-   if (!is_valid_framebuffer_and_its_textures(app->fb)) {
-      debug_framebuffer_state(app->fb);
-      trace_error("Framebuffer is not valid");
-   }
-   clear_framebuffer(app->fb);
-   debug_depth_testing();
-   debug_culling_state();
-   {
-      assert_msg(is_valid_texture(app->fb.depth), "");
-      //
-      // TODO: use these and measure time
-      // clear_framebuffer_depth();
-      // clear_framebuffer_color();
-      //
-
-      // NOTE: This are the usual culprits of weird, missing or outta order triangle redering.
-      {
-         glDisable   (GL_CULL_FACE);
-         glCullFace  (GL_FRONT);  // Instead of GL_BACK
-         glFrontFace (GL_CW);    // Instead of GL_CCW
-         glEnable    (GL_DEPTH_TEST);
-         glDepthFunc (GL_LESS);
-         glDepthMask (GL_TRUE);
-         glClearDepth(1.0);
-         glDepthRange(0.0, 1.0);
-      }
-
-      // Enable polygon offset to mitigate z-fighting
-      glEnable(GL_POLYGON_OFFSET_FILL);
-      glPolygonOffset(1.0f, 1.0f);
-
-      glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
-      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-   }
-   // exit(EXIT_SUCCESS);
-
-
-   // Wireframe mode
-   // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-   // back to its default using glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-   Shader shader = app->shader;
-   bind_shader(shader);
-   upload_uniform_bool(app->shader, "has_specular", false);
-   upload_uniform_bool(app->shader, "has_emissive", false);
-
-   {
-      upload_uniform_vec3(shader, "camera_position", camera.position);
-
-      upload_uniform_bool(shader, "is_light", false);
-
-      GLint view_location = glGetUniformLocation(shader.handle, "view");
-      // Vector3 direction = spherical_to_cartesian((f32)glfwGetTime(), (f32)glfwGetTime() + PI/2.);
-      Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
-      Matrix  view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
-      // printf("vec3(%f, %f, %f)\n", direction.x, direction.y, direction.z);
-      // Matrix view = MatrixViewFromSpherical(camera.position, -camera.rotation.y, -camera.rotation.x);
-      glUniformMatrix4fv(view_location, 1, GL_FALSE, MatrixToFloat(view));
-   }
-
-   {
-      GLint spherical_location = glGetUniformLocation(shader.handle, "spherical");
-      glUniform2f(spherical_location, camera.rotation.y, camera.rotation.x);
-   }
-
-   {
-      GLint loc = glGetUniformLocation(shader.handle, "perspective");
-      Matrix perspective = MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0);
-      // perspective.m11 *= -1; // Force to be "left-handed" just like the NDC
-      // Matrix perspective = MatrixFrustum(-5., 5.,  -5., 5.,  -5., 5.);
-      glUniformMatrix4fv(loc, 1, GL_FALSE, MatrixToFloat(perspective));
-   }
-
+   bind_vertex_array(app->chosen_mesh_va);
+   bind_texture(app->diffuse_texture, 3);
 
    {
       Vector3 positions[] = {
@@ -478,9 +352,6 @@ void projection_update(Projection_Application *app, f64 dt) {
          (Vector3){  1.5f,  0.2f, -1.5f  },
          (Vector3){ -1.3f,  1.0f, -1.5f  }
       };
-
-      bind_vertex_array(app->va);
-      bind_texture(app->diffuse_texture, 3);
 
 
 
@@ -521,46 +392,11 @@ void projection_update(Projection_Application *app, f64 dt) {
          bind_buffer(&app->per_frame_buffer.buffer, BUFFER_TYPE_UNIFORM, 4);
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
-         assert(is_valid_vertex_array(app->va));
-         bind_buffer(&app->va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
-         glDrawElements(GL_TRIANGLES, app->va.ib.count, GL_UNSIGNED_INT, NULL);
+         assert(is_valid_vertex_array(app->chosen_mesh_va));
+         bind_buffer(&app->chosen_mesh_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
+         glDrawElements(GL_TRIANGLES, app->chosen_mesh_va.ib.count, GL_UNSIGNED_INT, NULL);
 
       }
-
-      static Draw_Index model_draw_index = {0};
-      if (0 == model_draw_index.count) {
-         // begin_profile();
-            ZString model_filepath = "res/models/backpack/backpack.obj";
-            // ZString model_filepath = "res/models/mari/source/Mari.fbx";
-            Model m = create_model(model_filepath);
-            model_draw_index = push_model_to_manager(&m);
-         // end_profile("model_draw_index");
-      }
-
-      {
-
-         upload_uniform_int(app->shader, "is_special", 1);
-         float   scale_single = 25;
-         Vector3 scale = (Vector3){scale_single, scale_single, scale_single};
-         Vector4 rotation = {1, 1, 1, 0};
-         Vector3 position = (Vector3){0., 0., 0.};
-
-         Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
-         Matrix scale_matrix       = MatrixScale    (scale_single, scale_single, scale_single);
-         Matrix rotation_matrix    = MatrixRotate   ((Vector3){rotation.x, rotation.y, rotation.z}, rotation.w);
-         Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
-
-         update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-         upload_uniform_int(app->shader, "is_special", 0);
-
-         draw_from_index(model_draw_index, app->shader);
-         upload_uniform_int(app->shader, "is_special", 0);
-      }
-
-      // Vector2 position = cursor_position();
-      // Vector3Unproject(Vector3 screen_, Matrix projection, Matrix view);
-
-
       {
 
          const f32 scale_single    = 2.4;
@@ -626,18 +462,199 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       draw_text("Fuck your mother");
    }
+}
+
+
+
+void projection_update(Projection_Application *app, f64 dt) {
+
+   static GLsync sync = nullptr;
+   if (!sync) {
+      trace_warn("Sync object is null");
+   }
+   wait_sync_point(sync);
+
+   static Vector3 light_position = {110.0f,  16.f, 4.0f};
+   gui_vector3("Light Position", &light_position);
+
+   static bool light_move_by_itself = true;
+   gui_check_box("Light Move?", &light_move_by_itself);
+   if (light_move_by_itself) {
+      const float slow_down_time = 0.34;
+      light_position.x = 150.0f * (sin(time_elapsed() * slow_down_time)/2. + 0.5);
+   }
+
+
+   {  //  Update the main uniform buffer
+      auto per_frame = &app->per_frame;
+      Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
+      Matrix  view      = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
+
+      *per_frame   =  (typeof(app->per_frame)) {
+         .model           = MatrixToFloatV(MatrixIdentity()),
+         .pespective      = MatrixToFloatV(MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0)),
+         .view            = MatrixToFloatV(view),
+         .light = {
+            .position  = light_position,
+            .ambient     = {0.89f,  0.85f,  0.99f },
+            .diffuse     = {0.99f,  0.85f,  0.80f },
+            .specular    = {0.88f,  0.99f,  0.75f },
+         },
+         .camera = {
+            .position = camera.position,
+            .theta    = camera.rotation.x,
+            .phi      = camera.rotation.y,
+         },
+         .elapsed_time    = time_elapsed(),
+         .delta_time      = time_delta()
+      };
+
+      assert(size_of(typeof(app->per_frame)) == size_of(app->per_frame));
+
+      update_buffer(&app->per_frame_buffer.buffer, &app->per_frame, 0, size_of(app->per_frame));
+      bind_buffer(&app->per_frame_buffer.buffer, BUFFER_TYPE_UNIFORM, 4);
+      *(Vector4*)app->buffer.mapped_ptr = (Vector4){69.0, 70., 71., 72.};
+   }
+
+   update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
+
+   bind_framebuffer(app->fb);
+   if (!is_valid_framebuffer_and_its_textures(app->fb)) {
+      debug_framebuffer_state(app->fb);
+      debug_depth_testing();
+      debug_culling_state();
+      trace_error("Framebuffer is not valid");
+   }
+   clear_framebuffer(app->fb);
+   {
+      assert_msg(is_valid_texture(app->fb.depth), "");
+      //
+      // TODO: use these and measure time
+      // clear_framebuffer_depth();
+      // clear_framebuffer_color();
+      //
+
+      // NOTE: This are the usual culprits of weird, missing or outta order triangle redering.
+      {
+         glDisable   (GL_CULL_FACE);
+         glCullFace  (GL_FRONT);  // Instead of GL_BACK
+         glFrontFace (GL_CW);    // Instead of GL_CCW
+         glEnable    (GL_DEPTH_TEST);
+         glDepthFunc (GL_LESS);
+         glDepthMask (GL_TRUE);
+         glClearDepth(1.0);
+         glDepthRange(0.0, 1.0);
+      }
+
+      // Enable polygon offset to mitigate z-fighting
+      glEnable(GL_POLYGON_OFFSET_FILL);
+      glPolygonOffset(1.0f, 1.0f);
+
+      glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+      // Wireframe mode
+      // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+      // back to its default using glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+   }
+
+   // exit(EXIT_SUCCESS);
+   Shader shader = app->shader;
+   bind_shader(shader);
+
+   upload_uniform_bool(app->shader, "has_specular", false);
+   upload_uniform_bool(app->shader, "has_emissive", false);
+
+   {
+
+
+      auto shader = app->shader;
+      {
+         upload_uniform_vec3(shader, "camera_position", camera.position);
+
+         upload_uniform_bool(shader, "is_light", false);
+
+         GLint view_location = glGetUniformLocation(shader.handle, "view");
+         // Vector3 direction = spherical_to_cartesian((f32)glfwGetTime(), (f32)glfwGetTime() + PI/2.);
+         Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
+         Matrix  view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
+         // printf("vec3(%f, %f, %f)\n", direction.x, direction.y, direction.z);
+         // Matrix view = MatrixViewFromSpherical(camera.position, -camera.rotation.y, -camera.rotation.x);
+         glUniformMatrix4fv(view_location, 1, GL_FALSE, MatrixToFloat(view));
+      }
+
+      {
+         GLint spherical_location = glGetUniformLocation(shader.handle, "spherical");
+         glUniform2f(spherical_location, camera.rotation.y, camera.rotation.x);
+      }
+
+      {
+         GLint loc = glGetUniformLocation(shader.handle, "perspective");
+         Matrix perspective = MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0);
+         // perspective.m11 *= -1; // Force to be "left-handed" just like the NDC
+         // Matrix perspective = MatrixFrustum(-5., 5.,  -5., 5.,  -5., 5.);
+         glUniformMatrix4fv(loc, 1, GL_FALSE, MatrixToFloat(perspective));
+      }
+   }
+
+
+   static Draw_Index model_draw_index = {0};
+   if (0 == model_draw_index.count) {
+      begin_profile();
+         ZString model_filepath = "res/models/backpack/backpack.obj";
+         // ZString model_filepath = "res/models/mari/source/Mari.fbx";
+         Model m = create_model(model_filepath);
+      end_profile("create_model");
+
+      begin_profile();
+         model_draw_index = push_model_to_manager(&m);
+      end_profile("push model");
+
+      begin_profile();
+         m = create_model("res/models/akm-free-lowpoly/source/AK.fbx");
+         model_draw_index = push_model_to_manager(&m);
+      end_profile("ak create and push model");
+   }
+
+   const bool draw_with_manager = true;
+   if (draw_with_manager) {
+      upload_uniform_int(app->shader, "is_special", 1);
+      float   scale_single = 7;
+      Vector3 scale = (Vector3){scale_single, scale_single, scale_single};
+      Vector4 rotation = {1, 1, 1, 0};
+      Vector3 position = (Vector3){0., 25., 0.};
+
+      Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
+      Matrix scale_matrix       = MatrixScale    (scale_single, scale_single, scale_single);
+      Matrix rotation_matrix    = MatrixRotate   ((Vector3){rotation.x, rotation.y, rotation.z}, rotation.w);
+      Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
+
+      update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
+      upload_uniform_int(app->shader, "is_special", 0);
+
+
+      // draw_from_index(model_draw_index, app->shader);
+      // begin_profile();
+      draw_indirect(app->shader);
+      // end_profile("draw_indirect");
+
+      upload_uniform_int(app->shader, "is_special", 0);
+   }
+
+   // draw_old_way(app, shader, camera);
+
 
    sync = sync_point(sync);
 
    if (!is_window_minimized()) {
-      Framebuffer fb_resolved = app->fb;
+      Framebuffer final_fb = app->fb;
       if (app->fb.color.samples > 1) {
          // compiler says possible undeifned is not use temp
          // Framebuffer fb_resolved = resolve_multisample_framebuffer_old(&fb);
-         fb_resolved = resolve_multisample_framebuffer(app->fb);
+         final_fb = resolve_multisample_framebuffer(app->fb);
          // blit_framebuffer_to_swapchain(fb_resolved);
       }
-      blit_framebuffer_to_swapchain_rect(fb_resolved, app->destination);
+      blit_framebuffer_to_swapchain_rect(final_fb, app->destination);
    }
 }
 

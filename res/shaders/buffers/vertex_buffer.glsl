@@ -1,25 +1,24 @@
 // You can call vertex_buffer.length() to get the the count of positions
-layout(std430, binding = 3) buffer VertexData {
+layout(std430, binding = 3) readonly buffer VertexData {
    float vertex_buffer[];
 };
 
-
-struct Draw_Command_Base {
-   uint index_count;
-   uint instance_count;
-   uint index_offset;
-   uint vertex_offset;
-   uint instance_offset;
-};
+// This sequence can't change, and to be in this order and must come first.
+#define DRAW_COMMAND_BASE                                           \
+   uint index_count;                                                \
+   uint instance_count;    /* For instanced rendering (usually 1)*/ \
+   uint index_offset;      /* Start index in index *not byte*    */ \
+   uint vertex_offset;     /* Base Vertex in index *not byte*    */ \
+   uint instance_offset    /* Base Instance in index *not byte*  */
 
 struct Draw_Command {
-   Draw_Command_Base base;
+   DRAW_COMMAND_BASE;
    int  material_index;
    int  vertex_count;
-   bool has_joints;
-   bool is_inverleaved;
+   int  has_joints;
+   int  is_inverleaved;
 };
 
-layout(std430, binding = 19) buffer DrawCommand {
+layout(std430, binding = 8) buffer DrawCommand {
    Draw_Command draw_commands[];
 };
