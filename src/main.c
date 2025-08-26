@@ -193,9 +193,9 @@ int main() {
    camera = camera_default;
 
 
-   // Application *apps[] = {(Application*)&raymarching_application, (Application*)&projection_application};
+   Application *apps[] = {(Application*)&raymarching_application, (Application*)&projection_application};
    // Application *apps[] = {(Application*)&projection_application};
-   Application *apps[] = {(Application*)&raymarching_application};
+   // Application *apps[] = {(Application*)&raymarching_application};
 
    for (isz idx = 0; idx < count_of(apps); idx++) {
       Application *app = apps[idx];
@@ -206,7 +206,7 @@ int main() {
       update_window();
       update_time();
       update_fps();
-      update_gui();
+      // update_gui();
 
       camera = move_camera(camera); // Update Camera
       Framebuffer default_framebuffer = {
@@ -233,11 +233,12 @@ int main() {
          {
             /* setup global state */
             glEnable(GL_BLEND);
-            glBlendEquation(GL_FUNC_ADD);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            // glBlendEquation(GL_FUNC_ADD);
+            // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glEnable(GL_CULL_FACE);
             glEnable(GL_DEPTH_TEST);
             glDisable(GL_SCISSOR_TEST);
+            glEnable(GL_STENCIL_TEST);
          }
 
          app->camera = camera;

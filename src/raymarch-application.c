@@ -109,16 +109,6 @@ void raymarching_application_update(Raymarching_Application *app, f64 dt) {
 
       auto fb = app->compute_framebuffer;
       blit_framebuffer_to_swapchain(fb);
-
-      // glBlitNamedFramebuffer(
-      //    app->compute_framebuffer.handle,               // src framebuffer
-      //    0,                                // dst framebuffer (swapchain)
-      //    0, 0, app->compute_shader_texture.width, app->compute_shader_texture.height,   // source rectangle
-      //    0, 0, app->compute_shader_texture.width, app->compute_shader_texture.height,   // destination rectangle
-      //    GL_COLOR_BUFFER_BIT,
-      //    GL_LINEAR
-      // );
-      // blit_framebuffer_to_swapchain(app->compute_framebuffer);
    }
 }
 

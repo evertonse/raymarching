@@ -500,7 +500,6 @@ vec3 calculate_color(Light light, vec3 light_direction, vec3 fragment_position, 
 }
 
 void main() {
-   // FragColor = vec4(gl_FragCoord.z);
    // return;
    // vec3 color = direction_light();
    // vec3 color = point_light();
@@ -569,9 +568,13 @@ void main() {
    //    color *= vec3(1.0, 0, 1.);
    // }
 
+   gl_FragDepth = gl_FragCoord.z + 0.1; // Ensure depth is written correctly
+
 
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
    float attenuation_alpha = clamp(distance_to_view/distance_to_view, 0.2, 1.0);
    FragColor = vec4(color, attenuation_alpha);
    FragColor.xyz = gamma_correction(FragColor.xyz);
+
+   // FragColor.xyz = vec3(gl_FragCoord.z);
 }

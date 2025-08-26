@@ -1,5 +1,6 @@
 #include "raymath.h"
 #include <minwindef.h>
+#include <stdlib.h>
 typedef struct {
     Vector3 position; f32 pad0;
     Vector3 ambient;  f32 pad1;
@@ -114,6 +115,8 @@ static void draw_va(Projection_Application *app, Vertex_Array *va, Vector3 posit
 
    glBindVertexArray(va->handle);
    // glDrawElements(GL_TRIANGLES, va->ib.count, GL_UNSIGNED_INT, NULL);
+
+   glEnable(GL_DEPTH_TEST);
 
    glDrawElementsBaseVertex(GL_TRIANGLES,
       va->ib.count,               // How many indices
@@ -269,9 +272,9 @@ void projection_init(Projection_Application *app) {
    app->shader_countdown_to_reload = create_countdown(0.12, true);
 
 
-   // app->fb = create_framebuffer(1600, 800);
+   app->fb = create_framebuffer(1600, 800);
    // app->fb = create_framebuffer_multisample(1600, 800, 16);
-   app->fb = create_framebuffer_multisample_with_renderbuffers(1600, 800, 16);
+   // app->fb = create_framebuffer_multisample_with_renderbuffers(1600, 800, 16);
 
    app->destination = (Rectanglei32) {
       .x = 100/4.,
@@ -388,16 +391,41 @@ void projection_update(Projection_Application *app, f64 dt) {
    update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
 
    bind_framebuffer(app->fb);
+   if (!is_valid_framebuffer_and_its_textures(app->fb)) {
+      debug_framebuffer_state(app->fb);
+      trace_error("Framebuffer is not valid");
+   }
+   clear_framebuffer(app->fb);
+   debug_depth_testing();
+   debug_culling_state();
    {
-      glEnable(GL_DEPTH_TEST);
+      assert_msg(is_valid_texture(app->fb.depth), "");
       //
       // TODO: use these and measure time
       // clear_framebuffer_depth();
       // clear_framebuffer_color();
       //
+
+      // NOTE: This are the usual culprits of weird, missing or outta order triangle redering.
+      {
+         glDisable   (GL_CULL_FACE);
+         glCullFace  (GL_FRONT);  // Instead of GL_BACK
+         glFrontFace (GL_CW);    // Instead of GL_CCW
+         glEnable    (GL_DEPTH_TEST);
+         glDepthFunc (GL_LESS);
+         glDepthMask (GL_TRUE);
+         glClearDepth(1.0);
+         glDepthRange(0.0, 1.0);
+      }
+
+      // Enable polygon offset to mitigate z-fighting
+      glEnable(GL_POLYGON_OFFSET_FILL);
+      glPolygonOffset(1.0f, 1.0f);
+
       glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
    }
+   // exit(EXIT_SUCCESS);
 
 
    // Wireframe mode
@@ -421,13 +449,11 @@ void projection_update(Projection_Application *app, f64 dt) {
       // printf("vec3(%f, %f, %f)\n", direction.x, direction.y, direction.z);
       // Matrix view = MatrixViewFromSpherical(camera.position, -camera.rotation.y, -camera.rotation.x);
       glUniformMatrix4fv(view_location, 1, GL_FALSE, MatrixToFloat(view));
-   // Send to GPU
    }
 
    {
       GLint spherical_location = glGetUniformLocation(shader.handle, "spherical");
       glUniform2f(spherical_location, camera.rotation.y, camera.rotation.x);
-
    }
 
    {
@@ -452,7 +478,6 @@ void projection_update(Projection_Application *app, f64 dt) {
          (Vector3){  1.5f,  0.2f, -1.5f  },
          (Vector3){ -1.3f,  1.0f, -1.5f  }
       };
-
 
       bind_vertex_array(app->va);
       bind_texture(app->diffuse_texture, 3);
@@ -504,12 +529,12 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       static Draw_Index model_draw_index = {0};
       if (0 == model_draw_index.count) {
-         begin_profile();
+         // begin_profile();
             ZString model_filepath = "res/models/backpack/backpack.obj";
             // ZString model_filepath = "res/models/mari/source/Mari.fbx";
             Model m = create_model(model_filepath);
             model_draw_index = push_model_to_manager(&m);
-         end_profile("model_draw_index");
+         // end_profile("model_draw_index");
       }
 
       {
@@ -601,7 +626,6 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       draw_text("Fuck your mother");
    }
-
 
    sync = sync_point(sync);
 

@@ -4,16 +4,207 @@ typedef struct {
    Texture color, depth;
 } Framebuffer;
 
+
+
 inline bool is_valid_framebuffer(Framebuffer fb) {
-    return fb.handle != 0;
+   if (fb.handle == 0) {
+       return false;
+   }
+
+#if defined(RENDERER_DEBUG)
+   GLint current_fb;
+   glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fb);
+
+   glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
+   GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+   glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
+
+   return status == GL_FRAMEBUFFER_COMPLETE;
+#else
+   return true;
+#endif
 }
 
+
+// This call is probably sorta expensive
+inline bool is_framebuffer_missing_attachment(Framebuffer fb) {
+   if (fb.handle == 0) {
+      trace_error("Checking for missing attachment on a zero handle framebuffer. Oops.");
+      return false;
+   }
+
+   GLint current_fb;
+   glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fb);
+
+   glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
+   GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+   glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
+
+   return status == GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
+}
+
+
+
 inline bool is_valid_framebuffer_and_its_textures(Framebuffer fb) {
-    return fb.handle != 0 && is_valid_texture(fb.color) && is_valid_texture(fb.depth);
+   if (!is_valid_framebuffer(fb)) {
+      trace_error("Framebuffer %d is invalid or incomplete\n", fb.handle);
+      return false;
+   }
+
+   if (!is_valid_texture(fb.color)) {
+      trace_error("Color texture %d is invalid\n", fb.color.handle);
+      return false;
+   }
+
+   if (!is_valid_texture(fb.depth)) {
+      trace_error("Depth texture %d is invalid\n", fb.depth.handle);
+      return false;
+   }
+
+   return true;
+}
+
+inline bool validate_framebuffer(Framebuffer fb) {
+   const bool verbose = true;
+   if (fb.handle == 0) {
+      if (verbose) {
+        printf("Framebuffer handle is 0\n");
+      }
+      return false;
+   }
+
+   // Save current framebuffer
+   GLint current_fb;
+   glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fb);
+
+   // Bind our framebuffer
+   glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
+
+   // Check completeness
+   GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+   if (status != GL_FRAMEBUFFER_COMPLETE) {
+      if (verbose) {
+         trace_info("Framebuffer %d incomplete: ", fb.handle);
+         switch (status) {
+         case GL_FRAMEBUFFER_UNDEFINED:
+            trace_info("GL_FRAMEBUFFER_UNDEFINED\n");
+            break;
+         case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+            trace_info("GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT\n");
+            break;
+         case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+            trace_info("GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT\n");
+            break;
+         case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER:
+            trace_info("GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER\n");
+            break;
+         case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER:
+            trace_info("GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER\n");
+            break;
+         case GL_FRAMEBUFFER_UNSUPPORTED:
+            trace_info("GL_FRAMEBUFFER_UNSUPPORTED\n");
+            break;
+         case GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE:
+            trace_info("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE\n");
+            break;
+         case GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS:
+            trace_info("GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS\n");
+            break;
+         default:
+            trace_info("Unknown error: 0x%04X\n", status);
+            break;
+         }
+      }
+      glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
+      return false;
+   }
+
+   // Check color attachment
+   GLint color_attachment;
+   glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &color_attachment);
+
+   if (color_attachment != (GLint)fb.color.handle) {
+      if (verbose) {
+         trace_error("Color attachment mismatch: expected %d, got %d\n", fb.color.handle, color_attachment);
+      }
+      glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
+      return false;
+   }
+
+   // Check depth attachment
+   GLint depth_attachment;
+   glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &depth_attachment);
+
+   if (depth_attachment != (GLint)fb.depth.handle) {
+      if (verbose) {
+         trace_error("Depth attachment mismatch: expected %d, got %d\n", fb.depth.handle, depth_attachment);
+      }
+      glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
+      return false;
+   }
+
+   // Verify depth texture is valid
+   if (depth_attachment != 0 && !glIsTexture(depth_attachment)) {
+      if (verbose) {
+         trace_error("Depth attachment %d is not a valid texture\n", depth_attachment);
+      }
+      glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
+      return false;
+   }
+
+   // Check depth texture format
+   if (depth_attachment != 0) {
+      GLint depth_format;
+      glBindTexture(GL_TEXTURE_2D, depth_attachment);
+      glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &depth_format);
+      glBindTexture(GL_TEXTURE_2D, 0);
+
+      if (verbose)
+         printf("Depth texture format: 0x%04X\n", depth_format);
+
+      // Common depth formats: GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT32F
+      if (!(depth_format == GL_DEPTH_COMPONENT || depth_format == GL_DEPTH_COMPONENT16 || depth_format == GL_DEPTH_COMPONENT24 || depth_format == GL_DEPTH_COMPONENT32F || depth_format == GL_DEPTH24_STENCIL8 || depth_format == GL_DEPTH32F_STENCIL8)) {
+         if (verbose)
+            printf("Depth texture has invalid format for depth attachment: 0x%04X\n", depth_format);
+         glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
+         return false;
+      }
+   }
+
+   glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
+
+   if (verbose) {
+      printf("Framebuffer %d is complete and valid\n", fb.handle);
+   }
+   return true;
+}
+
+void debug_framebuffer_state(Framebuffer fb) {
+   printf("=== Framebuffer Debug ===\n");
+   printf("Framebuffer handle: %d\n", fb.handle);
+   printf("Color texture: %d (valid: %s)\n", fb.color.handle, glIsTexture(fb.color.handle) ? "yes" : "no");
+   printf("Depth texture: %d (valid: %s)\n", fb.depth.handle, glIsTexture(fb.depth.handle) ? "yes" : "no");
+
+   validate_framebuffer(fb);
+
+   // Check if depth testing is actually enabled
+   GLboolean depth_test_enabled;
+   glGetBooleanv(GL_DEPTH_TEST, &depth_test_enabled);
+   printf("Depth test enabled: %s\n", depth_test_enabled ? "yes" : "no");
+
+   // Check depth function
+   GLint depth_func;
+   glGetIntegerv(GL_DEPTH_FUNC, &depth_func);
+   printf("Depth function: 0x%04X\n", depth_func);
+
+   printf("=========================\n");
 }
 
 bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture texture) {
-   assert(framebuffer && is_valid_framebuffer(*framebuffer) && is_valid_texture(texture));
+   assert(framebuffer && (is_valid_framebuffer(*framebuffer) || is_framebuffer_missing_attachment(*framebuffer)));
+   assert(is_valid_texture(texture));
 
    GLenum attachment = GL_COLOR_ATTACHMENT0;
 
@@ -70,15 +261,16 @@ Framebuffer create_framebuffer_from_textures(Texture color, Texture depth) {
 
     if (is_valid_texture(color) && TEXTURE_FORMAT_DEPTH24 != color.format) {
         if (!attach_texture_to_framebuffer(&fb, color)) {
+            trace_error("Couldn't attach color texture %d to framebuffer %d", color.handle, fb.handle);
             glDeleteFramebuffers(1, &fb.handle);
             return (Framebuffer){0};
         }
     }
 
-    // Add more depth compatible formats in this if needed
     if (is_valid_texture(depth) && TEXTURE_FORMAT_DEPTH24 == depth.format) {
         if (!attach_texture_to_framebuffer(&fb, depth)) {
             glDeleteFramebuffers(1, &fb.handle);
+            trace_error("Couldn't attach depth buffer %d to framebuffer %d", depth.handle, fb.handle);
             return (Framebuffer){0};
         }
     }
@@ -94,15 +286,15 @@ Framebuffer create_framebuffer_from_textures(Texture color, Texture depth) {
 }
 
 Framebuffer create_framebuffer(int width, int height) {
-    Texture color = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 1);
-    Texture depth = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 1);
+    Texture color = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 1);
+    Texture depth = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 1);
     return create_framebuffer_from_textures(color, depth);
 }
 
 Framebuffer create_framebuffer_multisample(int width, int height, int samples) {
     Texture_Type type = TEXTURE_TYPE_2D;
-    Texture color = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, type, samples);
-    Texture depth = create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, type, samples);
+    Texture color = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, type, samples);
+    Texture depth = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, type, samples);
     return create_framebuffer_from_textures(color, depth);
 }
 
@@ -359,13 +551,13 @@ Framebuffer resolve_multisample_framebuffer_old(const Framebuffer* msaa_fb) {
 
       Texture resolved_color = create_texture_extended(
          src->width, src->height,
-         NULL, src->format,
+         nullptr, src->format,
          TEXTURE_TYPE_2D, 1
       );
 
       Texture resolved_depth = create_texture_extended(
          src->width, src->height,
-         NULL, TEXTURE_FORMAT_DEPTH24,
+         nullptr, TEXTURE_FORMAT_DEPTH24,
          TEXTURE_TYPE_2D, 1
       );
 
@@ -404,11 +596,11 @@ void blend_framebuffers(const Framebuffer *a, const Framebuffer *b, Framebuffer 
    static Framebuffer blend_fb = {0};
    static Shader blend_shader = {0};
 
-   // Lazy init output framebuffer if `out` is NULL
+   // Lazy init output framebuffer if `out` is nullptr
    if (!out) {
       if (!is_valid_framebuffer(blend_fb)) {
-         Texture out_color = create_texture_extended(a->color.width, a->color.height, NULL, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 1);
-         Texture out_depth = create_texture_extended(a->color.width, a->color.height, NULL, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 1);
+         Texture out_color = create_texture_extended(a->color.width, a->color.height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 1);
+         Texture out_depth = create_texture_extended(a->color.width, a->color.height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 1);
          blend_fb = create_framebuffer_from_textures(out_color, out_depth);
       }
       out = &blend_fb;

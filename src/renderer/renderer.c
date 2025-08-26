@@ -448,18 +448,71 @@ void init_renderer(void) {
    print_opengl_resource_limits();
 
    { // Some expected settings
-      glEnable(GL_DEPTH_TEST);
       glEnable(GL_BLEND);
 
       // NOTE: Enabling GL_MULTISAMPLE might break raymarching because you can't bind a texture as image with multisample
-      // glEnable(GL_MULTISAMPLE);
+      glEnable(GL_MULTISAMPLE);
       glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glEnable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
       // glCullFace(GL_BACK);          // Cull back faces
       glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
    }
+}
+
+void debug_depth_testing() {
+  printf("=== Depth Testing Debug ===\n");
+
+  // Check depth state
+  GLboolean depth_test;
+  glGetBooleanv(GL_DEPTH_TEST, &depth_test);
+  printf("Depth test enabled: %s\n", depth_test ? "yes" : "no");
+
+  GLint depth_func;
+  glGetIntegerv(GL_DEPTH_FUNC, &depth_func);
+  printf("Depth function: 0x%04X\n", depth_func);
+
+  GLboolean depth_mask;
+  glGetBooleanv(GL_DEPTH_WRITEMASK, &depth_mask);
+  printf("Depth writes enabled: %s\n", depth_mask ? "yes" : "no");
+
+  GLfloat depth_clear;
+  glGetFloatv(GL_DEPTH_CLEAR_VALUE, &depth_clear);
+  printf("Depth clear value: %f\n", depth_clear);
+
+  GLdouble depth_range[2];
+  glGetDoublev(GL_DEPTH_RANGE, depth_range);
+  printf("Depth range: near=%f, far=%f\n", depth_range[0], depth_range[1]);
+
+  printf("==========================\n");
+}
+
+void debug_culling_state() {
+  printf("=== Culling State Debug ===\n");
+
+  // Check if culling is enabled
+  GLboolean cull_face;
+  glGetBooleanv(GL_CULL_FACE, &cull_face);
+  printf("Cull face enabled: %s\n", cull_face ? "yes" : "no");
+
+  // Check which face is being culled
+  GLint cull_face_mode;
+  glGetIntegerv(GL_CULL_FACE_MODE, &cull_face_mode);
+  printf("Cull face mode: %s\n", cull_face_mode == GL_BACK ? "GL_BACK"
+                                 : cull_face_mode == GL_FRONT
+                                     ? "GL_FRONT"
+                                     : "GL_FRONT_AND_BACK");
+
+  // Check front face winding order
+  GLint front_face;
+  glGetIntegerv(GL_FRONT_FACE, &front_face);
+  printf("Front face winding: %s\n", front_face == GL_CCW
+                                         ? "GL_CCW (Counter-clockwise)"
+                                         : "GL_CW (Clockwise)");
+
+  printf("===========================\n");
 }
 
 void shutdown_renderer(void) {

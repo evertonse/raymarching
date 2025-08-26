@@ -1,2 +1,2 @@
 // #define RENDERER_USING_BINDLESS 1
-// #define RENDERER_DEBUG 1
+#define RENDERER_DEBUG 1
