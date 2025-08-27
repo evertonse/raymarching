@@ -81,6 +81,7 @@ typedef struct {
 } Model;
 
 
+static const bool please_obj_merge = true;
 // Options: https://ufbx.github.io/reference#ufbx_load_opts
 static const ufbx_load_opts ufbx_default_opts = {
    .normalize_normals  = true,
@@ -106,11 +107,11 @@ static const ufbx_load_opts ufbx_default_opts = {
    #endif
 
    // (.obj) Don't split geometry into meshes by object.
-   .obj_merge_objects =  false,
+   .obj_merge_objects = please_obj_merge,
    // (.obj) Don't split geometry into meshes by groups.
-   .obj_merge_groups  = false,
+   .obj_merge_groups  = please_obj_merge,
    // (.obj) Force splitting groups even on object boundaries.
-   .obj_split_groups = true,
+   .obj_split_groups = !please_obj_merge,
 };
 
 Transform transform_from_ufbx_node(ufbx_node *node) {
@@ -165,7 +166,7 @@ void trace_ufbx_warnings(const ufbx_scene *scene) {
    int warning_count[UFBX_WARNING_TYPE_COUNT] = {0};
    int ignored_warning_count = 0;
 
-   for (size_t i = 0; i < scene->metadata.warnings.count; i++) {
+   for (size_t i = 0; i < scene->metadata.warnings.count; i += 1) {
       ufbx_warning warning = scene->metadata.warnings.data[i];
       auto description = warning.description.data;
 
@@ -186,7 +187,7 @@ void trace_ufbx_warnings(const ufbx_scene *scene) {
             }
          }
       } else {
-         ignored_warning_count++;
+         ignored_warning_count += 1;
       }
    }
 
@@ -211,8 +212,8 @@ Matrix raylib_matrix_from_ufbx_matrix(const ufbx_matrix ufbxmat) {
    rlmat.m7 = 0.0f;
 
    // third column (z axis)
-   rlmat.m8 = (float)ufbxmat.m02;
-   rlmat.m9 = (float)ufbxmat.m12;
+   rlmat.m8  = (float)ufbxmat.m02;
+   rlmat.m9  = (float)ufbxmat.m12;
    rlmat.m10 = (float)ufbxmat.m22;
    rlmat.m11 = 0.0f;
 
@@ -229,7 +230,7 @@ Matrix raylib_matrix_from_ufbx_matrix(const ufbx_matrix ufbxmat) {
 usz joint_index_from_ufbx_bone_node(const ufbx_scene *scene, const ufbx_node *bone_node) {
    bool found_bone_index = false;
    usz bone_index = 0;
-   for (; bone_index < scene->bones.count; bone_index++) {
+   for (; bone_index < scene->bones.count; bone_index += 1) {
       auto scene_bone_node = scene->bones.data[bone_index]->instances.data[0];
       assert_msg(1 == scene->bones.data[bone_index]->instances.count, "We assume each bone has exactly 1 instance that correspondes to its node");
       if (scene_bone_node == bone_node) {
@@ -256,7 +257,7 @@ Joint_List create_joint_list_from_ufbx_scene(const ufbx_scene *scene) {
    }
 
    list.count = scene->bones.count;
-   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index++) {
+   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index += 1) {
       auto bone = scene->bones.data[bones_index];
 
       assert_msg(1 == bone->instances.count, "We're assuming instances is how we get THE (as in only one makes sense for us as this moment) node from a bone");
@@ -296,7 +297,7 @@ Joint_List create_joint_list_from_ufbx_scene(const ufbx_scene *scene) {
 
       // Find the geomtry_to_bone (inverse bind matrix)
       ufbx_matrix geometry_to_node = ufbx_identity_matrix;
-      for (usz cluster_index = 0; cluster_index < scene->skin_clusters.count; cluster_index++) {
+      for (usz cluster_index = 0; cluster_index < scene->skin_clusters.count; cluster_index += 1) {
          auto cluster = scene->skin_clusters.data[cluster_index];
          if (bone_node == cluster->bone_node) {
             geometry_to_node = cluster->geometry_to_bone;
@@ -327,6 +328,7 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
    // Baked animation data is ufbx transforming the fbx data into linearly interpolatable keyframes. Easy enough.
    ufbx_baked_anim *baked = ufbx_bake_anim(scene, anim, nullptr, nullptr);
 
+   assert_msg(baked->playback_time_begin == anim->time_begin && baked->playback_time_end == anim->time_end, "We are assuming they are equal baked = %f anim = %f", baked->playback_time_end, anim->time_end);
 
    result.time_begin = baked->playback_time_begin;
    result.time_end   = baked->playback_time_end;
@@ -335,7 +337,7 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
 
    result.time_current = result.time_begin;
 
-   for (u32 bone_i = 0; bone_i < scene->bones.count; bone_i++) {
+   for (u32 bone_i = 0; bone_i < scene->bones.count; bone_i += 1) {
       ufbx_bone *bone = scene->bones.data[bone_i];
       ufbx_node *node = bone->instances.data[0]; // assuming 1 instance per bone
 
@@ -350,7 +352,7 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
       // Translation
       ja->translation_keyframes.count = bnode->translation_keys.count;
       ja->translation_keyframes.items = malloc(size_of(*ja->translation_keyframes.items) * ja->translation_keyframes.count);
-      for (u32 k = 0; k < bnode->translation_keys.count; k++) {
+      for (u32 k = 0; k < bnode->translation_keys.count; k += 1) {
          ja->translation_keyframes.items[k].vec3 =
              (Vector3){(float)bnode->translation_keys.data[k].value.x, (float)bnode->translation_keys.data[k].value.y, (float)bnode->translation_keys.data[k].value.z};
          ja->translation_keyframes.items[k].time = bnode->translation_keys.data[k].time;
@@ -359,7 +361,7 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
       // Rotation
       ja->rotation_keyframes.count = bnode->rotation_keys.count;
       ja->rotation_keyframes.items = malloc(size_of(*ja->rotation_keyframes.items) * ja->rotation_keyframes.count);
-      for (u32 k = 0; k < bnode->rotation_keys.count; k++) {
+      for (u32 k = 0; k < bnode->rotation_keys.count; k += 1) {
          ja->rotation_keyframes.items[k].quat =
              (Quaternion){(float)bnode->rotation_keys.data[k].value.x, (float)bnode->rotation_keys.data[k].value.y, (float)bnode->rotation_keys.data[k].value.z, (float)bnode->rotation_keys.data[k].value.w};
          ja->rotation_keyframes.items[k].time = bnode->rotation_keys.data[k].time;
@@ -368,7 +370,7 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
       // Scale
       ja->scale_keyframes.count = bnode->scale_keys.count;
       ja->scale_keyframes.items = malloc(size_of(*ja->scale_keyframes.items) * ja->scale_keyframes.count);
-      for (u32 k = 0; k < bnode->scale_keys.count; k++) {
+      for (u32 k = 0; k < bnode->scale_keys.count; k += 1) {
          ja->scale_keyframes.items[k].vec3
              = (Vector3){(float)bnode->scale_keys.data[k].value.x, (float)bnode->scale_keys.data[k].value.y, (float)bnode->scale_keys.data[k].value.z};
          ja->scale_keyframes.items[k].time
@@ -384,7 +386,7 @@ void trace_ufbx_scene_statsold(ufbx_scene *scene) {
    auto checkpoint = tsave();
    ZString info = "";
    info = tprintf("%s %d textures for this scene: ", info, scene->textures.count);
-   for (size_t i = 0; i < scene->textures.count; i++) {
+   for (size_t i = 0; i < scene->textures.count; i += 1) {
       auto texture = *scene->textures.data[i];
       ZString base_name = path_base_name(texture.relative_filename.data);
       info = tprintf("%s    texture (%d): base_name %s", info, i, base_name);
@@ -396,10 +398,10 @@ void trace_ufbx_scene_statsold(ufbx_scene *scene) {
    trace_info(info);
 
    info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
-   for (size_t i = 0; i < scene->materials.count; i++) {
+   for (size_t i = 0; i < scene->materials.count; i += 1) {
       auto material = *scene->materials.data[i];
       info = tprintf("%s    material '%s' (%d): has %ldd textures", info, i, material.name, material.textures.count);
-      for (size_t j = 0; j < material.textures.count; j++) {
+      for (size_t j = 0; j < material.textures.count; j += 1) {
          auto texture = *(material.textures.data[j].texture);
          ZString base_name = path_base_name(texture.relative_filename.data);
          info = tprintf("%s        texture (%d): base_name %s", info, i, base_name);
@@ -418,7 +420,7 @@ void trace_ufbx_scene_stats(ufbx_scene *scene) {
    auto checkpoint = tsave();
    ZString info = "";
    info = tprintf("%s %d textures for this scene: ", info, scene->textures.count);
-   for (size_t i = 0; i < scene->textures.count; i++) {
+   for (size_t i = 0; i < scene->textures.count; i += 1) {
       auto texture = *scene->textures.data[i];
       auto base_name = path_base_name(texture.relative_filename.data);
       info = tprintf("%s    texture (%zu): base_name %s\n", info, i, base_name);
@@ -430,10 +432,10 @@ void trace_ufbx_scene_stats(ufbx_scene *scene) {
    trace_info(info);
 
    info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
-   for (size_t i = 0; i < scene->materials.count; i++) {
+   for (size_t i = 0; i < scene->materials.count; i += 1) {
       auto material = *scene->materials.data[i];
       info = tprintf("%s    material '%s' (%zu): has %ld textures\n", info, material.name.data, i, material.textures.count);
-      for (size_t j = 0; j < material.textures.count; j++) {
+      for (size_t j = 0; j < material.textures.count; j += 1) {
          auto texture = *(material.textures.data[j].texture);
          auto base_name = path_base_name(texture.relative_filename.data);
          info = tprintf("%s        texture (%zu): base_name %s\n", info, j, base_name);
@@ -539,7 +541,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    isz total_index_count = 0;
 
    // Process each material part (surface) - always at least 1
-   for (usz part_index = 0; part_index < fbx_mesh->material_parts.count; part_index++) {
+   for (usz part_index = 0; part_index < fbx_mesh->material_parts.count; part_index += 1) {
       auto material_part = fbx_mesh->material_parts.data[part_index];
 
       auto surface = &mesh.surfaces.items[part_index];
@@ -553,14 +555,14 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
       isz part_vertex_start = total_vertex_count;
 
       // Process faces in this material part
-      for (usz face_idx = 0; face_idx < material_part.face_indices.count; face_idx++) {
+      for (usz face_idx = 0; face_idx < material_part.face_indices.count; face_idx += 1) {
          u32 face_index = material_part.face_indices.data[face_idx];
          ufbx_face face = fbx_mesh->faces.data[face_index];
 
          u32 tri_count = ufbx_triangulate_face(tri_indices, tri_indices_count, fbx_mesh, face);
 
          // Process triangles in this face
-         for (isz tri_index = 0; tri_index < tri_count * 3; tri_index++) {
+         for (isz tri_index = 0; tri_index < tri_count * 3; tri_index += 1) {
             u32 index = tri_indices[tri_index];
 
             // Get vertex data
@@ -584,7 +586,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
                Vector4 bone_weight     = {0, 0, 0, 0};
                Vector4Int bone_indices = {-1, -1, -1, -1};
 
-               for (size_t i = 0; i < num_weights; i++) {
+               for (size_t i = 0; i < num_weights; i += 1) {
                   ufbx_skin_weight skin_weight = skin->weights.data[skin_vertex.weight_begin + i];
                   ufbx_skin_cluster *cluster = skin->clusters.data[skin_weight.cluster_index];
                   usz bone_index = joint_index_from_ufbx_bone_node(scene, cluster->bone_node);
@@ -596,7 +598,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
 
                // Normalize weights
                if (total_weight > 0.0f) {
-                  for (size_t i = 0; i < num_weights; i++) {
+                  for (size_t i = 0; i < num_weights; i += 1) {
                      bone_weight.items[i] /= total_weight;
                   }
                }
@@ -611,8 +613,8 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
             mesh.vertices.uvs[total_vertex_count] = uv;
             mesh.indices.items[total_index_count] = total_vertex_count;
 
-            total_vertex_count++;
-            total_index_count++;
+            total_vertex_count += 1;
+            total_index_count += 1;
          }
       }
 
@@ -673,7 +675,7 @@ Model create_model(const char *filepath) {
    {   // Setup animations
        model.animations.count = 1;
        model.animations.items = malloc(model.animations.count * size_of(model.animations.items[0]));
-       for (size_t i = 0; i < scene->anim_stacks.count; i++) {
+       for (size_t i = 0; i < scene->anim_stacks.count; i += 1) {
           ufbx_anim_stack *stack = scene->anim_stacks.data[i];
           printf("i stack %s:\n", stack->name.data);
           Animation animation = create_animation_from_ufbx(scene, stack->anim);
@@ -698,7 +700,7 @@ Model create_model(const char *filepath) {
 
    model.meshes.count = 0;
    model.meshes.items = malloc(scene->meshes.count * size_of(model.meshes.items[0]));
-   for (usz node_index = 0; node_index < scene->nodes.count; node_index++) {
+   for (usz node_index = 0; node_index < scene->nodes.count; node_index += 1) {
       ufbx_node *node = scene->nodes.data[node_index];
       if (nullptr == node->mesh) {
          continue;
@@ -754,7 +756,7 @@ Vector3_List bone_positions(const char *filepath, double time) {
    ufbx_scene *scene = ufbx_evaluate_scene(orig_scene, orig_scene->anim, time, &eval_opts, &error);
 
    ufbx_pose* bind_pose = nullptr;
-   for (usz pose_index = 0; pose_index < scene->poses.count; pose_index++) {
+   for (usz pose_index = 0; pose_index < scene->poses.count; pose_index += 1) {
       ufbx_pose* pose = scene->poses.data[pose_index];
       if (pose->is_bind_pose) {
          trace_info("Found bind pose %p", pose);
@@ -778,7 +780,7 @@ Vector3_List bone_positions(const char *filepath, double time) {
       assert(list.count == scene->bones.count);
    }
    list.count = 0;
-   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index++) {
+   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index += 1) {
       auto bone = scene->bones.data[bones_index];
       assert_msg(1 == bone->instances.count, "We're assuming instances is how we get THE (as in only one makes sense for us as this moment) node from a bone");
       auto bone_node = bone->instances.data[0];
@@ -853,7 +855,7 @@ static inline void interpolate_from_keyframes(const typeof(((Joint_Animation *)0
 }
 
 void update_joints_transforms(Joint_List *joint_list, const Animation *animation, double time) {
-   for (u32 i = 0; i < joint_list->count; i++) {
+   for (u32 i = 0; i < joint_list->count; i += 1) {
       const Joint_Animation *ja = &animation->joint_animations.items[i];
 
       Vector3    T = {0.0, 0.0, 0.0};
@@ -928,7 +930,7 @@ Geometry_To_World_List joint_matrices_original(double time) {
    }
    list.count = 0;
    auto joint_list = create_joint_list_from_ufbx_scene(scene);
-   for (usz index = 0; index < joint_list.count; index++) {
+   for (usz index = 0; index < joint_list.count; index += 1) {
       auto joint = &joint_list.joints[index];
       Matrix node_to_world     = joint_calculate_node_to_world_matrix(&joint_list, joint);
       Matrix geometry_to_world = mul(node_to_world, joint->matrices.geometry_to_node);
@@ -973,7 +975,7 @@ Geometry_To_World_List joint_matrices_using_animation(double time) {
    // Iterate over every animation stack (aka. clip/take) in the file
    static Animation animation = {0};
    if (!animation.joint_animations.items) {
-       for (size_t i = 0; i < scene->anim_stacks.count; i++) {
+       for (size_t i = 0; i < scene->anim_stacks.count; i += 1) {
           ufbx_anim_stack *stack = scene->anim_stacks.data[i];
           printf("i stack %s:\n", stack->name.data);
           animation = create_animation_from_ufbx(scene, stack->anim);
@@ -983,7 +985,7 @@ Geometry_To_World_List joint_matrices_using_animation(double time) {
    assert(animation.joint_animations.items);
 
    update_joints_transforms(&joint_list, &animation, time);
-   for (usz index = 0; index < joint_list.count; index++) {
+   for (usz index = 0; index < joint_list.count; index += 1) {
       auto joint = &joint_list.joints[index];
       Matrix node_to_world     = joint_calculate_node_to_world_matrix(&joint_list, joint);
       Matrix geometry_to_world = mul(node_to_world, joint->matrices.geometry_to_node);
@@ -991,7 +993,7 @@ Geometry_To_World_List joint_matrices_using_animation(double time) {
       Matrix scene_hierarchy_matrix = MatrixCompose(joint_list.hierarchy_transform);
       geometry_to_world = mul(scene_hierarchy_matrix, geometry_to_world);
       float16 values = MatrixToFloatV(geometry_to_world);
-      for (int i = 0; i < 16; i++) {
+      for (int i = 0; i < 16; i += 1) {
          if (i == 3 || i == 7 || i == 11 || i == 15) {
             continue;
          }
@@ -1019,7 +1021,7 @@ Geometry_To_World_List joint_matrices_from_animation(Joint_List *joints, const A
    assert(animation->joint_animations.items);
 
    update_joints_transforms(joints, animation, time);
-   for (usz index = 0; index < joints->count; index++) {
+   for (usz index = 0; index < joints->count; index += 1) {
       auto joint = &joints->joints[index];
       Matrix node_to_world = joint_calculate_node_to_world_matrix(joints, joint);
       if (false) {
@@ -1066,23 +1068,23 @@ Geometry_To_World_List joint_matrices_roubadinha(double time) {
 
    ufbx_pose *bind_pose = nullptr;
    auto bind_poses_count = 0;
-   for (usz poses_index = 0; poses_index < scene->poses.count; poses_index++) {
+   for (usz poses_index = 0; poses_index < scene->poses.count; poses_index += 1) {
      auto pose = scene->poses.data[poses_index];
      if (pose->is_bind_pose) {
        bind_pose = pose;
-       bind_poses_count++;
+       bind_poses_count += 1;
      }
    }
 
    assert(bind_pose && bind_poses_count == 1);
 
-   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index++) {
+   for (usz bones_index = 0; bones_index < scene->bones.count; bones_index += 1) {
       auto bone = scene->bones.data[bones_index];
       assert_msg(1 == bone->instances.count, "We're assuming instances is how we get THE (as in only one makes sense for us as this moment) node from a bone");
       auto bone_node = bone->instances.data[0];
 
       ufbx_matrix geometry_to_node = ufbx_identity_matrix;
-      for (usz bone_poses_index = 0; bone_poses_index < bind_pose->bone_poses.count; bone_poses_index++) {
+      for (usz bone_poses_index = 0; bone_poses_index < bind_pose->bone_poses.count; bone_poses_index += 1) {
          auto bone_pose = bind_pose->bone_poses.data[bone_poses_index];
          if (bone_node == bone_pose.bone_node) {
             // geometry_to_node = bone_pose.bone_to_world;
@@ -1092,7 +1094,7 @@ Geometry_To_World_List joint_matrices_roubadinha(double time) {
          }
       }
 
-      for (usz cluster_index = 0; cluster_index < scene->skin_clusters.count; cluster_index++) {
+      for (usz cluster_index = 0; cluster_index < scene->skin_clusters.count; cluster_index += 1) {
          auto cluster = scene->skin_clusters.data[cluster_index];
          if (bone_node == cluster->bone_node) {
             geometry_to_node = cluster->geometry_to_bone;

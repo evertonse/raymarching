@@ -5,7 +5,6 @@ typedef enum {
    BUFFER_TYPE_UNIFORM,
    BUFFER_TYPE_STORAGE,
    BUFFER_TYPE_TEXTURE_BUFFER,
-   // BUFFER_TYPE_DRAW_COMMAND,
 } Buffer_Type;
 
 // NOTE: What I like about not using enum flags is that the full state is valid, from the user's point of view you choose 1 single enum and go to town as theres no possibily of incorrect flags combination.
@@ -474,17 +473,21 @@ bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
 }
 
 void bind_buffer(Buffer* buffer, Buffer_Type type, i64 binding) {
-    GLenum target = 0;
+   GLenum target = 0;
 
-    switch (type) {
-    case BUFFER_TYPE_UNIFORM: target = GL_UNIFORM_BUFFER; break;
-    case BUFFER_TYPE_STORAGE: target = GL_SHADER_STORAGE_BUFFER; break;
-    default: return; // Not bindable
-    }
+   switch (type) {
+      case BUFFER_TYPE_UNIFORM: target = GL_UNIFORM_BUFFER; break;
+      case BUFFER_TYPE_STORAGE: target = GL_SHADER_STORAGE_BUFFER; break;
+      default: return; // Not bindable
+   }
 
-    glBindBufferBase(target, binding, buffer->handle);
-    buffer->binding = binding;
-    buffer->type = type;
+   glBindBufferBase(target, binding, buffer->handle);
+   buffer->binding = binding;
+   buffer->type    = type;
+}
+
+void bind_buffer_draw_indirect(Buffer* buffer) {
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer->handle);
 }
 
 void bind_buffer_view(Buffer* buffer, Buffer_Type type, isz binding, isz offset, isz size) {

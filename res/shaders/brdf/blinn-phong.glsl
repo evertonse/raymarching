@@ -1,8 +1,8 @@
 
 vec3 brdf_blinn_phong(
-      vec3 light_direction, vec3 view_direction, vec3 normal,
-      vec3 diffuse_color,       vec3 specular_color,
-      vec3 light_diffuse_color, vec3 light_specular_color, vec3 light_ambient_color,
+      in vec3 light_direction,     in vec3 view_direction, in vec3 normal,
+      in vec3 diffuse_color,       in vec3 specular_color,
+      in vec3 light_diffuse_color, in vec3 light_specular_color, in vec3 light_ambient_color,
       float specular_exponent
 ) {
 
@@ -40,6 +40,7 @@ vec3 brdf_blinn_phong(
          + (ambient_intesity  * ambient)
    ;
 }
+
 
 float n = 10; // 1 100
 float ior = 1.5; // 1 2.5

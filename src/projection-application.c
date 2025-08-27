@@ -71,7 +71,7 @@ typedef struct {
 
 
 static const char *shader_paths[] = {
-   "res/shaders/default.glsl",
+   "res/shaders/main.glsl",
    "res/shaders/light.glsl",
 };
 
@@ -369,7 +369,7 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
       }
 
       GLint model_location = glGetUniformLocation(shader.handle, "model");
-      for (isz i = 0; i < count_of(positions); i++) {
+      for (isz i = 0; i < count_of(positions); i += 1) {
          Vector3 position = positions[i];
          (void)position;
          if (9 == i) {
@@ -600,20 +600,25 @@ void projection_update(Projection_Application *app, f64 dt) {
 
    static Draw_Index model_draw_index = {0};
    if (0 == model_draw_index.count) {
+      ZString model_filepath = "res/models/mari/source/Mari.fbx";
       begin_profile();
-         ZString model_filepath = "res/models/backpack/backpack.obj";
-         // ZString model_filepath = "res/models/mari/source/Mari.fbx";
+      {
          Model m = create_model(model_filepath);
-      end_profile("create_model");
+         model_draw_index = push_model_to_manager(&m);
+      }
+      end_profile(model_filepath);
+
+      // TODO: Create a destroy function
+      // destroy_model(&m);
 
       begin_profile();
+      {
+         // ZString model_filepath = "res/models/akm-free-lowpoly/source/AK.fbx";
+         model_filepath = "res/models/backpack/backpack.obj";
+         Model m = create_model(model_filepath);
          model_draw_index = push_model_to_manager(&m);
-      end_profile("push model");
-
-      begin_profile();
-         m = create_model("res/models/akm-free-lowpoly/source/AK.fbx");
-         model_draw_index = push_model_to_manager(&m);
-      end_profile("ak create and push model");
+      }
+      end_profile(model_filepath);
    }
 
    const bool draw_with_manager = true;

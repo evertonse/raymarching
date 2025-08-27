@@ -91,12 +91,12 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
    mesh.indices.items = (unsigned int *)ptr;
 
    mesh.vertices.count = vertex_count;
-   mesh.indices.count       = index_count;
+   mesh.indices.count  = index_count;
 
    int v = 0;
-   for (int i = 0; i <= rings; i++) {
+   for (int i = 0; i <= rings; i += 1) {
       float phi = (float)i / rings * M_PI;
-      for (int j = 0; j <= slices; j++) {
+      for (int j = 0; j <= slices; j += 1) {
          float theta = (float)j / slices * 2.0f * M_PI;
 
          float x = sinf(phi) * cosf(theta);
@@ -111,8 +111,8 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
    }
 
    int k = 0;
-   for (int i = 0; i < rings; i++) {
-      for (int j = 0; j < slices; j++) {
+   for (int i = 0; i < rings; i += 1) {
+      for (int j = 0; j < slices; j += 1) {
          int i0 = i * (slices + 1) + j;
          int i1 = i0 + 1;
          int i2 = i0 + slices + 1;
@@ -153,7 +153,7 @@ Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
    mesh.indices.items                = (u32 *)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size);
 
    // At last, fill in the data
-   for (usz i = 0; i < vertex_count; i++) {
+   for (usz i = 0; i < vertex_count; i += 1) {
        const float *v = &interleaved[i * floats_per_vertex];
        mesh.vertices.positions[i] = (Vector3){v[0], v[1], v[2]};
        mesh.vertices.normals [i] = (Vector3){v[3], v[4], v[5]};

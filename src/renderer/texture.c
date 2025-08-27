@@ -190,7 +190,7 @@ Texture create_texture_from_filepath(const char *filepath) {
    result.path = filepath;
 
 #if defined(RENDERER_USING_BINDLESS)
-   trace_info("'%s' %lldx%lld handle = %d bindless_handle = 0x%x loaded.", result.path, result.width, result.height, result.handle, result.bindless_handle);
+   trace_info("'%s' %dx%d handle = %d bindless_handle = 0x%x loaded.", result.path, result.width, result.height, result.handle, result.bindless_handle);
 #endif
 
    stbi_image_free(data);

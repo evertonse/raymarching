@@ -20,5 +20,7 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 - [Blender use SketchLab to export textures correctly](https://www.youtube.com/watch?v=P_Gxefjggu0)
 - [Useful not as common single header libraries](https://github.com/r-lyeh/single_file_libs)
 - [Normal map from albedo](https://github.com/Sir-Irk/si_normalmap)
+- [Normal and Specular map from Siffuse](https://xo3d.co.uk/tools/normal-map-creator/)
+
 
 
