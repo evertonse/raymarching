@@ -387,9 +387,9 @@ void glDebugOutput(GLenum source,
 	const void* userParam)
 {
 	// ignore non-significant error/warning codes
-	if (id == 131169 || id == 131185 || id == 131218 || id == 131204
-		|| id == 131222
-		) return;
+	if (id == 131169 || id == 131185 || id == 131218 || id == 131204 || id == 131222)  {
+      return;
+   }
 	if (type == GL_DEBUG_TYPE_PERFORMANCE) return;
 
 
@@ -425,7 +425,10 @@ void glDebugOutput(GLenum source,
 	case GL_DEBUG_SEVERITY_NOTIFICATION: severity_str = ("notification"); break;
 	}
 
-	trace_info("OpenGL debug message (%d) (severity = %s) (type = ) (source = ) '%s'\n ", id, severity_str, type_str, source_str, message);
+	trace_info(
+      "OpenGL debug message (%d) (severity = %s) (type = %s) (source = %s) '%s'\n ",
+      id, severity_str, type_str, source_str, message
+   );
 }
 
 void enable_error_report() {
@@ -433,18 +436,16 @@ void enable_error_report() {
    glEnable(GL_DEBUG_OUTPUT);
    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
    glDebugMessageCallback(glDebugOutput, nullptr);
-   glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
-   glDebugMessageCallback(0, nullptr);
+   // glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+   // glDebugMessageCallback(0, nullptr);
 }
 
 
 void init_renderer(void) {
    assert_msg(__state.renderer.initialized == false, "Renderer initialized twice?");
-   __state.renderer.initialized  = true;
    int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
-   if (flags & GL_CONTEXT_FLAG_DEBUG_BIT) {
-      enable_error_report();
-   }
+   assert(flags & GL_CONTEXT_FLAG_DEBUG_BIT);
+   enable_error_report();
 
    print_opengl_resource_limits();
 
@@ -461,6 +462,8 @@ void init_renderer(void) {
       // glCullFace(GL_BACK);          // Cull back faces
       glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
    }
+
+   __state.renderer.initialized  = true;
 }
 
 void debug_depth_testing() {

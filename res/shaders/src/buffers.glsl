@@ -38,11 +38,11 @@ layout(std140, binding = 4) uniform Per_Frame {
     float elapsed_time, delta_time;
 } per_frame;
 
-layout(std430, binding = 12) buffer Animation_Matrices {
+layout(std430, binding = 12) buffer Animation_Matrices_Buffer {
    mat4 geometry_to_model[];
 };
 
-layout(std430, binding = 9) buffer Animation_Bones {
+layout(std430, binding = 9) buffer Joint_Buffer {
    Joint_Data joint_data[];
   // for (int i = 0; i < 4; ++i) {
   //       mat4 bone_transform = geometry_to_model[bone_idxs[i]];
@@ -52,6 +52,6 @@ layout(std430, binding = 9) buffer Animation_Bones {
   //   gl_Position = uModelViewProjection * vec4(position, 1.0);
 };
 
-layout(std430, binding = 5) buffer IndexData {
+layout(std430, binding = 5) buffer Indices_Buffer {
    float indices[];
 };

@@ -9,6 +9,7 @@
 
 
 #include "src/renderer/shared/types.glsl"  // DrawCommand is defined here.
+// vec5 firend;
 #include "src/renderer/shared/defines.glsl"
 #include "./src/buffers.glsl"
 
@@ -16,17 +17,16 @@ uniform mat4 view;
 uniform mat4 model;
 uniform mat4 perspective;
 uniform bool is_light;
-uniform int has_animation = -1;
+uniform int  has_animation = -1;
 
 uniform vec3 camera_position;
 uniform vec2 spherical;
-
 
 out Varying {
    vec3 Position;
    vec3 Normal;
    vec2 TextureCoordinate;
-} ;
+};
 
 out Flat {
    flat uint material_index;
@@ -592,8 +592,6 @@ void main() {
    //    color *= vec3(1.0, 0, 1.);
    // }
 
-
-
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
    float attenuation_alpha = clamp(distance_to_view/distance_to_view, 0.2, 1.0);
    // FragColor = vec4(color, attenuation_alpha);
@@ -602,3 +600,4 @@ void main() {
    FragColor.w *= alpha_channel;
 
 }
+#include "./src/comments.glsl"

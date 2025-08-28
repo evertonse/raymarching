@@ -622,7 +622,7 @@ void blend_framebuffers(const Framebuffer *a, const Framebuffer *b, Framebuffer 
          "}"
       };
       Shader_Type types[] = {SHADER_TYPE_VERTEX, SHADER_TYPE_FRAGMENT};
-      blend_shader = create_shader_from_memory(srcs, types, count_of(types));
+      blend_shader = create_shader_from_memory(srcs, types, count_of(types), nullptr);
    }
 
    // Set output framebuffer

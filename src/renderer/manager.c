@@ -411,11 +411,26 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
 // Draw all indices ever created
 void draw_indirect(Shader shader) {
    update_manager_gpu_resources();
+
+   {
+      GLenum err = glGetError();
+      if (err != GL_NO_ERROR) {
+         trace_error("[OpenGL Error] %s update_manager_gpu_resources (0x%X).", __func__, err);
+      }
+   }
+
    assert_msg(is_valid_buffer(manager.draw_commands.buffer), "Draw Comands Buffer is should always be valid in this function");
 
    {
       glBindVertexArray(manager.vao);
       glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
+   }
+
+   {
+      GLenum err = glGetError();
+      if (err != GL_NO_ERROR) {
+         trace_error("[OpenGL Error] %s glBindVertexArray (0x%X).", __func__, err);
+      }
    }
 
    {
@@ -425,8 +440,8 @@ void draw_indirect(Shader shader) {
    }
 
    {
-      auto vertice_size = manager.vertices.count * (2*size_of(Vector3) + size_of(Vector2));
-      bind_buffer_view(&manager.vertices.buffer,  BUFFER_TYPE_STORAGE, 3, 0, vertice_size);
+      auto vertices_size = manager.vertices.count * (2*size_of(Vector3) + size_of(Vector2));
+      bind_buffer_view(&manager.vertices.buffer,  BUFFER_TYPE_STORAGE, 3, 0, vertices_size);
    }
 
    {
@@ -438,7 +453,7 @@ void draw_indirect(Shader shader) {
    {
       GLenum err = glGetError();
       if (err != GL_NO_ERROR) {
-         trace_error("[OpenGL Error] %s buffer stuff failed (0x%X).", __func__, err);
+         trace_error("[OpenGL Error] %s buffer bindings failed (0x%X).", __func__, err);
       }
    }
 
@@ -447,8 +462,14 @@ void draw_indirect(Shader shader) {
       glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vaoBound);
       glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &eboBound);
       glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, &dibBound);
-      if (!vaoBound || !eboBound || !dibBound) {
+      if (!vaoBound || !eboBound || !dibBound
+      ) {
           trace_error("Indirect setup missing: VAO=%d EBO=%d DIB=%d", vaoBound, eboBound, dibBound);
+      }
+
+      GLenum err = glGetError();
+      if (err != GL_NO_ERROR) {
+         trace_error("[OpenGL Error] Before glMultiDrawElementsIndirect (0x%X).", err);
       }
    }
 

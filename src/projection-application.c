@@ -71,8 +71,6 @@ typedef struct {
 
 
 static const char *shader_paths[] = {
-   "res/shaders/main.glsl",
-   "res/shaders/light.glsl",
 };
 
 // __attribute__((overloadable)) // TODO: Check this out on clang extensions plus builtin vecto3 types
@@ -80,12 +78,12 @@ void projection_update_shaders(Projection_Application *app) {
 
    Shader *shader_slots[] = {
       &app->shader,
-      &app->light_shader
+      // &app->light_shader
    };
 
    for (int i = 0; i < count_of(shader_slots); ++i) {
       Shader *s = shader_slots[i];
-      const char *path = shader_paths[i];
+      const char *path = s->path;
 
       bool need_reload = shader_needs_reload(*s);
       bool valid = is_valid_shader(*s);
@@ -263,9 +261,13 @@ void projection_init(Projection_Application *app) {
    app->shader       = shader_invalid;
    app->light_shader = shader_invalid;
 
-   app->shader       = create_shader(shader_paths[0], 0);
    // TODO: Investigate why loading 2 shaders bugs all the paths
-   app->light_shader = create_shader(shader_paths[1], 0);
+
+   {
+      auto main =  "res/shaders/main.glsl";
+      auto light = "res/shaders/light.glsl";
+      app->shader = create_shader(light, 0);
+   }
 
 
 
@@ -469,10 +471,15 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
 void projection_update(Projection_Application *app, f64 dt) {
 
    static GLsync sync = nullptr;
+
+
    if (!sync) {
       trace_warn("Sync object is null");
    }
+
    wait_sync_point(sync);
+
+   update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
 
    static Vector3 light_position = {110.0f,  16.f, 4.0f};
    gui_vector3("Light Position", &light_position);
@@ -516,7 +523,6 @@ void projection_update(Projection_Application *app, f64 dt) {
       *(Vector4*)app->buffer.mapped_ptr = (Vector4){69.0, 70., 71., 72.};
    }
 
-   update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
 
    bind_framebuffer(app->fb);
    if (!is_valid_framebuffer_and_its_textures(app->fb)) {

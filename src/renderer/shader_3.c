@@ -41,21 +41,28 @@ typedef DArray(isz) Isz_DArray;
 
 #define MAX_SHADERS 256
 static Isz_DArray shader_to_paths[MAX_SHADERS] = {0};
+// line mapping: output_line -> {file_path_offset, original_line}
+typedef struct { isz path_offset, original_line; } Line_Map;
+typedef DArray(Line_Map) Line_Map_DArray;;
+
+static Line_Map_DArray shader_line_maps[MAX_SHADERS] = {0};
+
+// Add this to your existing pre_process_shader function - just track line numbers
+static void track_lines(Line_Map_DArray *map, const char *text, isz len, isz path_offset, isz start_line) {
+    isz current_line = start_line;
+    for (isz i = 0; i < len; ++i) {
+        if (text[i] == '\n') {
+            Line_Map entry = {path_offset, current_line++};
+            da_append(map, entry);
+        }
+    }
+}
+
 
 #undef read_file
 #define read_file(x) (char*)cye_read_file(x)
 
 static DString all_unique_paths = {0};
-// Add this structure to track line mappings during preprocessing
-typedef struct {
-    isz output_line;     // Line number in the combined output buffer
-    isz original_line;   // Line number in the original source file
-    isz path_offset;     // Offset into all_unique_paths for the file path
-} Line_Mapping;
-
-typedef DArray(Line_Mapping) Line_Mapping_DArray;
-
-static Line_Mapping_DArray shader_line_mappings[MAX_SHADERS] = {0};
 
 // Returns the start of added string or start of equal but already existing one.
 static isz append_unique_path(ZString path) {
@@ -76,6 +83,7 @@ static isz append_unique_path(ZString path) {
    ds_write_zero(&all_unique_paths);
    return count;
 }
+
 static void print_unique_paths(void) {
    usz count = 0;
    while (count < all_unique_paths.count) {
@@ -86,369 +94,34 @@ static void print_unique_paths(void) {
    }
 }
 
-static bool pre_process_shader_with_line_tracking(
-      const char *path, DString *ds, Isz_DArray *path_offsets,
-      i64 *offset_compute, i64 *offset_fragment, i64 *offset_vertex,
-      Line_Mapping_DArray *line_mappings
-) {
-   static ZString shader_prefix_defines = R"(
-      #ifndef lerp
-         #define lerp mix
-      #endif
+static ZString shader_prefix_defines = R"(
+   #ifndef lerp
+      #define lerp mix
+   #endif
 
-      #ifndef PI
-         #define PI 3.14159265358979323846
-      #endif
+   #ifndef PI
+      #define PI 3.14159265358979323846
+   #endif
 
-      #ifndef TAU
-         #define TAU PI * 2.
-      #endif
+   #ifndef TAU
+      #define TAU PI * 2.
+   #endif
 
-      #ifndef EPSILON
-         #define EPSILON 0.000001
-      #endif
+   #ifndef EPSILON
+      #define EPSILON 0.000001
+   #endif
 
-      #ifndef DEG2RAD
-         #define DEG2RAD (PI/180.0)
-      #endif
+   #ifndef DEG2RAD
+      #define DEG2RAD (PI/180.0)
+   #endif
 
-      #ifndef RAD2DEG
-         #define RAD2DEG (180.0/PI)
-      #endif
-   )";
-
-   char *source = read_file(path);
-   if (!source) {
-      return false;
-   }
-
-   isz string_offset_in_buffer = append_unique_path(path);
-   da_append(path_offsets, string_offset_in_buffer);
-
-   stb_lexer lexer = {0};
-   char store[8192] = {0};
-   stb_c_lexer_init(&lexer, source, source + strlen(source), store, (sizeof store / sizeof store[0]));
-
-   char *start = lexer.parse_point;
-   char *end = lexer.parse_point;
-
-   // Track current line numbers
-   isz current_output_line = 1;
-   isz current_source_line = 1;
-   char *line_start = source;
-
-   // Count lines in output so far
-   for (usz i = 0; i < ds->count; ++i) {
-      if (ds->data[i] == '\n')
-         current_output_line++;
-   }
-
-   while (stb_c_lexer_get_token(&lexer)) {
-      if (lexer.token == '#' && stb_c_lexer_get_token(&lexer)) {
-         if (lexer.token == CLEX_id && strcmp(lexer.string, "include") == 0) {
-            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_dqstring) {
-               const char *include_path = lexer.string;
-
-               // Map lines up to this point
-               char *text_to_add = start;
-               isz text_len = end - start;
-               for (isz i = 0; i < text_len; ++i) {
-                  if (text_to_add[i] == '\n') {
-                     Line_Mapping mapping = {.output_line = current_output_line, .original_line = current_source_line, .path_offset = string_offset_in_buffer};
-                     da_append(line_mappings, mapping);
-                     current_output_line++;
-                     current_source_line++;
-                  }
-               }
-
-               ds_write_buf(ds, start, end - start);
-               start = lexer.parse_point;
-               end = start;
-               ds_write(ds, "\n");
-               current_output_line++; // For the newline we added
-
-               const char *resolved_path = nullptr;
-               if (strlen(lexer.string) >= 2 && include_path[0] == '.' && include_path[1] == PATH_SEPARATOR_CHAR) {
-                  resolved_path = tprintf("%s%s", path_dir_of(path), &include_path[1]);
-               } else {
-                  resolved_path = include_path;
-               }
-
-               if (!pre_process_shader_with_line_tracking(resolved_path, ds, path_offsets, offset_compute, offset_fragment, offset_vertex, line_mappings)) {
-                  return false;
-               }
-
-               // Update output line count after including file
-               current_output_line = 1;
-               for (usz i = 0; i < ds->count; ++i) {
-                  if (ds->data[i] == '\n')
-                     current_output_line++;
-               }
-               current_output_line++; // Next line to be written
-            }
-         } else if (lexer.token == CLEX_id && strcmp(lexer.string, "version") == 0) {
-            if (stb_c_lexer_get_token(&lexer) && lexer.token != CLEX_intlit) {
-               return false;
-            }
-            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id && strcmp(lexer.string, "core") != 0) {
-               return false;
-            }
-
-            // Map lines up to version directive
-            char *text_to_add = start;
-            isz text_len = lexer.parse_point - start;
-            for (isz i = 0; i < text_len; ++i) {
-               if (text_to_add[i] == '\n') {
-                  Line_Mapping mapping = {.output_line = current_output_line, .original_line = current_source_line, .path_offset = string_offset_in_buffer};
-                  da_append(line_mappings, mapping);
-                  current_output_line++;
-                  current_source_line++;
-               }
-            }
-
-            ds_write_buf(ds, start, lexer.parse_point - start);
-            start = lexer.parse_point;
-            end = start;
-            ds_write(ds, shader_prefix_defines);
-
-            // Count lines in the prefix defines
-            for (const char *p = shader_prefix_defines; *p; ++p) {
-               if (*p == '\n')
-                  current_output_line++;
-            }
-
-         } else if (lexer.token == CLEX_id && strcmp(lexer.string, "pragma") == 0) {
-            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id) {
-               if (strcmp(lexer.string, "fragment") == 0) {
-                  if (offset_fragment == nullptr || -1 != *offset_fragment) {
-                     return false;
-                  } else {
-                     // Map remaining lines before pragma
-                     char *text_to_add = start;
-                     isz text_len = end - start;
-                     for (isz i = 0; i < text_len; ++i) {
-                        if (text_to_add[i] == '\n') {
-                           Line_Mapping mapping = {.output_line = current_output_line, .original_line = current_source_line, .path_offset = string_offset_in_buffer};
-                           da_append(line_mappings, mapping);
-                           current_output_line++;
-                           current_source_line++;
-                        }
-                     }
-
-                     ds_write_buf(ds, start, end - start);
-                     start = lexer.parse_point;
-                     end = start;
-                     if (ds->count > 0) {
-                        ds_write_zero(ds);
-                        current_output_line++; // For null terminator treated as newline
-                     }
-                     *offset_fragment = ds->count;
-                  }
-               } else if (strcmp(lexer.string, "vertex") == 0) {
-                  if (offset_vertex == nullptr || -1 != *offset_vertex) {
-                     return false;
-                  } else {
-                     // Similar mapping for vertex
-                     char *text_to_add = start;
-                     isz text_len = end - start;
-                     for (isz i = 0; i < text_len; ++i) {
-                        if (text_to_add[i] == '\n') {
-                           Line_Mapping mapping = {.output_line = current_output_line, .original_line = current_source_line, .path_offset = string_offset_in_buffer};
-                           da_append(line_mappings, mapping);
-                           current_output_line++;
-                           current_source_line++;
-                        }
-                     }
-
-                     ds_write_buf(ds, start, end - start);
-                     start = lexer.parse_point;
-                     end = start;
-                     if (ds->count > 0) {
-                        ds_write_zero(ds);
-                        current_output_line++;
-                     }
-                     *offset_vertex = ds->count;
-                  }
-               }
-            }
-         }
-      }
-
-      // Count newlines between tokens
-      while (line_start < lexer.parse_point) {
-         if (*line_start == '\n') {
-            current_source_line++;
-         }
-         line_start++;
-      }
-
-      end = lexer.parse_point;
-   }
-
-   // Map remaining lines
-   char *text_to_add = start;
-   isz text_len = end - start;
-   for (isz i = 0; i < text_len; ++i) {
-      if (text_to_add[i] == '\n') {
-         Line_Mapping mapping = {.output_line = current_output_line, .original_line = current_source_line, .path_offset = string_offset_in_buffer};
-         da_append(line_mappings, mapping);
-         current_output_line++;
-         current_source_line++;
-      }
-   }
-
-   ds_write_buf(ds, start, end - start);
-   free(source);
-   return true;
-}
-
-// Function to find the source file and line for a given output line
-static bool find_original_location(Line_Mapping_DArray mappings, isz output_line, char** out_file_path, isz* out_original_line) {
-   // Find the mapping that corresponds to this output line
-   Line_Mapping best_match = {0};
-   bool found = false;
-
-   for (usz i = 0; i < mappings.count; ++i) {
-      Line_Mapping mapping = mappings.items[i];
-      if (mapping.output_line <= output_line) {
-         if (!found || mapping.output_line > best_match.output_line) {
-            best_match = mapping;
-            found = true;
-         }
-      }
-   }
-
-   if (found) {
-      *out_file_path = (char *)all_unique_paths.data + best_match.path_offset;
-      // Calculate the offset from the mapped line
-      isz line_offset = output_line - best_match.output_line;
-      *out_original_line = best_match.original_line + line_offset;
-      return true;
-   }
-
-   return false;
-}
-
-// Main function to parse OpenGL error messages and map them to original files
-char* parse_shader_error_with_file_mapping(GLuint shader_handle, const char* opengl_error_log) {
-   if (shader_handle >= MAX_SHADERS || shader_line_mappings[shader_handle].count == 0) {
-      return tprintf("Error: No line mapping data for shader %u", shader_handle);
-   }
-
-   Line_Mapping_DArray mappings = shader_line_mappings[shader_handle];
-   DString result = {0};
-
-   // Parse the error log line by line
-   const char *line_start = opengl_error_log;
-   const char *line_end;
-
-   while (*line_start != '\0') {
-      line_end = strchr(line_start, '\n');
-      if (!line_end)
-         line_end = line_start + strlen(line_start);
-
-      // Copy current line to work with
-      isz line_len = line_end - line_start;
-      char *current_line = (char *)talloc(line_len + 1);
-      strncpy(current_line, line_start, line_len);
-      current_line[line_len] = '\0';
-
-      // Use stb_lexer to parse the error line
-      stb_lexer lexer = {0};
-      char store[1024] = {0};
-      stb_c_lexer_init(&lexer, current_line, current_line + strlen(current_line), store, sizeof(store) / sizeof(store[0]));
-
-      bool found_error = false;
-      isz error_line = -1;
-      char error_code[32] = {0};
-      char error_message[512] = {0};
-
-      // Parse format: "0(163) : error C1038: message"
-      while (stb_c_lexer_get_token(&lexer)) {
-         if (lexer.token == CLEX_intlit && !found_error) {
-            // Skip the first number (usually 0)
-            if (stb_c_lexer_get_token(&lexer) && lexer.token == '(') {
-               if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_intlit) {
-                  error_line = strtoll(lexer.string, NULL, 10);
-                  found_error = true;
-
-                  // Skip to error code and message
-                  while (stb_c_lexer_get_token(&lexer)) {
-                     if (lexer.token == CLEX_id && strncmp(lexer.string, "error", 5) == 0) {
-                        if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id) {
-                           strncpy(error_code, lexer.string, sizeof(error_code) - 1);
-                        }
-                        // Rest of the line is the error message
-                        const char *msg_start = lexer.parse_point;
-                        while (*msg_start == ' ' || *msg_start == ':')
-                           msg_start++;
-                        strncpy(error_message, msg_start, sizeof(error_message) - 1);
-                        break;
-                     }
-                  }
-                  break;
-               }
-            }
-         }
-      }
-
-      if (found_error && error_line > 0) {
-         char *original_file = nullptr;
-         isz original_line = 0;
-
-         if (find_original_location(mappings, error_line, &original_file, &original_line)) {
-            ds_printf(&result, "%s:%lld : %s (%s)\n", original_file, (long long)original_line, error_message, error_code);
-         } else {
-            ds_printf(&result, "line %lld : %s (%s) [mapping not found]\n", (long long)error_line, error_message, error_code);
-         }
-      } else {
-         // Keep original line if we couldn't parse it
-         ds_write_buf(&result, current_line, line_len);
-         ds_write(&result, "\n");
-      }
-
-      line_start = (*line_end == '\n') ? line_end + 1 : line_end;
-   }
-
-   ds_write_zero(&result);
-   char *final_result = (char *)malloc(result.count);
-   memcpy(final_result, result.data, result.count);
-   ds_free(result);
-
-   return final_result;
-}
-
-
-
+   #ifndef RAD2DEG
+      #define RAD2DEG (180.0/PI)
+   #endif
+)";
 
 // i64 *offset_* gets filled with the offset to the dynamic string data buffer for that type. It gets detected from reading #pragma type
 static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_offets, i64 *offset_compute, i64 *offset_fragment, i64 *offset_vertex) {
-   static ZString shader_prefix_defines = R"(
-      #ifndef lerp
-         #define lerp mix
-      #endif
-
-      #ifndef PI
-         #define PI 3.14159265358979323846
-      #endif
-
-      #ifndef TAU
-         #define TAU PI * 2.
-      #endif
-
-      #ifndef EPSILON
-         #define EPSILON 0.000001
-      #endif
-
-      #ifndef DEG2RAD
-         #define DEG2RAD (PI/180.0)
-      #endif
-
-      #ifndef RAD2DEG
-         #define RAD2DEG (180.0/PI)
-      #endif
-   )";
-
    char *source = read_file(path);
    if (!source) {
       return false;
@@ -458,8 +131,7 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
 
    stb_lexer lexer = {0};
    char store[8192] = {0}; // WARNING: @Big Max possible path string in #include that we can read
-   assert((sizeof store / sizeof store[0]) == 8192);
-   stb_c_lexer_init(&lexer, source, source + strlen(source), store, (sizeof store / sizeof store[0]));
+   stb_c_lexer_init(&lexer, source, source + strlen(source), store, count_of(store));
 
    char *start = lexer.parse_point;
    char *end   = lexer.parse_point;
@@ -544,12 +216,171 @@ static bool pre_process_shader(const char *path, DString *ds, Isz_DArray *path_o
    return true;
 }
 
-inline bool is_valid_shader(Shader shader) {
-   return INVALID_SHADER_HANDLE != shader.handle;
-   // TODO: Should we compare with 0 too? Also why does this break preprocess with seemingly unrelated error:?
-   // Failed to open file: res/shaders/buffers/buffers/positions_xyz.glsl
-   // src/renderer/./shader.c:146: Assertion Failure: `false` TODO handle pre_process_shader failure
-   // return INVALID_SHADER_HANDLE != shader.handle && shader.handle != 0;
+static bool pre_process_shader_tracked(const char *path, DString *ds, Isz_DArray *path_offsets, i64 *offset_compute, i64 *offset_fragment, i64 *offset_vertex, Line_Map_DArray *line_map) {
+   char *source = read_file(path);
+   if (!source)
+      return false;
+
+   isz path_offset = append_unique_path(path);
+   da_append(path_offsets, path_offset);
+
+   stb_lexer lexer = {0};
+   char store[8192] = {0};
+   stb_c_lexer_init(&lexer, source, source + strlen(source), store, sizeof(store));
+
+   char *start = lexer.parse_point, *end = start;
+   isz current_src_line = 1;
+
+   while (stb_c_lexer_get_token(&lexer)) {
+      if (lexer.token == '#' && stb_c_lexer_get_token(&lexer)) {
+         if (lexer.token == CLEX_id && strcmp(lexer.string, "include") == 0) {
+            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_dqstring) {
+               // Track lines in current chunk
+               track_lines(line_map, start, end - start, path_offset, current_src_line);
+
+               ds_write_buf(ds, start, end - start);
+               ds_write(ds, "\n");
+               Line_Map newline_entry = {path_offset, current_src_line};
+               da_append(line_map, newline_entry);
+
+               const char *inc_path = (lexer.string[0] == '.' && lexer.string[1] == PATH_SEPARATOR_CHAR) ? tprintf("%s%s", path_dir_of(path), &lexer.string[1]) : lexer.string;
+
+               if (!pre_process_shader_tracked(inc_path, ds, path_offsets, offset_compute, offset_fragment, offset_vertex, line_map)) {
+                  free(source);
+                  return false;
+               }
+               start = end = lexer.parse_point;
+            }
+         } else if (lexer.token == CLEX_id && strcmp(lexer.string, "version") == 0) {
+            stb_c_lexer_get_token(&lexer); // skip version number
+            stb_c_lexer_get_token(&lexer); // skip "core"
+
+            track_lines(line_map, start, lexer.parse_point - start, path_offset, current_src_line);
+            ds_write_buf(ds, start, lexer.parse_point - start);
+            ds_write(ds, shader_prefix_defines);
+
+            // Count newlines in prefix defines - these don't map to any source file
+            for (const char *p = shader_prefix_defines; *p; ++p) {
+               if (*p == '\n') {
+                  Line_Map dummy = {path_offset, 0}; // Mark as synthetic line
+                  da_append(line_map, dummy);
+               }
+            }
+            start = end = lexer.parse_point;
+         } else if (lexer.token == CLEX_id && strcmp(lexer.string, "pragma") == 0) {
+            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id) {
+               if (strcmp(lexer.string, "fragment") == 0 && offset_fragment && *offset_fragment == -1) {
+                  track_lines(line_map, start, end - start, path_offset, current_src_line);
+                  ds_write_buf(ds, start, end - start);
+                  if (ds->count > 0)
+                     ds_write_zero(ds);
+                  *offset_fragment = ds->count;
+                  start = end = lexer.parse_point;
+               } else if (strcmp(lexer.string, "vertex") == 0 && offset_vertex && *offset_vertex == -1) {
+                  track_lines(line_map, start, end - start, path_offset, current_src_line);
+                  ds_write_buf(ds, start, end - start);
+                  if (ds->count > 0)
+                     ds_write_zero(ds);
+                  *offset_vertex = ds->count;
+                  start = end = lexer.parse_point;
+               }
+            }
+         }
+      }
+
+      // Count source lines
+      while (start < lexer.parse_point) {
+         if (*start == '\n')
+            current_src_line++;
+         start++;
+      }
+      start = lexer.parse_point;
+      end = lexer.parse_point;
+   }
+
+   // Track remaining lines
+   track_lines(line_map, start, end - start, path_offset, current_src_line);
+   ds_write_buf(ds, start, end - start);
+   free(source);
+   return true;
+}
+
+// Parse OpenGL error and map to original files
+char* map_shader_error(GLuint handle, const char* error_log) {
+   if (handle >= MAX_SHADERS || shader_line_maps[handle].count == 0) {
+      return strdup(error_log);
+   }
+
+   Line_Map_DArray map = shader_line_maps[handle];
+   DString result = {0};
+
+   // Process each line of the error log
+   const char *line_start = error_log;
+   while (*line_start) {
+      const char *line_end = strchr(line_start, '\n');
+      if (!line_end)
+         line_end = line_start + strlen(line_start);
+
+      isz line_len = line_end - line_start;
+      char *line_copy = (char *)talloc(line_len + 1);
+      memcpy(line_copy, line_start, line_len);
+      line_copy[line_len] = '\0';
+
+      // Use STB lexer to parse this line
+      stb_lexer lex = {0};
+      char store[256];
+      stb_c_lexer_init(&lex, line_copy, line_copy + line_len, store, sizeof(store));
+
+      isz error_line = -1;
+      bool found_error_pattern = false;
+
+      // Look for pattern: number '(' number ')' ':'
+      while (stb_c_lexer_get_token(&lex)) {
+         if (lex.token == CLEX_intlit) {
+            // Skip first number (usually 0)
+            if (stb_c_lexer_get_token(&lex) && lex.token == '(') {
+               if (stb_c_lexer_get_token(&lex) && lex.token == CLEX_intlit) {
+                  error_line = (isz)strtoll(lex.string, NULL, 10);
+                  if (stb_c_lexer_get_token(&lex) && lex.token == ')') {
+                     if (stb_c_lexer_get_token(&lex) && lex.token == ':') {
+                        found_error_pattern = true;
+                        break;
+                     }
+                  }
+               }
+            }
+         }
+      }
+
+      if (found_error_pattern && error_line > 0 && error_line <= (isz)map.count) {
+         Line_Map entry = map.items[error_line - 1];
+         if (entry.original_line > 0) { // Skip synthetic lines
+            char *file_path = (char *)all_unique_paths.data + entry.path_offset;
+
+            // Find the rest of the error message after ':'
+            const char *msg_start = lex.parse_point;
+            while (*msg_start == ' ')
+               msg_start++; // Skip spaces
+
+            ds_printf(&result, "%s:%lld : %s\n", file_path, (long long)entry.original_line, msg_start);
+         } else {
+            // Synthetic line, keep original
+            ds_write_buf(&result, line_copy, line_len);
+            ds_write(&result, "\n");
+         }
+      } else {
+         // Couldn't parse or map, keep original line
+         ds_write_buf(&result, line_copy, line_len);
+         ds_write(&result, "\n");
+      }
+
+      line_start = (*line_end == '\n') ? line_end + 1 : line_end;
+   }
+
+   ds_write_zero(&result);
+   char *ret = strdup((char *)result.data);
+   ds_free(result);
+   return ret;
 }
 
 Shader create_shader_from_memory(const u8** sources, const Shader_Type* types, usize count) {
@@ -585,7 +416,7 @@ Shader create_shader_from_memory(const u8** sources, const Shader_Type* types, u
          char* log = (char*)malloc(log_length);
          glGetShaderInfoLog(shader_handle, log_length, NULL, log);
          // TODO: Make this error line take into acount the include files
-         trace_error("Shader compile error (type %u):\nOpenGL says: %s\n", type, log);
+         trace_error("Shader compile error (type %u):\nOpenGL says: %s\n", type, map_shader_error(0, log));
          free(log);
 
          glDeleteShader(shader_handle);
@@ -645,8 +476,101 @@ Shader create_shader_single_from_memory(u8* source, Shader_Type type) {
    return result;
 }
 
-// Create and pre_process and compile the shader
-Shader create_shader_normally(const char* path, Shader_Type type) {
+
+// With mapping
+Shader create_shader(const char* path, Shader_Type type) {
+   DString ds = {0};
+   Isz_DArray path_offsets = {0};
+   Line_Map_DArray line_map = {0};
+   isz output_line = 1;
+   Shader result = shader_invalid;
+   i64 offset_compute = -1, offset_fragment = -1, offset_vertex = -1;
+
+   auto checkpoint = tsave();
+
+   if (pre_process_shader_tracked(path, &ds, &path_offsets, &offset_compute, &offset_fragment, &offset_vertex, &line_map)) {
+      ds_write_zero(&ds);
+
+      Shader_Type types[MAX_SHADER_TYPES] = {0};
+      const u8 *sources[MAX_SHADER_TYPES] = {0};
+      usz count = 0;
+
+      if (offset_compute != -1) {
+         sources[count] = &ds.data[offset_compute];
+         types[count] = COMPUTE_SHADER;
+         count += 1;
+      }
+
+      if (offset_fragment != -1) {
+         sources[count] = &ds.data[offset_fragment];
+         types[count] = FRAGMENT_SHADER;
+         count += 1;
+      }
+
+      if (offset_vertex != -1) {
+         sources[count] = &ds.data[offset_vertex];
+         types[count] = VERTEX_SHADER;
+         count += 1;
+      }
+
+      trace_info("offset_compute = %d, offset_fragment = %d, offset_vertex = %d\n", offset_compute, offset_fragment, offset_vertex);
+
+      // No type detected from pre_process at all
+      if (-1 == offset_compute && -1 == offset_fragment && -1 == offset_vertex) {
+         result = create_shader_single_from_memory(ds.data, type);
+      } else {
+         for (size_t i = 0; i < count; i++) {
+            make_dirs("src/assets/shaders/output/ignore/");
+            write_file(tprintf("src/assets/shaders/output/ignore/(%d)type-%d.glsl", count, types[i]), (ZString)sources[i], strlen((ZString)sources[i]));
+         }
+         result = create_shader_from_memory(sources, types, count);
+      }
+
+      result.path = path;
+   }
+   trestore(checkpoint);
+
+   if (INVALID_SHADER_HANDLE != result.handle) {
+      usz checkpoint = tsave();
+      {
+         TString time_path = tprintf("%s.time", path_stem(path));
+         String_Slice msg = ss_from_zstr("This file is just to mark time_t when the shader was compiled");
+         write_file(time_path, msg.data, msg.size);
+      }
+      trestore(checkpoint);
+
+      write_file("src/assets/shaders/output/success-dump.glsl", ds.data, ds.size);
+
+      if (result.handle < MAX_SHADERS) {
+         shader_line_maps[result.handle] = line_map; // Store the mapping
+         shader_to_paths[result.handle] = path_offsets;
+         trace_struct(shader_line_maps[result.handle]);
+      } else {
+         da_free(line_map);
+         da_free(path_offsets);
+      }
+   } else {
+      write_file("src/assets/shaders/output/failed-dump.glsl", ds.data, ds.size);
+      da_free(path_offsets);
+      da_free(line_map);
+   }
+
+   ds_free(ds);
+   return result;
+}
+
+inline bool is_valid_shader(Shader shader) {
+   return INVALID_SHADER_HANDLE != shader.handle;
+   // TODO: Should we compare with 0 too? Also why does this break preprocess with seemingly unrelated error:?
+   // Failed to open file: res/shaders/buffers/buffers/positions_xyz.glsl
+   // src/renderer/./shader.c:146: Assertion Failure: `false` TODO handle pre_process_shader failure
+   // return INVALID_SHADER_HANDLE != shader.handle && shader.handle != 0;
+}
+
+
+
+// Create and preprocess and compile the shader
+Shader create_shader_normal(const char* path, Shader_Type type) {
    DString ds = {0};
    Isz_DArray path_offsets = {0};
    Shader result = shader_invalid;
@@ -719,63 +643,6 @@ Shader create_shader_normally(const char* path, Shader_Type type) {
    ds_free(ds);
    return result;
 }
-
-// Modified create_shader function to use line tracking
-Shader create_shader(const char* path, Shader_Type type) {
-   DString ds = {0};
-   Isz_DArray path_offsets = {0};
-   Line_Mapping_DArray line_mappings = {0};
-   Shader result = shader_invalid;
-   i64 offset_compute = -1, offset_fragment = -1, offset_vertex = -1;
-
-   auto checkpoint = tsave();
-   if (pre_process_shader_with_line_tracking(path, &ds, &path_offsets, &offset_compute, &offset_fragment, &offset_vertex, &line_mappings)) {
-      ds_write_zero(&ds);
-
-      Shader_Type types[MAX_SHADER_TYPES] = {0};
-      const u8 *sources[MAX_SHADER_TYPES] = {0};
-      usz count = 0;
-
-      if (offset_compute != -1) {
-         sources[count] = &ds.data[offset_compute];
-         types[count] = COMPUTE_SHADER;
-         count += 1;
-      }
-
-      if (offset_fragment != -1) {
-         sources[count] = &ds.data[offset_fragment];
-         types[count] = FRAGMENT_SHADER;
-         count += 1;
-      }
-
-      if (offset_vertex != -1) {
-         sources[count] = &ds.data[offset_vertex];
-         types[count] = VERTEX_SHADER;
-         count += 1;
-      }
-
-      if (-1 == offset_compute && -1 == offset_fragment && -1 == offset_vertex) {
-         result = create_shader_single_from_memory(ds.data, type);
-      } else {
-         result = create_shader_from_memory(sources, types, count);
-      }
-
-      if (INVALID_SHADER_HANDLE != result.handle && result.handle < MAX_SHADERS) {
-         shader_line_mappings[result.handle] = line_mappings;
-         shader_to_paths[result.handle] = path_offsets;
-      } else {
-         da_free(line_mappings);
-         da_free(path_offsets);
-      }
-
-      result.path = path;
-   }
-   trestore(checkpoint);
-
-   ds_free(ds);
-   return result;
-}
-
 
 // TODO: Move this faster implementation to cye.h
 #if defined(PLATFORM_WINDOWS) || defined(PLATFORM_MINGW)

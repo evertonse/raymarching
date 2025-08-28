@@ -136,7 +136,6 @@
 #endif
 
 #define internal   static
-#define local      static
 #define file_scope static
 #define fallthrough /* nothing */
 
@@ -370,7 +369,7 @@
 #endif
 
 #ifndef CYE_MAX_TRACE_LOG_MSG_LENGTH
-#   define CYE_MAX_TRACE_LOG_MSG_LENGTH 1024
+#   define CYE_MAX_TRACE_LOG_MSG_LENGTH megabytes(1)
 #endif
 
 #ifndef CYE_PATH_MAX
@@ -4700,14 +4699,15 @@ void cye_set_trace_level(Cye_Log_Level level) {
     cye_threshold_log_level = level;
 }
 
-// TODO: Add colors from nabs.h
-void cye_trace_log(Cye_Log_Level level, ZString fmt, ...) {
+// DONE: Add colors from nabs.h
+void cye_trace_log_old(Cye_Log_Level level, ZString fmt, ...) {
     // Level below current threshold, don't log anythin
     if (level < cye_threshold_log_level) return;
 
     va_list args;
     va_start(args, fmt);
-    char buffer[CYE_MAX_TRACE_LOG_MSG_LENGTH] = { 0 };
+    // TODO: Maybe make this dynamic? We have certainly hit the previous limit before and theres no warning about that.
+    static char buffer[CYE_MAX_TRACE_LOG_MSG_LENGTH] = { 0 };
 
     ZString color = "";
     ZString reset = "";
@@ -4774,6 +4774,85 @@ void cye_trace_log(Cye_Log_Level level, ZString fmt, ...) {
         exit(EXIT_FAILURE);
     }
 }
+
+void cye_trace_log(Cye_Log_Level level, ZString fmt, ...) {
+    if (level < cye_threshold_log_level) return;
+
+    va_list args;
+    va_start(args, fmt);
+
+    ZString color = "", reset = "", bold = "";
+    switch (level) {
+        case CYE_LOG_DEBUG:   color = ESCAPE_CODE_OKCYAN;  reset = ESCAPE_CODE_RESET; break;
+        case CYE_LOG_INFO:    color = ESCAPE_CODE_LOG;     reset = ESCAPE_CODE_RESET; break;
+        case CYE_LOG_OKAY:    color = ESCAPE_CODE_OKGREEN; reset = ESCAPE_CODE_RESET; break;
+        case CYE_LOG_WARNING: color = ESCAPE_CODE_WARNING; reset = ESCAPE_CODE_RESET; break;
+        case CYE_TRACE_ERROR: color = ESCAPE_CODE_ERROR;   reset = ESCAPE_CODE_RESET; break;
+        case CYE_LOG_FATAL:   color = ESCAPE_CODE_ERROR;   reset = ESCAPE_CODE_RESET; bold = ESCAPE_CODE_BOLD; break;
+        default: break;
+    }
+
+#if !defined(PLATFORM_WINDOWS)
+    if (!isatty(STDOUT_FILENO)) {
+        color = reset = bold = "";
+    }
+#else
+    if (GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) != FILE_TYPE_CHAR) {
+        color = reset = bold = "";
+    }
+#endif
+
+    // first, build the prefix into a small stack buffer
+    char prefix[512/2];
+    switch (level) {
+        case CYE_LOG_TRACE:   snprintf(prefix, sizeof(prefix), "%sTRACE%s%s: ", color, reset, bold); break;
+        case CYE_LOG_DEBUG:   snprintf(prefix, sizeof(prefix), "%sDEBUG%s%s: ", color, reset, bold); break;
+        case CYE_LOG_INFO:    snprintf(prefix, sizeof(prefix), "%sINFO%s%s:  ", color, reset, bold); break;
+        case CYE_LOG_OKAY:    snprintf(prefix, sizeof(prefix), "%sOKAY%s%s:  ", color, reset, bold); break;
+        case CYE_LOG_WARNING: snprintf(prefix, sizeof(prefix), "%sWARN%s%s:  ", color, reset, bold); break;
+        case CYE_TRACE_ERROR: snprintf(prefix, sizeof(prefix), "%sERROR%s%s: ", color, reset, bold); break;
+        case CYE_LOG_FATAL:   snprintf(prefix, sizeof(prefix), "%sFATAL%s%s: ", color, reset, bold); break;
+        case CYE_LOG_ALL:     snprintf(prefix, sizeof(prefix), "%sALL%s%s:   ", color, reset, bold); break;
+        case CYE_LOG_NONE:    va_end(args); return;
+        default: cye_unreachable("cye_trace_log");
+    }
+
+    // figure out required size
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int needed = vsnprintf(NULL, 0, fmt, args_copy);
+    va_end(args_copy);
+
+    if (needed < 0) { va_end(args); return; }
+
+    usz total_len = strlen(prefix) + (usz)needed + 2; // + newline + NUL
+
+
+    static char static_buffer[CYE_MAX_TRACE_LOG_MSG_LENGTH] = { 0 };
+    char *buffer = static_buffer;
+
+    isz checkpoint = cye_temp_save();
+    const bool use_temporary_memory = false;
+    if (use_temporary_memory) {
+        char *buffer = cye_talloc(total_len);
+        if (NULL == buffer) { va_end(args); return; }
+    }
+
+    snprintf(buffer, total_len, "%s", prefix);
+    vsnprintf(buffer + strlen(prefix), total_len - strlen(prefix), fmt, args);
+    strcat(buffer, "\n");
+
+    fputs(buffer, stdout);
+    fputs(reset, stdout);
+    fflush(stdout);
+
+    va_end(args);
+    cye_temp_restore(checkpoint);
+
+
+    if (level == CYE_LOG_FATAL) exit(EXIT_FAILURE);
+}
+
 
 void cye__assert_handler(char const *prefix, char const *condition, char const *file, int line, char const *msg, ...) {
     fprintf(stderr, "%s:%d: %s: ", file, line, prefix);
