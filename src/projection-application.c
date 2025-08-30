@@ -270,9 +270,7 @@ void projection_init(Projection_Application *app) {
    }
 
 
-
-   app->shader_countdown_to_reload = create_countdown(0.12, true);
-
+   app->shader_countdown_to_reload = create_countdown(0.19, true);
 
    // app->fb = create_framebuffer(1600, 800);
    // app->fb = create_framebuffer_multisample(1600, 800, 16);
@@ -470,8 +468,12 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
 
 void projection_update(Projection_Application *app, f64 dt) {
 
-   static GLsync sync = nullptr;
+   update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
+   if (!is_valid_shader(app->shader)) {
+      return;
+   }
 
+   static GLsync sync = nullptr;
 
    if (!sync) {
       trace_warn("Sync object is null");
@@ -479,7 +481,6 @@ void projection_update(Projection_Application *app, f64 dt) {
 
    wait_sync_point(sync);
 
-   update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
 
    static Vector3 light_position = {110.0f,  16.f, 4.0f};
    gui_vector3("Light Position", &light_position);

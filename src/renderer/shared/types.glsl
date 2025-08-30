@@ -24,6 +24,12 @@ struct Material {
    uvec2 normal_handle;
 };
 
+#ifdef COCK
+
+#endif
+// #include "res/shaders/src/comments.glsl"
+// #include "res/shaders/src/comments.glsl"
+
 
 struct Joint_Data {
    ivec4 joint_idxs;     // index into geometry_to_model
@@ -65,3 +71,7 @@ struct Joint_Data {
 #define SHARED_TYPES_HEADER
 
 #endif // SHARED_TYPES_HEADER
+#ifdef COCK
+#include "res/shaders/src/comments.glsl"
+#endif
+// types.glsl end

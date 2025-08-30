@@ -1,17 +1,16 @@
 #pragma vertex
 #version 460 core
-
+// We're here
+#include "src/renderer/shared/defines.glsl"
+#include "./src/comments.glsl"
+#include "./src/comments.glsl"
 // NOTE: Not doing vertex pulling is incorrect right now. Vertex Pulling ONLY
 // layout(location = 0) in vec3 position;
 // layout(location = 1) in vec3 normal;
 // layout(location = 2) in vec2 uv;
-
-
-
 #include "src/renderer/shared/types.glsl"  // DrawCommand is defined here.
-// vec5 firend;
-#include "src/renderer/shared/defines.glsl"
 #include "./src/buffers.glsl"
+
 
 uniform mat4 view;
 uniform mat4 model;
@@ -31,7 +30,6 @@ out Varying {
 out Flat {
    flat uint material_index;
 };
-
 
 #include "./src/coordinates.glsl"
 #include "./src/remaps.glsl"
@@ -173,6 +171,7 @@ void main() {
 
    TextureCoordinate = uv;
 }
+
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //...................................................................................//

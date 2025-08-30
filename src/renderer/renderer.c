@@ -67,13 +67,13 @@ inline bool is_valid_vertex_array(Vertex_Array va) {
        return false;
     }
 
-    #ifdef _DEBUG
+#ifdef RENDERER_DEBUG
     GLint va_valid;
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &va_valid);
     return va_valid == va.handle;
-    #else
+#else
     return true;
-    #endif
+#endif
 }
 
 
@@ -386,11 +386,18 @@ void glDebugOutput(GLenum source,
 	const char* message,
 	const void* userParam)
 {
-	// ignore non-significant error/warning codes
-	if (id == 131169 || id == 131185 || id == 131218 || id == 131204 || id == 131222)  {
+   if (
+       // id == 131169 || // Framebuffer detailed info: The driver allocated storage for renderbuffer [X].
+       id == 131185 || // Buffer detailed info: The driver is using video memory for buffer [X].
+       // id == 131218 || // Program/shader state performance warning: Fragment shader in program [X] is being recompiled based on state.
+       // id == 131204 || // Texture state usage warning: Texture [X] is base level inconsistent. Level [0] has inconsistent dimensions or formats.
+       // id == 131154 ||    // Pixel-path performance warning: Pixel transfer is synchronized with 3D rendering.
+       0
+   ) {
       return;
    }
-	if (type == GL_DEBUG_TYPE_PERFORMANCE) return;
+
+	// if (type == GL_DEBUG_TYPE_PERFORMANCE) return;
 
 
    const char* source_str = "unknown";
@@ -406,23 +413,23 @@ void glDebugOutput(GLenum source,
 
    const char* type_str = "unknown";
 	switch (type) {
-	case GL_DEBUG_TYPE_ERROR:               type_str = ("Error"); break;
-	case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: type_str = ("Deprecated Behaviour"); break;
-	case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  type_str = ("Undefined Behaviour"); break;
-	case GL_DEBUG_TYPE_PORTABILITY:         type_str = ("Portability"); break;
-	case GL_DEBUG_TYPE_PERFORMANCE:         type_str = ("Performance"); break;
-	case GL_DEBUG_TYPE_MARKER:              type_str = ("Marker"); break;
-	case GL_DEBUG_TYPE_PUSH_GROUP:          type_str = ("Push Group"); break;
-	case GL_DEBUG_TYPE_POP_GROUP:           type_str = ("Pop Group"); break;
-	case GL_DEBUG_TYPE_OTHER:               type_str = ("Other"); break;
+      case GL_DEBUG_TYPE_ERROR:               type_str = ("Error"); break;
+      case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: type_str = ("Deprecated Behaviour"); break;
+      case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  type_str = ("Undefined Behaviour"); break;
+      case GL_DEBUG_TYPE_PORTABILITY:         type_str = ("Portability"); break;
+      case GL_DEBUG_TYPE_PERFORMANCE:         type_str = ("Performance"); break;
+      case GL_DEBUG_TYPE_MARKER:              type_str = ("Marker"); break;
+      case GL_DEBUG_TYPE_PUSH_GROUP:          type_str = ("Push Group"); break;
+      case GL_DEBUG_TYPE_POP_GROUP:           type_str = ("Pop Group"); break;
+      case GL_DEBUG_TYPE_OTHER:               type_str = ("Other"); break;
 	}
 
    const char* severity_str = "unknown";
 	switch (severity) {
-	case GL_DEBUG_SEVERITY_HIGH:         severity_str = ("high"); break;
-	case GL_DEBUG_SEVERITY_MEDIUM:       severity_str = ("medium"); break;
-	case GL_DEBUG_SEVERITY_LOW:          severity_str = ("low"); break;
-	case GL_DEBUG_SEVERITY_NOTIFICATION: severity_str = ("notification"); break;
+      case GL_DEBUG_SEVERITY_HIGH:         severity_str = ("high"); break;
+      case GL_DEBUG_SEVERITY_MEDIUM:       severity_str = ("medium"); break;
+      case GL_DEBUG_SEVERITY_LOW:          severity_str = ("low"); break;
+      case GL_DEBUG_SEVERITY_NOTIFICATION: severity_str = ("notification"); break;
 	}
 
 	trace_info(

@@ -798,15 +798,13 @@ ZString cye_path_relative(ZString from, ZString target);          // Returns rel
 bool    cye_path_equals(ZString path1, ZString path2);            // Returns true if they point to the same file considering different strings can resolve to the same file
 
 
-
-
 ZString cye_path_home(void);                                      //  Return home
 ZString cye_path_cwd(void);                                       //  Return current directory
 ZString cye_path_parent(ZString path);                            //  Returns parent directory
 ZString cye_path_owner(ZString path);                             //  Returns parent directory
 TString cye_path_stem(ZString file_path);                         //  Return path without extension
 ZString cye_path_dir_of(ZString file_path);                       //  Return directory where file is, if it's already an directory it return its self
-ZString cye_path_ext(ZString path);                               //  Returns only the extension
+ZString cye_path_ext(ZString path);                               //  Returns only the extension, including the dot
 bool    cye_path_touch(ZString path);                             //  Creates an empty file if not already exists
 
 #define cye_make_dir  cye_make_dir_if_not_exists                  // Create directory
@@ -824,10 +822,10 @@ bool cye_path_replace(ZString src, ZString dst);                  // Rename file
 Cye_Path_DArray cye_path_scandir(ZString path);                   // Iterator of directory entries
 Cye_Path_DArray cye_list_dir(ZString path);                       // Similar to LS or read_dir, but is return the darray
 
-bool cye_path_glob(ZString pattern, Cye_Path_DArray *matches);     // Glob a path shell style * ? [] and [!]
-Cye_Path_DArray cye_path_tglob(ZString pattern);               // Sames as Glob but Temporary Allocated strings
+bool cye_path_glob(ZString pattern, Cye_Path_DArray *matches);    // Glob a path shell style * ? [] and [!]
+Cye_Path_DArray cye_path_tglob(ZString pattern);                  // Sames as Glob but Temporary Allocated strings
 
-// bool cye_path_walk                                              // Generate directory tree
+// bool cye_path_walk                                             // Generate directory tree
 
 #define cye_file_stats_fmt "{.created_at=%s (%zu), .accessed_at=%s (%zu), .modified_at=%s (%zu), .size=%zu (bytes)}"
 #define cye_file_stats_fmt_arg(stats)                              \
@@ -2298,6 +2296,10 @@ bool cye_append_file_zstr(const char* path, const char* str) {
 // TODO: Check this for windows
 bool cye_write_file(ZString path, const void *data, usz size) {
     bool result = true;
+    const bool auto_make_dirs = true;
+    if (auto_make_dirs) {
+        cye_make_dirs(cye_path_dir_of(path));
+    }
 
     FILE *f = fopen(path, "wb");
     if (f == NULL) {
@@ -3422,7 +3424,7 @@ ZString cye_path_dir_of(ZString file_path) {
 }
 
 
-// Get only extension
+// Get only extension including the dot or return null
 ZString cye_path_ext(ZString path) {
     ZString file_ext = strrchr(path, '.');
     // May be null;

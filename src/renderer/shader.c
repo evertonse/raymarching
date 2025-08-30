@@ -47,10 +47,23 @@ static Isz_DArray shader_to_paths[MAX_SHADERS] = {0};
 
 static DString all_unique_paths = {0};
 
+//
+// Might not look like it from the struct declaration itself but this is a tree.
+// We make so there's no two items with overlapping cases like this:
+//                     line_start-------line_end
+//                   line_start-----end_line
+//                               ^^^
+// It's either parent-child:
+//    parrent > line_start--------------line_end
+//    child   >      line_start-----end_line
+//                             ^^^^^
+// Or sibling-sibling (no overlap):
+//    sibling > line_start----line_end
+//    sibling >                 line_start-----end_line
+//
 static struct {
    struct {
       ZString path; // Which Paths does this shader include considering the first path that we pass when we create
-      isz line_number_into_full_block; // This is the first line of this path correspond to what file in the full block to be send to opengl, this considers even pre includes, this considers even pre includes.
       isz line_start;  // First line of this file in full block
       isz line_end;    // Last line of this file in full block
    } *items;
@@ -90,7 +103,7 @@ static void print_unique_paths(void) {
    }
 }
 
-int index_shader_metadata(const char *path) {
+static int index_shader_metadata(const char *path) {
    int free_slot = -1;
    for (int metadata_index = 0; metadata_index < count_of(shaders_metadata); metadata_index += 1) {
      auto metadata = shaders_metadata[metadata_index];
@@ -120,40 +133,15 @@ static void append_shader_metadata(int shader_index, const char *path, isz line_
    }
 
    auto new_index = shaders_metadata[shader_index].count;
-   shaders_metadata[shader_index].items[new_index].path = path;
-   shaders_metadata[shader_index].items[new_index].line_number_into_full_block = line_number;
-   shaders_metadata[shader_index].items[new_index].line_start = line_number;
+   auto new_item  = &shaders_metadata[shader_index].items[new_index];
+   *new_item = (typeof(*new_item)) {
+      .path            = path,
+      .line_start      = line_number,
+      .line_end        = -1,
+   };
    shaders_metadata[shader_index].count += 1;
 }
 
-void print_shader_metadata(int shader_index) {
-   if (shader_index >= MAX_SHADERS) {
-      return;
-   }
-
-   auto meta  = shaders_metadata[shader_index];
-   DString ds = {0};
-
-
-   isz fragment_line;  // Line where fragment shader starts (after #pragma fragment)
-   isz vertex_line;    // Line where vertex shader starts (after #pragma vertex)
-   ds_printf(&ds, "items = %p, count = %lld, capacity = %lld\nfragment_lines=%lld vertex_line=%lld", meta.items, (usz)meta.count, (usz)meta.capacity, (usz)meta.fragment_line, (usz)meta.vertex_line);
-   for (int item_index = 0; item_index < meta.count; item_index += 1) {
-      auto item = meta.items[item_index];
-      ds_printf(&ds, "   path=%s line_number=%lld line_end=%lld\n",
-         item.path,
-         (usz)item.line_number_into_full_block,
-         (usz)item.line_end
-      );
-   }
-   ds_write_zero(&ds);
-
-   assert_msg(CYE_MAX_TRACE_LOG_MSG_LENGTH > ds.count + 50,  "trace_info is not dyanmic alocated, it uses fixed buffer.");
-   trace_info((char*)ds.items);
-   // printf("\nprintf\n%s", ds.items);
-
-   ds_free(ds);
-}
 
 static isz count_lines_in_string(const char* str, isz length) {
    isz lines = 0;
@@ -163,42 +151,23 @@ static isz count_lines_in_string(const char* str, isz length) {
    return lines;
 }
 
+// TODO: Make it work for offset_compute, and refactor that to allow easier access to these offsets.
 static bool pre_process_shader_with_metadata(
    const char *path,        DString *ds,
    Isz_DArray *path_offets,
    i64 *offset_compute, i64 *offset_fragment,    i64 *offset_vertex,
    int shader_index,        isz *current_line_number
 ) {
-   static ZString shader_prefix_defines = R"(
-      #ifndef lerp
-         #define lerp mix
-      #endif
 
-      #ifndef PI
-         #define PI 3.14159265358979323846
-      #endif
-
-      #ifndef TAU
-         #define TAU PI * 2.
-      #endif
-
-      #ifndef EPSILON
-         #define EPSILON 0.000001
-      #endif
-
-      #ifndef DEG2RAD
-         #define DEG2RAD (PI/180.0)
-      #endif
-
-      #ifndef RAD2DEG
-         #define RAD2DEG (180.0/PI)
-      #endif
-   )";
-
+   // Keep in mind that when reading the full file into memory, a newline is appended at the end
+   // So even if you save a file with no new line at the end, this source will have a \n as the last char:
+   // Remove it like this if you need: source[strlen(source)-1] = '\0';
    char *source = read_file(path);
+   usz source_length = strlen(source);
    if (!source) {
       return false;
    }
+   assert_msg(source[source_length-1] == '\n', "All offsets assumes the read_file behaviour is to append a new line always.");
 
    // Record this file's starting line
    isz file_start_line = *current_line_number;
@@ -209,39 +178,52 @@ static bool pre_process_shader_with_metadata(
    append_shader_metadata(shader_index, stored_path, file_start_line);
    da_append(path_offets, string_offset_in_buffer);
    isz metadata_index = shaders_metadata[shader_index].count - 1; // Last added entry
+   auto *metadata = &shaders_metadata[shader_index].items[metadata_index];
 
    stb_lexer lexer = {0};
    char store[8192] = {0};
-   stb_c_lexer_init(&lexer, source, source + strlen(source), store, count_of(store));
+   stb_c_lexer_init(&lexer, source, source + source_length, store, count_of(store));
 
    char *start = lexer.parse_point;
-   char *end = lexer.parse_point;
 
    while (stb_c_lexer_get_token(&lexer)) {
+      auto lexer_before = lexer;
       if (lexer.token == '#' && stb_c_lexer_get_token(&lexer)) {
          if (lexer.token == CLEX_id && strcmp(lexer.string, "include") == 0) {
             if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_dqstring) {
                const char *include_path = lexer.string;
 
-               ds_write_buf(ds, start, end - start);
-               *current_line_number += count_lines_in_string(start, end - start);
+               {  // Write until right before on the #
+                  //        #include "path" // Some other code or comment
+                  //       -^--------------------------------------------
 
-               start = lexer.parse_point;
-               end = start;
-               ds_write(ds, "\n");
-               *current_line_number += 1;
+                  auto end = lexer_before.where_firstchar;
+                  ds_write_buf(ds, start, end - start);
+                  *current_line_number += count_lines_in_string(start, end - start);
+                  // The new start where we left off AFTER the include path, probably onto some whitespace
+                  //        #include "path" // Some other code or comment
+                  //        ---------------^-----------------------------
+                  start = lexer.parse_point;
+               }
+
+               if (false) {
+                  ds_write(ds, "\n");
+                  *current_line_number += 1;
+               }
 
                const char *resolved_path = nullptr;
 
-               if (strlen(lexer.string) >= 2 && include_path[0] == '.' && include_path[1] == PATH_SEPARATOR_CHAR) {
-                  resolved_path = tprintf("%s%s", path_dir_of(path), &include_path[1]);
-                  trace_debug("Relative path from #include = %s", resolved_path);
-                  if (!file_exists(resolved_path)) {
-                     trace_error("Trying to #include \"%s\" that doesnt exist.", resolved_path);
-                     return false;
+               {  // Resolving if the path is relative to the file or relative to the working directory
+                  if (strlen(lexer.string) >= 2 && include_path[0] == '.' && include_path[1] == PATH_SEPARATOR_CHAR) {
+                     resolved_path = tprintf("%s%s", path_dir_of(path), &include_path[1]);
+                     trace_debug("Relative path from #include = %s", resolved_path);
+                     if (!file_exists(resolved_path)) {
+                        trace_error("Trying to #include \"%s\" that doesnt exist.", resolved_path);
+                        return false;
+                     }
+                  } else {
+                     resolved_path = include_path;
                   }
-               } else {
-                  resolved_path = include_path;
                }
 
                if (!pre_process_shader_with_metadata(resolved_path, ds, path_offets, offset_compute, offset_fragment, offset_vertex, shader_index, current_line_number)) {
@@ -249,75 +231,96 @@ static bool pre_process_shader_with_metadata(
                   return false;
                }
 
-               ds_write(ds, "\n"); // Make sure no two paths has the same line_end number
-               ds_write_buf(ds, start, lexer.parse_point - start);
-               *current_line_number += 1;
+               // No need to do this since read_file add a new line, although I'm not sure if unix read_file version does this, that's why `if false`.
+               if (false) {
+                  // Make sure no two paths has the same line_end number
+                  ds_write(ds, "\n");
+                  *current_line_number += 1;
+               }
             }
          } else if (lexer.token == CLEX_id && strcmp(lexer.string, "version") == 0) {
-            if (stb_c_lexer_get_token(&lexer) && lexer.token != CLEX_intlit) {
-               assert_msg(false, "After #version everything should be a integer");
-               return false;
+            {  // Checking commong errors and advancing the lexer
+               if (stb_c_lexer_get_token(&lexer) && lexer.token != CLEX_intlit) {
+                  assert_msg(false, "After #version everything should be a integer");
+                  return false;
+               }
+
+               if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id && strcmp(lexer.string, "core") != 0) {
+                  assert_msg(false, "Only core version allowed, but we got %s instead", lexer.string);
+                  return false;
+               }
             }
 
-            if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id && strcmp(lexer.string, "core") != 0) {
-               assert_msg(false, "Only core version allowed, but we got %s instead", lexer.string);
-               return false;
+            {
+               // Here 'start' might have \n on it, so we'll catch it in count_lines
+               // Differently from #pragma, we wanna include the #version core 460 in the final ds, so we'll not skip it.
+               auto end = lexer.parse_point;
+               ds_write_buf(ds, start, end - start);
+               *current_line_number += count_lines_in_string(start, end - start);
+               start = end;
             }
-
-            ds_write_buf(ds, start, lexer.parse_point - start);
-            *current_line_number += count_lines_in_string(start, lexer.parse_point - start);
-
-            start = lexer.parse_point; end = start;
-
-            ds_write_buf(ds, shader_prefix_defines, strlen(shader_prefix_defines));
-            *current_line_number += count_lines_in_string(shader_prefix_defines, strlen(shader_prefix_defines));
 
          } else if (lexer.token == CLEX_id && strcmp(lexer.string, "pragma") == 0) {
             if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id) {
-               if (strcmp(lexer.string, "fragment") == 0) {
-                  if (offset_fragment == nullptr || -1 != *offset_fragment) {
-                     return false;
-                  } else {
-                     ds_write_buf(ds, start, end - start);
-                     *current_line_number += count_lines_in_string(start, end - start);
+               bool is_fragment = (strcmp(lexer.string, "fragment") == 0);
+               bool is_vertex   = (strcmp(lexer.string, "vertex"  ) == 0);
 
-                     start = lexer.parse_point;
-                     end = start;
-                     if (ds->count > 0) {
-                        ds_write_zero(ds);
-                     }
-                     shaders_metadata[shader_index].fragment_line = *current_line_number; // Record fragment start
-                     trace_info("%s fragment count %d", __func__, ds->count);
-                     *offset_fragment = ds->count;
-                  }
-               } else if (strcmp(lexer.string, "vertex") == 0) {
-                  if (offset_vertex == nullptr || -1 != *offset_vertex) {
-                     return false;
-                  } else {
-                     ds_write_buf(ds, start, end - start);
-                     *current_line_number += count_lines_in_string(start, end - start);
+               if (is_vertex   && (nullptr == offset_vertex   || -1 != *offset_vertex  )) {
+                  return false;
+               }
+               if (is_fragment && (nullptr == offset_fragment || -1 != *offset_fragment)) {
+                  return false;
+               }
 
-                     start = lexer.parse_point;
-                     end = start;
-                     if (ds->count > 0) {
-                        ds_write_zero(ds);
-                     }
-                     shaders_metadata[shader_index].vertex_line = *current_line_number; // Record vertex start
-                     trace_info("%s vertex count %d offset_vertex = %p", __func__, ds->count, offset_vertex);
-                     *offset_vertex = ds->count;
+               { // End is not where the lexer left off, is right until '#' because we wanna skip the pragma statement and not pass to the shader actual compilation buffer
+                  auto end = lexer_before.where_firstchar;
+                  ds_write_buf(ds, start, end - start);
+                  *current_line_number += count_lines_in_string(start, end - start);
+                  //
+                  // NOTE: This error report might be wrong if these pragma is on one line and vertex is on another
+                  //       Same this might happen with version. But I don't think we'll ever split into two lines, but something to keep in mind.
+                  //
+                  // The new start where we left off AFTER the complete pragma directive
+                  //        #pragma  vertex  // Some other code or comment
+                  //        ---------------^-----------------------------
+                  start = lexer.parse_point;
+               }
+
+               // Zero terminate the previous shader code (vertex or another)
+               if (ds->count > 0) {
+                  ds_write_zero(ds);
+               }
+
+               {  // NOTE: We're considering that #pragma type occupies a full line k
+                  //       we shall account for that with a -1
+                  auto shader_type_offset = ds->count;
+                  if (is_fragment) {
+                     shaders_metadata[shader_index].fragment_line = *current_line_number;
+                     *offset_fragment = shader_type_offset;
+                  } else if (is_vertex) {
+                     shaders_metadata[shader_index].vertex_line = *current_line_number;
+                     *offset_vertex   = shader_type_offset;
+                  } else {
+                     assert_msg(0, "Implement other types");
                   }
                }
             }
          }
       }
-      end = lexer.parse_point;
    }
 
-   ds_write_buf(ds, start, end - start);
-   *current_line_number += count_lines_in_string(start, end - start);
-
-   // Update this file's end line
-   shaders_metadata[shader_index].items[metadata_index].line_end = *current_line_number - 1;
+   {
+      // In these case we're done with the file, but it might have '// Comments' or other tokens that is not recognized
+      // By stb_lexer, so we just copy the rest verbatim.
+      // NOTE: I'm unsure if it's eof-1 or just eof.
+      auto end = lexer.eof;
+      if (end > start) {
+         ds_write_buf(ds, start, end - start);
+         *current_line_number += count_lines_in_string(start, end - start);
+         // Update this file's end line
+         shaders_metadata[shader_index].items[metadata_index].line_end = *current_line_number;
+      }
+   }
 
    free(source);
    return true;
@@ -346,176 +349,311 @@ inline bool is_valid_shader(Shader shader) {
    return INVALID_SHADER_HANDLE != shader.handle && shader.handle != 0;
 }
 
-// static bool map_line_to_file(int shader_index, Shader_Type shader_type, isz global_line, const char **filepath, isz *local_line) {
-//    if (shader_index >= MAX_SHADERS || shaders_metadata[shader_index].count <= 0) {
-//       return false;
-//    }
-//    return false;
-//
-//    auto meta = shaders_metadata[shader_index].items[0];
-//
-//    isz meta_index_best = 0;
-//
-//    for (int meta_index = 1; meta_index < shaders_metadata[shader_index].count; meta_index += 1) {
-//       auto item = shaders_metadata[shader_index].items[meta_index];
-//       if (global_line >= item.line_start && global_line <= item.line_end) {
-//          auto best = shaders_metadata[shader_index].items[meta_index_best];
-//          // We can assume not tine line_starts nor line_ens are equals
-//          if (item.line_start > best.line_start || item.line_end < best.line_end) {
-//             meta_index_best = meta_index;
-//          }
-//       }
-//    }
-//
-//    auto parent = shaders_metadata[shader_index].items[meta_index_best];
-//    trace_okay("Best! for %lld", (usz)global_line);
-//    trace_struct(parent);
-//
-//    auto list = shaders_metadata[shader_index];
-//    if (meta_index_best <= (list.count -1)) {
-//       *local_line = global_line - parent.line_start;
-//       return true;
-//    }
-//
-//    auto next = list.items[meta_index_best + 1];
-//
-//    // Between parent and first child or has no children
-//    if (global_line <= next.line_start || parent.line_end < next.line_start) {
-//       *local_line = global_line - parent.line_start;
-//       return true;
-//    }
-//
-//    isz lines = next.start_end - parent.line_start;
-//    isz end   = next.line_end;
-//    isz start = next.start_end;
-//
-//    lines += global_line - end;
-//    return true;
-//    for (int index = meta_index_best + 2; index < list.count; index += 1) {
-//       if (start > parent.end_line) {
-//          break;
-//       }
-//       auto item = list.items[index];
-//    }
-//
-//    if (list.items[meta_index_best + 1].line_start >= list.items line_) {
-//    }
-//
-//    return false;
-// }
+static void print_shader_metadata(int shader_index) {
+   if (shader_index >= MAX_SHADERS) {
+      return;
+   }
 
-static bool map_line_to_file(int shader_index, Shader_Type shader_type, isz global_line, const char **filepath, isz *local_line) {
-   if ((shader_index >= MAX_SHADERS) || (shaders_metadata[shader_index].count <= 0)) {
+   const auto meta = shaders_metadata[shader_index];
+   DString ds = {0};
+
+
+   isz fragment_line = 0;  // Line where fragment shader starts (after #pragma fragment)
+   isz vertex_line = 0;    // Line where vertex shader starts (after #pragma vertex)
+   ds_printf(&ds, "items = %p, count = %lld, capacity = %lld\nfragment_lines=%lld vertex_line=%lld\n", meta.items, (usz)meta.count, (usz)meta.capacity, (usz)meta.fragment_line, (usz)meta.vertex_line);
+   for (int item_index = 0; item_index < meta.count; item_index += 1) {
+      auto item = meta.items[item_index];
+      ds_printf(&ds, "   path=%s line_number=%lld line_end=%lld\n",
+         item.path,
+         (usz)item.line_start,
+         (usz)item.line_end
+      );
+   }
+   ds_write_zero(&ds);
+
+   assert_msg(CYE_MAX_TRACE_LOG_MSG_LENGTH > ds.count + 50,  "trace_info is not dyanmic alocated, it uses fixed buffer.");
+   trace_info((char*)ds.items);
+   // printf("\nprintf\n%s", ds.items);
+
+   ds_free(ds);
+}
+
+// TODO: Make this return the ith child instead 0-th would be the first child. return the ith child doesnt exist.
+//       That would mean that if 0-th child return -1, the parent passed has no child (leaf node).
+// TODO: Make it work when error is between #pragma and #version
+static isz metadata_next_sibling(int shader_index, isz parent_index, isz from_this_child_index) {
+   auto list = shaders_metadata[shader_index];
+   assert(parent_index < (list.count - 1));
+
+   auto parent = list.items[parent_index];
+   auto first  = list.items[from_this_child_index];
+   for (int index = from_this_child_index + 1; index < list.count; index += 1) {
+      auto item = list.items[index];
+
+      // Not a child of parent because it comes after parent
+      if (item.line_start > parent.line_end) {
+         return -2;
+      }
+
+      // We found the next sibling because this current item starts after the first child
+      // Therefore it's not included inside the first child.
+      if (item.line_start > first.line_end ) {
+         assert_msg(item.line_end < parent.line_end, "this should be garanteed");
+         return index;
+      } else {
+         // Otherwise is a child of first and not a sibling, keep looking
+      }
+   }
+   return -1;
+}
+
+static bool metadata_map_line_to_file_ground_truth(int shader_index, Shader_Type shader_type, isz global_line, const char **filepath, isz *local_line) {
+   if (shader_index >= MAX_SHADERS || shaders_metadata[shader_index].count <= 0) {
       return false;
    }
 
-   auto *list = &shaders_metadata[shader_index];
+   auto meta = shaders_metadata[shader_index].items[0];
+   print_shader_metadata(shader_index);
 
-   // Find the best matching file (the one that contains global_line with the tightest bounds)
    isz meta_index_best = 0;
-   auto meta = list->items[0];
-   bool found_match = false;
 
-   // Check if first item contains the line
-   if (global_line >= meta.line_start && global_line <= meta.line_end) {
-      found_match = true;
-   }
-
-   for (int meta_index = 1; meta_index < list->count; meta_index += 1) {
-      auto item = list->items[meta_index];
-
-      if (global_line >= item.line_start && global_line <= item.line_end) {
-         if (!found_match) {
-            // First match found
+   for (int meta_index = 1; meta_index < shaders_metadata[shader_index].count; meta_index += 1) {
+      auto item = shaders_metadata[shader_index].items[meta_index];
+      // We don't wanna take into account the actual line_end of current item
+      // Because it is considering the extra \n appended by read_file
+      // This allow us to catch errors like this #include "./src/coordinates.glsl" vec5 fas;
+      // Instead of saying the error is inside ./src/coordinates.glsl we can be sure its on the file that included.
+      // NOTE: Maybe explain better, trust me you want exclusive check `global_line < item.line_end`, not inclusive.
+      if (global_line >= item.line_start && global_line < item.line_end) {
+         auto best = shaders_metadata[shader_index].items[meta_index_best];
+         // We can assume no line_start nor line_end are equals
+         if (item.line_start > best.line_start || item.line_end < best.line_end) {
             meta_index_best = meta_index;
-            found_match = true;
-         } else {
-            auto best = list->items[meta_index_best];
-            // Choose the file with tighter bounds (more specific range)
-            if (item.line_start > best.line_start || (item.line_start == best.line_start && item.line_end < best.line_end)) {
-               meta_index_best = meta_index;
-            }
          }
       }
    }
 
-   if (!found_match) {
-      return false;
-   }
-
-   auto parent = list->items[meta_index_best];
+   auto parent = shaders_metadata[shader_index].items[meta_index_best];
    *filepath = parent.path;
 
-   trace_okay("Best match for global line %lld: %s (range %lld-%lld)", (long long)global_line, parent.path, (long long)parent.line_start, (long long)parent.line_end);
+   trace_info("Best! for %lld", (usz)global_line);
+   trace_struct(parent);
 
-   // If this is the last file or no children, simple calculation
-   if (meta_index_best >= (list->count - 1)) {
-      *local_line = global_line - parent.line_start + 1;
+   auto list = shaders_metadata[shader_index];
+
+   assert(meta_index_best < list.count);
+   isz line_number = 1;
+   // If parent is the very last item we do the calculation right here
+   if ( (list.count -1) == meta_index_best) {
+      line_number += global_line - parent.line_start;
+      *local_line = line_number;
       return true;
    }
 
-   // Calculate local line by subtracting included file lines
-   isz calculated_local_line = 1; // Start at line 1 of the parent file
-   isz current_global_line = parent.line_start;
+   auto child = list.items[meta_index_best + 1];
 
-   // Walk through the parent file, skipping over included files
-   for (isz check_index = meta_index_best + 1; check_index < list->count; check_index++) {
-      auto child = list->items[check_index];
+   // Not children or between parent and first child.
+   if (global_line <= child.line_start || parent.line_end < child.line_start) {
+      line_number += global_line - parent.line_start;
+      *local_line = line_number;
+      return true;
+   }
 
-      // Skip children that are not within this parent's range
-      if (child.line_start < parent.line_start || child.line_end > parent.line_end) {
-         continue;
+   line_number += child.line_start - parent.line_start;
+
+   isz parent_index      = meta_index_best;
+   isz curr_child_index  = parent_index + 1;
+   isz next_child_index  = metadata_next_sibling(shader_index, parent_index, curr_child_index);
+
+   while (!(next_child_index < 0))  {
+      assert(next_child_index < list.count);
+      auto curr_child = list.items[curr_child_index];
+      auto next_child = list.items[next_child_index];
+      // In between these two children, we're done.
+      if (global_line >= curr_child.line_end  && global_line <= next_child.line_start) {
+         line_number += global_line - curr_child.line_end;
+         *local_line = line_number;
+         return true;
       }
 
-      // Skip nested children (children of children)
-      bool is_nested_child = false;
-      for (isz parent_check = meta_index_best + 1; parent_check < check_index; parent_check++) {
-         auto potential_parent = list->items[parent_check];
-         if (child.line_start >= potential_parent.line_start && child.line_end <= potential_parent.line_end && potential_parent.line_start >= parent.line_start && potential_parent.line_end <= parent.line_end) {
-            is_nested_child = true;
-            break;
+      //  Since it's not in between those, we need to add how much lines are between them.
+      // Plus 1 (line_end + 1) to compensate automatic new line when read_file is called
+      line_number += next_child.line_start - curr_child.line_end;
+
+      curr_child_index = next_child_index;
+      next_child_index = metadata_next_sibling(shader_index, parent_index, curr_child_index);
+   }
+
+   auto last_child = list.items[curr_child_index];
+   assert_msg(global_line >= last_child.line_end  && global_line <= parent.line_end,
+      "If we got here then is has to be between the last child and the last line of the parent"
+   );
+   line_number += global_line - last_child.line_end;
+   // TODO: Test this case
+   *local_line = line_number;
+   return true;
+}
+
+// Returns index of the ith child of `parent_index`
+// -1 if no such child exists
+static isz metadata_ith_child(int shader_index, isz parent_index, isz ith) {
+   auto list = shaders_metadata[shader_index];
+   auto parent = list.items[parent_index];
+
+   // TODO: make ith unsigned
+   assert(ith >= 0);
+
+   isz child_count = 0;
+   isz start_has_to_be_bigger_than_this = parent.line_start;
+   for (isz index = parent_index + 1; index < list.count; index += 1) {
+      auto child = list.items[index];
+      // We've left the parent’s span -> no more children
+      if (child.line_start > parent.line_end) {
+         return -1;
+      }
+
+      // Candidate inside parent => it's the next *direct* child
+      if (child.line_start > start_has_to_be_bigger_than_this && child.line_end < parent.line_end) {
+         child_count += 1;
+         start_has_to_be_bigger_than_this = child.line_end;
+      }
+
+      if (child_count == (ith + 1)) {
+         return index;
+      }
+   }
+
+   return -1;
+}
+
+
+static bool metadata_map_line_to_file_new(int shader_index, Shader_Type shader_type, isz global_line, const char **filepath, isz *local_line) {
+   if (shader_index >= MAX_SHADERS || shaders_metadata[shader_index].count <= 0){
+      return false;
+   }
+
+   auto list = shaders_metadata[shader_index];
+
+   isz  best_index = 0;
+   auto best = list.items[best_index];
+
+   // Find the deepest (most specific) file that contains this line
+   for (int meta_index = 1; meta_index < list.count; meta_index += 1) {
+      auto curr = list.items[meta_index];
+      // We don't wanna take into account the actual line_end of current item
+      // Because it is considering the extra \n appended by read_file
+      // This allow us to catch errors like this #include "./src/coordinates.glsl" vec5 fas;
+      // Instead of saying the error is inside ./src/coordinates.glsl we can be sure its on the file that included.
+      // NOTE: Maybe explain better, trust me you want exclusive check `global_line < item.line_end`, not inclusive.
+      if (global_line >= curr.line_start && global_line < curr.line_end) {
+         // We can assume no line_start nor line_end are equals
+         if (curr.line_start > best.line_start || curr.line_end < best.line_end) {
+            best_index = meta_index;
+            best = list.items[best_index];
          }
       }
+   }
+   *filepath = best.path;
 
-      if (is_nested_child) {
-         continue;
+
+   // Now let's find the line number (the hard part)
+   auto parent = best;
+   auto parent_index = best_index;
+   assert(parent_index < list.count);
+
+   isz line_number = 1;
+   // TODO: Test with no children
+
+   isz ith = 0;
+   isz curr_index = metadata_ith_child(shader_index, parent_index, ith++); // 1th child
+   isz next_index = metadata_ith_child(shader_index, parent_index, ith++); // 1th child
+   // One or more children, at leat one
+   bool has_children = !(curr_index < 0);
+
+
+   if (!has_children) {
+      // Parent doesn't have children then it's between global_line and parent start
+      line_number += global_line - parent.line_start;
+   } else {
+      // Parent only has at least 1 child.
+      // We need start couting by checking if is between the first child and the parent
+      auto child = list.items[curr_index];
+      bool between_starts = global_line >= parent.line_start && global_line <= child.line_start;
+
+      if (between_starts) {
+         // Add only the number of lines between global_line and parent start
+         line_number += global_line - parent.line_start;
+         goto end;
+      } else {
+         // Add the full number of lines between child and parent
+         line_number += child.line_start - parent.line_start;
       }
-
-      // If the target line is before this child starts
-      if (global_line < child.line_start) {
-         // Count lines from current position to target
-         calculated_local_line += (global_line - current_global_line);
-         *local_line = calculated_local_line;
-         return true;
-      }
-
-      // If the target line is within this child, return immediately
-      // (this shouldn't happen as we already found the best match)
-      if (global_line >= child.line_start && global_line <= child.line_end) {
-         *local_line = global_line - parent.line_start + 1;
-         return true;
-      }
-
-      // Skip over the child's lines (they don't count in parent's local lines)
-      // Add lines from current position to just before the child
-      if (current_global_line < child.line_start) {
-         calculated_local_line += (child.line_start - current_global_line);
-      }
-
-      // Move past the child
-      current_global_line = child.line_end + 1;
    }
 
-   // If we get here, the target line is after all children
-   if (global_line >= current_global_line) {
-      calculated_local_line += (global_line - current_global_line);
-      *local_line = calculated_local_line;
-      return true;
+   while (next_index >= 0) {
+      auto next = list.items[next_index];
+      auto curr = list.items[curr_index];
+
+      bool between_us = global_line >= curr.line_end && global_line <= next.line_start;
+
+      if (between_us) {
+         line_number += global_line - curr.line_end;
+         break;
+      }
+
+      // Global line it's not between anything, so add how many lines to come from curr sibling to the next
+      line_number += next.line_start - curr.line_end;
+
+      curr_index = next_index;
+      next_index = metadata_ith_child(shader_index, parent_index, ith++); // 1th child
+
+      bool last_loop = next_index < 0;
+      if (last_loop) {
+         // NOTE: variable 'next' here it the current 'next', not the upcoming iteration 'next' that will be defines by next_index (which this on is new).
+         assert_msg(global_line >= next.line_end && global_line <= parent.line_end, "Ain't no way we're the last loop, and it's not between next and parent");
+         line_number += global_line - next.line_end;
+         break;
+      }
+
    }
 
-   // Fallback: simple calculation
-   *local_line = global_line - parent.line_start + 1;
+end:
+   // This is correct even if theres no child, or is last item or if it's between the first and
+   *local_line = line_number;
    return true;
+}
+
+
+
+static bool metadata_map_line_to_file(int shader_index, Shader_Type shader_type, isz global_line, const char **filepath, isz *local_line) {
+   isz local_line1 = -1;
+   const char *filepath1 = "";
+   bool ok1 = metadata_map_line_to_file_ground_truth(shader_index, shader_type, global_line, &filepath1, &local_line1);
+
+   isz local_line2 = -1;
+   const char *filepath2 = "";
+   bool ok2 = metadata_map_line_to_file_new(shader_index, shader_type, global_line, &filepath2, &local_line2);
+
+   if (local_line1 == local_line2 && ok1 == ok2 && path_equals(filepath2, filepath1)) {
+      if (ok1) {
+         trace_okay("%s ground_truth and new match", __func__);
+      } else {
+         trace_error("%s ground_truth and new match, but its not okay.", __func__);
+      }
+      *local_line = local_line1;
+      *filepath   = filepath1;
+      return ok1;
+   } else {
+      trace_warn("%s ground_truth (old) and new mismatch:\n"
+         "old={ok=%s,line_number=%lld,path=%s}\nnew={ok=%s,line_number=%lld,path=%s}\n. Returning old.",
+         __func__,
+         (ok1 ? "true" : "false"), local_line1, filepath1,
+         (ok2 ? "true" : "false"), local_line2, filepath2
+      );
+      *local_line = local_line1;
+      *filepath   = filepath1;
+      return ok1;
+   }
 }
 
 static void print_remapped_opengl_errors(const char *error_string, int shader_index, Shader_Type shader_type) {
@@ -528,27 +666,36 @@ static void print_remapped_opengl_errors(const char *error_string, int shader_in
    while (stb_c_lexer_get_token(&lex)) {
       if (lex.token == CLEX_intlit) {
          const char *before_num = line_start;
-
          if (stb_c_lexer_get_token(&lex) && lex.token == '(' && stb_c_lexer_get_token(&lex) && lex.token == CLEX_intlit) {
-
             long line_num = lex.int_number;
-
             if (stb_c_lexer_get_token(&lex) && lex.token == ')' && stb_c_lexer_get_token(&lex) && lex.token == ':') {
-
                ds_write_buf(&ds, before_num, lex.where_firstchar - before_num);
 
                const char *filepath = nullptr;
                isz local_line = -1;
-               if (map_line_to_file(shader_index, shader_type, line_num, &filepath, &local_line)) {
+               isz global_line = line_num;
+               ZString inform_type_msg = "";
+
+
+               if (SHADER_TYPE_VERTEX == shader_type) {
+                  global_line += shaders_metadata[shader_index].vertex_line - 1;
+                  inform_type_msg = "Vertex shader";
+               } else if (SHADER_TYPE_FRAGMENT == shader_type) {
+                  global_line += shaders_metadata[shader_index].fragment_line - 1;
+                  inform_type_msg = "Fragment shader";
+               }
+               ds_printf(&ds, "%s\n", inform_type_msg);
+               if (metadata_map_line_to_file(shader_index, shader_type, global_line, &filepath, &local_line)) {
                   ds_printf(&ds, "%s:%zu", filepath, local_line);
                } else {
                   ds_printf(&ds, "full_block:%ld", line_num);
                }
 
                const char *error_end = lex.parse_point;
-               while (*error_end && *error_end != '\n' && *error_end != '\r')
+               while (*error_end && *error_end != '\n' && *error_end != '\r') {
                   error_end++;
-               ds_printf(&ds, " :%.*s\n", (int)(error_end - lex.parse_point), lex.parse_point);
+               }
+               ds_printf(&ds, " %.*s\n", (int)(error_end - lex.parse_point), lex.parse_point);
 
                while (*error_end && (*error_end == '\n' || *error_end == '\r')) {
                   error_end++;
@@ -616,15 +763,16 @@ Shader create_shader_from_memory(const u8 **sources, const Shader_Type *types, u
 
          if (log_length > 1) {
             char *error_msg = malloc((usz)log_length);
-            glGetShaderInfoLog(shader_handle, log_length, nullptr, error_msg);
+            {
+               glGetShaderInfoLog(shader_handle, log_length, nullptr, error_msg);
+               trace_error("Shader compile error (type %u):\nOpenGL says: %s\n", type, error_msg);
 
-            if (loaded_from_this_path) {
-               int shader_index = index_shader_metadata(loaded_from_this_path);
-               trace_debug("Found index %d metadata for %s", shader_index, loaded_from_this_path);
-               print_remapped_opengl_errors(error_msg, shader_index, type);
+               if (loaded_from_this_path) {
+                  int shader_index = index_shader_metadata(loaded_from_this_path);
+                  trace_debug("Found index %d metadata for %s", shader_index, loaded_from_this_path);
+                  print_remapped_opengl_errors(error_msg, shader_index, type);
+               }
             }
-
-            trace_error("Shader compile error (type %u):\nOpenGL says: %s\n", type, error_msg);
             free(error_msg);
          }
 
@@ -689,6 +837,27 @@ Shader create_shader_single_from_memory(u8* source, Shader_Type type) {
    return result;
 }
 
+void create_or_overwrite_time_marker(ZString path) {
+   assert(       path_ext("src/dkajslda") == nullptr            ); // Assert that this aint got no exntesion
+   assert(strcmp(path_stem("src/dkajslda"), "src/dkajslda") == 0); // Assert that path_stem return the same path when the file has no extension
+   assert_msg(strcmp(path_ext("src/dkajslda.txt"), ".txt")   == 0, "ext = %s", path_ext("src/dkajslda.txt")); // Assert it's just the txt without the dot
+
+
+
+   ZString extension = path_ext(path);
+   assert_msg(path, "Dont you dare pass null to this, fayta.");
+   assert_msg(!is_dir(path), "What do you want me to do with a directory?.");
+   assert_msg(strcmp(extension, ".time") != 0 , "Extension include .time, which we use to mark the time, so no cigar.");
+
+   usz checkpoint = tsave();
+   {
+      TString time_path = tprintf("%s.time", path_stem(path));
+      String_Slice msg  = ss_from_zstr("This file is just to mark time_t when the shader was compiled");
+      write_file(time_path , msg.data, msg.size);
+   }
+   trestore(checkpoint);
+}
+
 // Create and preprocess and compile the shader
 Shader create_shader(const char* path, Shader_Type type) {
    DString ds = {0};
@@ -731,27 +900,22 @@ Shader create_shader(const char* path, Shader_Type type) {
       } else {
          for (size_t i = 0; i < count; i++) {
             make_dirs("src/assets/shaders/output/ignore/");
-            write_file(tprintf("src/assets/shaders/output/ignore/(%d)type-%d.glsl", count, types[i]), (ZString)sources[i], strlen((ZString)sources[i]));
+            write_file(tprintf("src/assets/shaders/output/ignore/dump-(%d)type-%d.glsl", count, types[i]), (ZString)sources[i], strlen((ZString)sources[i]));
          }
+
+         write_file("src/assets/shaders/output/will-see-dump.glsl", ds.data, ds.size);
          result = create_shader_from_memory(sources, types, count, path);
       }
 
       result.path = path;
    }
 
-
    trestore(checkpoint);
 
 
-   if (is_valid_shader(result)) {
-      usz checkpoint = tsave();
-      {
-         TString time_path = tprintf("%s.time", path_stem(path));
-         String_Slice msg = ss_from_zstr("This file is just to mark time_t when the shader was compiled");
-         write_file(time_path , msg.data, msg.size);
-      }
-      trestore(checkpoint);
 
+   if (is_valid_shader(result)) {
+      create_or_overwrite_time_marker(result.path);
       write_file("src/assets/shaders/output/success-dump.glsl", ds.data, ds.size);
       shader_to_paths[result.handle] =  path_offsets;
 
@@ -760,9 +924,6 @@ Shader create_shader(const char* path, Shader_Type type) {
       // Only free on failure because we're gonna use the paths if all succeeds.
       da_free(path_offsets);
    }
-
-   print_shader_metadata(0);
-   print_shader_metadata(1);
 
    // Always free the dynamic string, under success or failure.
    ds_free(ds);
@@ -882,7 +1043,6 @@ bool shader_needs_reload(Shader shader) {
       return false;
    }
 
-
    usz  count = 0;
    bool result = false;
    usz checkpoint = tsave();
@@ -891,7 +1051,6 @@ bool shader_needs_reload(Shader shader) {
    ZString first_path = meta.items[0].path;
    for (int i = 0; i < paths_count; i += 1) {
       resolved_paths[i] = meta.items[i].path;
-       // resolved_paths[i] = (char*)all_unique_paths.data + paths.items[i];
    }
    TString time_path = tprintf("%s.time", path_stem(first_path));
 
@@ -908,9 +1067,8 @@ defer:
 }
 
 
-
 Shader reload_shader(Shader shader) {
-   system("clear"); // HACK XXX: Trying to clear the whole terminal to not flood with erros
+   // system("clear"); // HACK XXX: Trying to clear the whole terminal to not flood with erros
    trace_info("Trying to reload %s", shader.path);
    Shader new_shader = create_shader(shader.path, shader.type);
 
@@ -919,6 +1077,8 @@ Shader reload_shader(Shader shader) {
 
    // Keep current shader while errors in new shader
    if (!is_valid_shader(new_shader)) {
+      // Create a new timer to avoid flooding the console with errors
+      create_or_overwrite_time_marker(shader.path);
       return shader;
    }
 
@@ -926,6 +1086,7 @@ Shader reload_shader(Shader shader) {
    if (is_valid_shader(shader)) {
       glDeleteProgram(shader.handle);
    }
+
    return new_shader;
 }
 

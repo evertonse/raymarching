@@ -1,4 +1,3 @@
-
 vec3 brdf_blinn_phong(
       in vec3 light_direction,     in vec3 view_direction, in vec3 normal,
       in vec3 diffuse_color,       in vec3 specular_color,
