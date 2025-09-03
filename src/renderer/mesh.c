@@ -39,7 +39,7 @@ typedef struct {
 // Macro to define a mesh from OBJ data
 #define DEFINE_MESH(prefix, ext)                              \
    static Mesh prefix##_mesh = {                              \
-      .vertices = {                                      \
+      .vertices = {                                           \
          .positions      = (Vector3 *)prefix##_objVerts,      \
          .normals        = (Vector3 *)prefix##_objNormals,    \
          .uvs            = (Vector2 *)prefix##_objTexCoords,  \
@@ -104,8 +104,8 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
          float z = sinf(phi) * sinf(theta);
 
          mesh.vertices.positions[v] = (Vector3){radius * x, radius * y, radius * z};
-         mesh.vertices.normals[v] = (Vector3){x, y, z};
-         mesh.vertices.uvs[v] = (Vector2){(float)j / slices, (float)i / rings};
+         mesh.vertices.normals[v]   = (Vector3){x, y, z};
+         mesh.vertices.uvs[v]       = (Vector2){(float)j / slices, (float)i / rings};
          v += 1;
       }
    }
@@ -148,27 +148,27 @@ Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
 
    // Assign pointers within the block
    mesh.vertices.positions = (Vector3 *)block;
-   mesh.vertices.normals  = (Vector3 *)((char *)block + vertex_data_size);
-   mesh.vertices.uvs      = (Vector2 *)((char *)block + vertex_data_size + normal_data_size);
-   mesh.indices.items                = (u32 *)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size);
+   mesh.vertices.normals   = (Vector3 *)((char *)block + vertex_data_size);
+   mesh.vertices.uvs       = (Vector2 *)((char *)block + vertex_data_size + normal_data_size);
+   mesh.indices.items      = (u32 *)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size);
 
    // At last, fill in the data
    for (usz i = 0; i < vertex_count; i += 1) {
        const float *v = &interleaved[i * floats_per_vertex];
        mesh.vertices.positions[i] = (Vector3){v[0], v[1], v[2]};
-       mesh.vertices.normals [i] = (Vector3){v[3], v[4], v[5]};
-       mesh.vertices.uvs     [i] = (Vector2){v[6], v[7]};
-       mesh.indices.items         [i] = (u32)i;
+       mesh.vertices.normals  [i] = (Vector3){v[3], v[4], v[5]};
+       mesh.vertices.uvs      [i] = (Vector2){v[6], v[7]};
+       mesh.indices.items     [i] = (u32)i;
    }
 
    mesh.vertices.count = vertex_count;
-   mesh.indices.count        = vertex_count;
+   mesh.indices.count  = vertex_count;
    return mesh;
 }
 
 
 // Mesh
-inline bool is_valid_mesh(Mesh mesh) {
+bool inline is_valid_mesh(Mesh mesh) {
    return nullptr != mesh.indices.items
       &&  nullptr != mesh.vertices.positions
       &&  nullptr != mesh.vertices.normals

@@ -68,12 +68,12 @@ inline bool is_valid_vertex_array(Vertex_Array va) {
     }
 
 #ifdef RENDERER_DEBUG
-    GLint va_valid;
-    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &va_valid);
-    return va_valid == va.handle;
-#else
-    return true;
+    if (!glIsVertexArray(va.handle)) {
+        trace_info("Vertex Array handle is not valid");
+        return false;
+    }
 #endif
+    return true;
 }
 
 

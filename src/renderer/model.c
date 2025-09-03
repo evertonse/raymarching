@@ -1005,9 +1005,9 @@ Geometry_To_World_List joint_matrices_using_animation(double time) {
 }
 
 // You are supposed to call this function once to update the GPU buffers and then forget it. The next time you call this function, the old matrices are invalidated.
-// The workflow is: auto matrices = joint_matrices_from_animation(); upload/update GPU buffers from matrices, and that's it. There is no need to free or allocate memory in 
 // the middle of the frame just for this, so instead, we are going to reuse the same buffer over and over.
-Geometry_To_World_List joint_matrices_from_animation(Joint_List *joints, const Animation *const animation,  double time) {
+// The workflow is: auto matrices = joint_matrices_from_animation(); upload/update GPU buffers from matrices, and that's it. There is no need to free or allocate memory in 
+Geometry_To_World_List joint_matrices_from_animation(Joint_List *joints, const Animation *const animation, double time) {
    static Geometry_To_World_List list = {0};
    static isz capacity = 0;
    if (!list.matrices || joints->count > capacity) {

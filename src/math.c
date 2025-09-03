@@ -144,6 +144,23 @@ typedef struct Transform {
 	Vector3    scale;
 } Transform;
 
+constexpr Transform transform_identity = {
+    .translation = {0},
+
+    .rotation = {
+       .x = 0.0f,
+       .y = 0.0f,
+       .z = 0.0f,
+       .w = 1.0f
+    },
+
+    // Set scale to one
+    .scale = {
+       .x = 1.0f,
+       .y = 1.0f,
+       .z = 1.0f,
+    }
+};
 // Calculate linear interpolation between two floats
 double Lerpf64(double start, double end, double amount) {
    double result = start + amount*(end - start);

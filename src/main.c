@@ -8,10 +8,13 @@
 #include "GLFW/glfw3.h"
 
 #define GLAD_GL_IMPLEMENTATION
+
+// TODO: Fix these defines, choose the exposure.
+// #include "src/renderer/shared/defines.glsl"
 #if defined(RENDERER_USING_BINDLESS)
-// #  include "glad/gl.h"
 #  include "glad/gl_extended.h"
 #else
+// #  include "glad/gl.h"
 #  include "glad/gl_extended.h"
 #endif
 
@@ -40,7 +43,25 @@
 #include "cye.h"
 #undef trace_debug
 #define trace_debug(fmt, ...) cye_trace_log(CYE_LOG_DEBUG, "`%s`: " fmt, __func__, ##__VA_ARGS__)
+#undef da_append
+// Append an item to a dynamic array using thread_local Cye_Context cye_context
+#define da_append(da, ...)                                                                 \
+    do {                                                                                   \
+        if ((da)->count >= (da)->capacity) {                                               \
+            (da)->capacity = (da)->capacity == 0 ?                                         \
+                CYE_DARRAY_INIT_CAP :                                                      \
+                (da)->capacity*CYE_DARRAY_CAP_MULTIPLIER;                                  \
+                                                                                           \
+            (da)->items = cye_context.realloc(                                             \
+                (da)->items, (da)->capacity*sizeof(((da)->items)[0])                       \
+            );                                                                             \
+            cye_assert((da)->items != NULL && "Dynamic Array: OOM");                       \
+        }                                                                                  \
+                                                                                           \
+        (da)->items[(da)->count++] = (typeof((da)->items[0])) __VA_ARGS__;                 \
+    } while (0)
 
+// (da)->items[(da)->count++] =  __VA_ARGS__;
 
 const char* cye_human_readable_size(i64 bytes) {
     static char output[32];

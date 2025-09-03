@@ -2,10 +2,17 @@
 #define SHARED_DEFINES_HEADER
 
 #define RENDERER_USING_BINDLESS 1
-// #define RENDERER_DEBUG 1
-#define BINDING_DRAW_COMMAND 18
-#define BINDING_MATERIAL     10
-#define BINDING_CAMERA       2
+#define RENDERER_DEBUG 1
+
+#define BINDING_INSTANCE_BUFFER    6
+#define BINDING_INDICES_BUFFER     5
+#define BINDING_VERTEX_BUFFER      3
+#define BINDING_PER_FRAME          4
+#define BINDING_DRAW_COMMAND       18
+#define BINDING_MATERIAL           10
+#define BINDING_CAMERA             2
+#define BINDING_ANIMATION_MATRICES 12
+#define BINDING_JOINT_BUFFER       9
 
 
 // I refuse to call this mix smh.

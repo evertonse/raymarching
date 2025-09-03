@@ -1,5 +1,6 @@
 #ifndef SHARED_TYPES_HEADER
 // This sequence can't change, and to be in this order and must come first.
+// TODO: change instace to instances to match others
 #define DRAW_COMMAND_BASE                                           \
    uint indices_count;                                              \
    uint instance_count;    /* For instanced rendering (usually 1)*/ \
@@ -13,8 +14,13 @@ struct Draw_Command {
    uint vertices_count;
    uint has_joints;
    uint is_inverleaved;
-   uint pad1, pad2, pad3;
-   uint pad4, pad5, pad6, pad7;
+   uint joints_offset;
+   uint pad2, pad3;
+};
+
+// TODO: Migrate to material_index for instance instead of the full draw command
+struct Instance {
+   mat4 model_matrix;
 };
 
 struct Material {
@@ -24,14 +30,7 @@ struct Material {
    uvec2 normal_handle;
 };
 
-#ifdef COCK
-
-#endif
-// #include "res/shaders/src/comments.glsl"
-// #include "res/shaders/src/comments.glsl"
-
-
-struct Joint_Data {
+struct Joint_Vertex {
    ivec4 joint_idxs;     // index into geometry_to_model
    vec4  joint_weights;  // \sum_over_(i=4){joint_weights[i] * bone_idxs[i]}
 };

@@ -866,6 +866,12 @@ void cye_pipe_close_handle(Cye_Pipe_Handle* pipe);
         (da)->items[(da)->count++] = (item);                                               \
     } while (0)
 
+// Return the last item
+#define cye_da_last(da)                                                                    \
+    (assert_msg((da)->count > 0, "Dynamic Array: Accessing last item from an empty array"),\
+     (da)->items[(da)->count - 1])
+
+
 
 //NOTE: Be aware that da_remove.* create a variable i_1 and i_2 that might
 // if you're having unintuitive behaviour, remember, these are macros
@@ -5215,6 +5221,7 @@ char *win32_error_message(DWORD err) {
 //  Dynamic Array Short Names
 //------------------------------------------------------------------------------------
 #define da_append      cye_da_append
+#define da_last        cye_da_last
 #define da_remove      cye_da_remove
 #define da_remove_item cye_da_remove_item
 #define da_free        cye_da_free

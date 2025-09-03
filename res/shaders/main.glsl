@@ -1,14 +1,12 @@
 #pragma vertex
 #version 460 core
-// We're here
-#include "src/renderer/shared/defines.glsl"
-#include "./src/comments.glsl"
-#include "./src/comments.glsl"
+
 // NOTE: Not doing vertex pulling is incorrect right now. Vertex Pulling ONLY
 // layout(location = 0) in vec3 position;
 // layout(location = 1) in vec3 normal;
 // layout(location = 2) in vec2 uv;
 #include "src/renderer/shared/types.glsl"  // DrawCommand is defined here.
+#include "src/renderer/shared/defines.glsl"
 #include "./src/buffers.glsl"
 
 
@@ -96,19 +94,20 @@ void main() {
          position.zx += vec2(2);
       }
    }
-   vec3 normal   = pull_normal(gl_VertexID);
-   vec2 uv       = pull_uv(gl_VertexID);
+   vec3 normal = pull_normal(gl_VertexID);
+   vec2 uv     = pull_uv(gl_VertexID);
    // uv = vec2(0);
 #else
    vec4 position = vec4(position.xyz,  1.0);
 #endif
 
-   float positions_count = vertex_buffer.length();
-   mat4  gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
+   mat4 gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
 
    // World position send to next stage
    // position.xz *= rotation(per_frame.elapsed_time * 0.2);
-   mat4 model = per_frame.model;
+   // mat4 model = per_frame.model;
+   mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
+   // mat4 model = matrix_identity;
    if (has_animation >= 0) {
       // position = geometry_to_model[has_animation]*vec3(0);
       vec4 translation = geometry_to_model[has_animation] * vec4(0., 0., 0., 1.);
@@ -120,8 +119,8 @@ void main() {
       // position = model * position;
    } else {
       if (has_animation == -69) {
-         ivec4 joint_idxs    = joint_data[gl_VertexID].joint_idxs;
-         vec4  joint_weights = joint_data[gl_VertexID].joint_weights;
+         ivec4 joint_idxs    = joint_vertices[gl_VertexID].joint_idxs;
+         vec4  joint_weights = joint_vertices[gl_VertexID].joint_weights;
          if (length(joint_weights) != 0) {
          }
          position =
@@ -130,10 +129,9 @@ void main() {
             + joint_weights[2] * (geometry_to_model[joint_idxs[2]] * position)
             + joint_weights[3] * (geometry_to_model[joint_idxs[3]] * position);
          position = model * position;
-      } else {
-         position = model * position;
       }
    }
+   position = model * position;
 
    { // Send to next shader
       // Everything is sent in World Space
@@ -166,9 +164,6 @@ void main() {
    // gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
    // WARNING: This function is mostly the same except for some z-fighting shenanigans
    // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
-
-   mat4 a = geometry_to_model[0];
-
    TextureCoordinate = uv;
 }
 
@@ -518,6 +513,10 @@ void main() {
       specular_color = texture.xyz;
    }
 
+   if (alpha_channel < 0.2) {
+      discard;
+   }
+
 
    Fragment fragment;
    fragment.position = Position;
@@ -595,8 +594,9 @@ void main() {
    float attenuation_alpha = clamp(distance_to_view/distance_to_view, 0.2, 1.0);
    // FragColor = vec4(color, attenuation_alpha);
    FragColor = vec4(color, 1.0);
+   // return;
    FragColor.xyz = gamma_correction(FragColor.xyz);
-   FragColor.w *= alpha_channel;
+   FragColor.w *= max(alpha_channel, 0.4);
 
 }
 #include "./src/comments.glsl"

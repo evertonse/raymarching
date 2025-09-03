@@ -544,6 +544,7 @@ void projection_update(Projection_Application *app, f64 dt) {
       // NOTE: This are the usual culprits of weird, missing or outta order triangle redering.
       {
          glDisable   (GL_CULL_FACE);
+         // glEnable   (GL_CULL_FACE);
          glCullFace  (GL_FRONT);  // Instead of GL_BACK
          glFrontFace (GL_CW);    // Instead of GL_CCW
          glEnable    (GL_DEPTH_TEST);
@@ -605,27 +606,64 @@ void projection_update(Projection_Application *app, f64 dt) {
    }
 
 
-   static Draw_Index model_draw_index = {0};
-   if (0 == model_draw_index.count) {
+   static Scene_Node scene_nodes[10] = {0};
+   static bool scene_loaded = false;
+   if (!scene_loaded) {
+      scene_loaded = true;
+
       ZString model_filepath = "res/models/mari/source/Mari.fbx";
       begin_profile();
       {
-         Model m = create_model(model_filepath);
-         model_draw_index = push_model_to_manager(&m);
+         Model m  = create_model(model_filepath);
+         Transform transform = transform_identity;
+         scene_nodes[0] = create_scene_node(&m, transform);
       }
       end_profile(model_filepath);
 
+
+      model_filepath = "res/models/backpack/backpack.obj";
+      begin_profile();
+      {
+         Model m  = create_model(model_filepath);
+         Transform transform = transform_identity;
+         transform.scale = mul(transform.scale, 5.);
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+
+         Vector3 axis = {1., 1., 1.};
+         transform.rotation = QuaternionFromAxisAngle(axis, RAD2DEG * PI/2.);
+         scene_nodes[3] = create_scene_node(&m, transform);
+      }
+      end_profile(model_filepath);
+
+      begin_profile();
+         Transform transform = transform_identity;
+         transform.scale = mul(transform.scale, 5.);
+         transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
+         scene_nodes[1] = create_scene_node(scene_nodes[0], transform);
+         transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
+         Vector3 axis = {1., 1., 1.};
+         transform.rotation = QuaternionFromAxisAngle(axis, RAD2DEG * PI/4.);
+         scene_nodes[4] = create_scene_node(scene_nodes[3], transform);
+         transform.rotation = QuaternionFromAxisAngle(axis, RAD2DEG * PI/6.);
+         transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
+         for (size_t i = 0; i < 1000; i++) {
+            transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
+            create_scene_node(scene_nodes[0], transform);
+         }
+         scene_nodes[2] = create_scene_node(scene_nodes[0], transform);
+
+      end_profile(model_filepath);
       // TODO: Create a destroy function
       // destroy_model(&m);
 
-      begin_profile();
-      {
-         // ZString model_filepath = "res/models/akm-free-lowpoly/source/AK.fbx";
-         model_filepath = "res/models/backpack/backpack.obj";
-         Model m = create_model(model_filepath);
-         model_draw_index = push_model_to_manager(&m);
-      }
-      end_profile(model_filepath);
+      // begin_profile();
+      // {
+      //    // ZString model_filepath = "res/models/akm-free-lowpoly/source/AK.fbx";
+      //    model_filepath = "res/models/backpack/backpack.obj";
+      //    Model m = create_model(model_filepath);
+      //    model_draw_index = push_model_to_manager(&m);
+      // }
+      // end_profil(model_filepath);
    }
 
    const bool draw_with_manager = true;
