@@ -473,13 +473,13 @@ void projection_update(Projection_Application *app, f64 dt) {
       return;
    }
 
-   static GLsync sync = nullptr;
+   // static GLsync sync = nullptr;
 
-   if (!sync) {
-      trace_warn("Sync object is null");
-   }
+   // if (!sync) {
+      // trace_warn("Sync object is null");
+   // }
 
-   wait_sync_point(sync);
+   // wait_sync_point(sync);
 
 
    static Vector3 light_position = {110.0f,  16.f, 4.0f};
@@ -617,6 +617,7 @@ void projection_update(Projection_Application *app, f64 dt) {
          Model m  = create_model(model_filepath);
          Transform transform = transform_identity;
          scene_nodes[0] = create_scene_node(&m, transform);
+         play_animation(scene_nodes[0]);
       }
       end_profile(model_filepath);
 
@@ -631,11 +632,12 @@ void projection_update(Projection_Application *app, f64 dt) {
 
          Vector3 axis = {1., 1., 1.};
          transform.rotation = QuaternionFromAxisAngle(axis, RAD2DEG * PI/2.);
-         scene_nodes[3] = create_scene_node(&m, transform);
+         scene_nodes[1] = create_scene_node(&m, transform);
       }
       end_profile(model_filepath);
 
       begin_profile();
+      if (false) {
          Transform transform = transform_identity;
          transform.scale = mul(transform.scale, 5.);
          transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
@@ -646,12 +648,31 @@ void projection_update(Projection_Application *app, f64 dt) {
          scene_nodes[4] = create_scene_node(scene_nodes[3], transform);
          transform.rotation = QuaternionFromAxisAngle(axis, RAD2DEG * PI/6.);
          transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
-         for (size_t i = 0; i < 1000; i++) {
-            transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
-            create_scene_node(scene_nodes[0], transform);
-         }
-         scene_nodes[2] = create_scene_node(scene_nodes[0], transform);
 
+         usz n_replicas = 5000;
+         // isz instance_per_cmd = n_replicas;
+         isz instance_per_cmd = 1;
+         Vector3 translation_offset = (Vector3){10., 10., 0};
+
+         if (false) { // Testing somethings
+            glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+            glDepthFunc(GL_LESS);
+         }
+
+         for (usz i = 0; i < n_replicas/instance_per_cmd; i++) {
+            transform.translation = add(transform.translation, translation_offset);
+            auto new = create_scene_node_new_cmd(scene_nodes[0], transform);
+            for (isz i = 0; i < (instance_per_cmd-1); i++) {
+               transform.translation = add(transform.translation, translation_offset);
+               create_scene_node(new, transform);
+            }
+         }
+
+         // scene_nodes[2] = create_scene_node(scene_nodes[0], transform);
+
+      }
       end_profile(model_filepath);
       // TODO: Create a destroy function
       // destroy_model(&m);
@@ -685,6 +706,7 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       // draw_from_index(model_draw_index, app->shader);
       // begin_profile();
+      play_animation(scene_nodes[0]);
       draw_indirect(app->shader);
       // end_profile("draw_indirect");
 
@@ -694,7 +716,7 @@ void projection_update(Projection_Application *app, f64 dt) {
    // draw_old_way(app, shader, camera);
 
 
-   sync = sync_point(sync);
+   // sync = sync_point(sync);
 
    if (!is_window_minimized()) {
       Framebuffer final_fb = app->fb;

@@ -91,7 +91,8 @@ void init_window(void) {
 
    glfwMakeContextCurrent(window);
    gladLoadGL(glfwGetProcAddress);
-   glfwSwapInterval(1);
+   const bool cap_frame_rate = false;
+   glfwSwapInterval(cap_frame_rate);
    __state.window.initialized = true;
 
 }

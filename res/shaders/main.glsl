@@ -80,56 +80,30 @@ void main() {
 
 #ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
+   vec3 normal   = pull_normal(gl_VertexID);
+   vec2 uv       = pull_uv(gl_VertexID);
    Draw_Command draw_command = draw_commands[gl_DrawID];
-   // material_index = draw_command.material_index;
-   // material_index = gl_DraID;
    material_index = int(draw_command.material_index);
-   if (gl_InstanceID >= 0)  {
-      // if (gl_DrawID > 78) {
-      //    position.zx += vec2(10);
-      // }
-
-
-      for (int index = 0; index < gl_InstanceID; index++){
-         position.zx += vec2(2);
-      }
-   }
-   vec3 normal = pull_normal(gl_VertexID);
-   vec2 uv     = pull_uv(gl_VertexID);
-   // uv = vec2(0);
 #else
    vec4 position = vec4(position.xyz,  1.0);
 #endif
 
    mat4 gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
 
-   // World position send to next stage
-   // position.xz *= rotation(per_frame.elapsed_time * 0.2);
-   // mat4 model = per_frame.model;
    mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
-   // mat4 model = matrix_identity;
-   if (has_animation >= 0) {
-      // position = geometry_to_model[has_animation]*vec3(0);
-      vec4 translation = geometry_to_model[has_animation] * vec4(0., 0., 0., 1.);
-      // translation.x += 150.;
-      // translation.y += 20.;
-      mat4 model = matrix_transform(translation.xyz, vec3(1.), vec4(1));
-      position.xyz *= 10;
-      position = position + translation;
-      // position = model * position;
-   } else {
-      if (has_animation == -69) {
-         ivec4 joint_idxs    = joint_vertices[gl_VertexID].joint_idxs;
-         vec4  joint_weights = joint_vertices[gl_VertexID].joint_weights;
-         if (length(joint_weights) != 0) {
-         }
-         position =
-              joint_weights[0] * (geometry_to_model[joint_idxs[0]] * position)
-            + joint_weights[1] * (geometry_to_model[joint_idxs[1]] * position)
-            + joint_weights[2] * (geometry_to_model[joint_idxs[2]] * position)
-            + joint_weights[3] * (geometry_to_model[joint_idxs[3]] * position);
-         position = model * position;
+
+   // if (false && draw_command.has_joints == 1) {
+   if (draw_command.has_joints == 1) {
+      ivec4 joint_idxs    = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_idxs;
+      vec4  joint_weights = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_weights;
+      if (length(joint_weights) != 0) {
       }
+      position =
+           joint_weights[0] * (geometry_to_model[joint_idxs[0]] * position)
+         + joint_weights[1] * (geometry_to_model[joint_idxs[1]] * position)
+         + joint_weights[2] * (geometry_to_model[joint_idxs[2]] * position)
+         + joint_weights[3] * (geometry_to_model[joint_idxs[3]] * position);
+      // position = model * position;
    }
    position = model * position;
 
@@ -137,13 +111,14 @@ void main() {
       // Everything is sent in World Space
       Position = position.xyz;
       // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
-      if (true) {
+      if (false) {
          // Apply mat3 to "drop" the translation portion
          Normal = mat3(transpose(inverse(model))) * normal;
          // Normal = ((transpose(inverse(per_frame.model)) * vec4(normal, 0.)).xyz);
       } else {
          Normal = normal.xyz;
       }
+      TextureCoordinate = uv;
    }
 
 
@@ -159,12 +134,13 @@ void main() {
    }
 
 
-   gl_Position = perspective_from_fov(position.xyz, fov, aspect, 0.1, 100.); // Appears to be infinite in depth
+   { // Camera to Clip
+      gl_Position = perspective_from_fov(position.xyz, fov, aspect, 0.1, 100.); // Appears to be infinite in depth
+   }
    // gl_Position = per_frame.perspective * vec4(position.xy, position.z*-1., position.w);
    // gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
    // WARNING: This function is mostly the same except for some z-fighting shenanigans
    // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
-   TextureCoordinate = uv;
 }
 
 
@@ -177,6 +153,13 @@ void main() {
 #pragma fragment
 #version 460 core
 #extension GL_ARB_bindless_texture : enable
+
+// Beware that Early-Z is disabled if your fragment shader does any of:
+// discard / alpha test behavior
+// alpha blending enabled
+// writes gl_FragDepth
+// side effects (imageStore/atomics in FS)
+// In that case, instancing multiplies your fragment cost N times.
 
 in Varying {
    vec3 Position;
@@ -495,9 +478,13 @@ vec3 calculate_color(
 
 
 void main() {
-   vec3 color = vec3(gl_FragCoord.z);
-   vec3 diffuse_color  = vec3(1);
-   vec3 specular_color = vec3(0);
+   // vec3 color = vec3(gl_FragCoord.z);
+   vec3 color = vec3(0.);
+   // vec3 color = vec3(1.);
+   // FragColor = vec4(color, 1.0);
+   // return;
+   vec3 diffuse_color  = vec3(1.);
+   vec3 specular_color = vec3(0.);
    vec3 emissive_color = vec3(0.);
    float alpha_channel = 1.0;
 
@@ -592,11 +579,8 @@ void main() {
 
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
    float attenuation_alpha = clamp(distance_to_view/distance_to_view, 0.2, 1.0);
-   // FragColor = vec4(color, attenuation_alpha);
-   FragColor = vec4(color, 1.0);
-   // return;
+   FragColor = vec4(color, attenuation_alpha);
    FragColor.xyz = gamma_correction(FragColor.xyz);
    FragColor.w *= max(alpha_channel, 0.4);
 
 }
-#include "./src/comments.glsl"

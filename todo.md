@@ -22,13 +22,15 @@
 
 # Projection Pipeline
 
-- [ ] Model GpuData: What is the best way to setup the gpu data for a model and pass a lighter structure around? Figure it out.
-      For now  we're using some anonymous structure as a "bundle".
 
-- [ ] Make an easy way to draw instance from Cpu side, like ``draw_another(Draw_Index index, Instance data_for_instance)``
-instance should have the model_matrix.
+- [ ] Raycast from camera to closest triangle to scale down moving forward to avoid going through geometry, as you get close the slower you zoom
 
 ---
+- [x] (edit: chose scene node) Model GpuData: What is the best way to setup the gpu data for a model and pass a lighter structure around? Figure it out. For now  we're using some anonymous structure as a "bundle".
+
+- [x] Make an easy way to draw instance from Cpu side, like ``draw_another(Draw_Index index, Instance data_for_instance)`` instance should have the model_matrix.
+
+- [ ] Make an easy way to set a new material for the renderables including setting material per instance even if the mashes has multiple surfaces each with a different texture.
 
 - [ ] Clean up default texture access to sample only once on the whole fragment shader
 - [ ] (edit: Scrap that, make default textures). Instead of passing has_animation, has_diffuse, pass a clamping value or intensity value that inquires a math operation instead of an if.

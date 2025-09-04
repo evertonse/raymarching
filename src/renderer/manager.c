@@ -52,7 +52,6 @@ typedef struct {
       bool   dirty;
    } joints;
 
-
    struct {
       u32   *items;
       u32    count;
@@ -60,6 +59,12 @@ typedef struct {
       Buffer buffer;
       bool   dirty;
    } indices;
+
+   struct {
+      Animation *items;
+      u32 count;
+      u32 capacity;
+   } animations;
 
    // Material management
    struct {
@@ -91,7 +96,11 @@ typedef struct {
          // Instances and Draw Comamnds are related as we have always less or equal ren than we draw_commands
          struct {
             Draw_Index draw_index;
+            isz animation_index;
+            Joint_List joint_list; // NOTE: It's not that lean of a structure, maybe we sould make use an index instead?
+            // TODO: Make it possible to share 1 Animation between instances
             struct {
+               f64 animation_curr_time;
                Transform transform;
                struct { // TODO: make it possible to have instances with differentes materials considering surfaces in a mesh
                   u32 base;
@@ -100,7 +109,7 @@ typedef struct {
             } *items;
             u32 count;
             u32 capacity;
-         } *items;
+         } *items; // Instances for a renderable unit
          u32 count;
          u32 capacity;
       } renderables;
@@ -150,7 +159,7 @@ void grow_manager_if_needed(u32 required_vertices, u32 required_indices, bool ha
    }
 
    u32 required_joints = required_vertices;
-   if (manager.joints.count + required_joints > manager.joints.capacity) {
+   if (has_joints && (manager.joints.count + required_joints > manager.joints.capacity)) {
       u32 new_capacity = manager.joints.capacity + (manager.joints.capacity / 2);
       if (new_capacity < manager.joints.count + required_joints) {
          new_capacity = manager.joints.count + required_joints;
@@ -169,7 +178,6 @@ void grow_manager_if_needed(u32 required_vertices, u32 required_indices, bool ha
       if (new_capacity < manager.indices.count + required_indices) {
          new_capacity = manager.indices.count + required_indices;
       }
-
       isz buffer_size = new_capacity * size_of(manager.indices.items[0]);
       manager.indices.items = realloc(manager.indices.items, buffer_size);
       manager.indices.capacity = new_capacity;
@@ -178,7 +186,7 @@ void grow_manager_if_needed(u32 required_vertices, u32 required_indices, bool ha
 }
 
 Draw_Index push_draw_command_to_manager(const Draw_Command command) {
-   const int required_draw_commands = 1;
+   const isz required_draw_commands = 1;
    if (manager.draw_commands.count + required_draw_commands > manager.draw_commands.capacity) {
       u32 new_capacity = manager.draw_commands.capacity + (manager.draw_commands.capacity / 2);
       if (new_capacity < manager.draw_commands.count + required_draw_commands) {
@@ -199,66 +207,6 @@ Draw_Index push_draw_command_to_manager(const Draw_Command command) {
    return index;
 }
 
-
-Draw_Index push_arrays_to_manager_wrong(
-      Vector3 *positions, Vector3 *normals, Vector2 *uvs, void *joints, u32 vertices_count,
-      u32 *indices, u32 indices_count,
-      u32 material_index,
-      isz base_vertices_offset_override, // Can pass -1 to not override anything
-      isz base_joints_offset_override // Can pass -1 to not override anything
-) {
-   bool has_joints = joints != nullptr;
-   grow_manager_if_needed(vertices_count, indices_count, has_joints);
-
-   u32 base_vertices_offset = -1 == base_vertices_offset_override ? (u32)manager.vertices.count : (u32)base_vertices_offset_override;
-   u32 base_joints_offset   = -1 == base_joints_offset_override   ? (u32)manager.joints.count   : (u32)base_joints_offset_override;
-
-   // Create description for the command
-   Draw_Command draw_command = {
-      .indices_count   = indices_count,
-      .instance_count  = 0,
-      .indices_offset  = manager.indices.count,
-      .vertices_offset = base_vertices_offset,
-      .instance_offset = 0,
-
-      .joints_offset   = base_joints_offset,
-      .material_index  = material_index,
-      .has_joints      = has_joints,
-      .vertices_count  = vertices_count
-   };
-
-   Draw_Index draw_index = push_draw_command_to_manager(draw_command);
-
-   // Copy vertex data to CPU staging arrays
-   // The key insight: we store data in separate sections per draw_command
-   // Layout: [pos0,pos1,pos2...][norm0,norm1,norm2...][uv0,uv1,uv2...]
-   if (vertices_count > 0) {
-      memcpy(&manager.vertices.positions[manager.vertices.count], positions, vertices_count * size_of(Vector3));
-      memcpy(&manager.vertices.normals  [manager.vertices.count], normals,   vertices_count * size_of(Vector3));
-      memcpy(&manager.vertices.uvs      [manager.vertices.count], uvs,       vertices_count * size_of(Vector2));
-      manager.vertices.count += vertices_count;
-      manager.vertices.dirty = true;
-
-      // Copy joint data if present
-      if (has_joints) {
-         memcpy(&manager.joints.items[manager.vertices.count], joints, vertices_count * size_of(manager.joints.items[0]));
-         manager.joints.count += vertices_count;
-         manager.joints.dirty = true;
-      }
-   }
-   manager.vertices.count += vertices_count;
-
-   assert_msg(indices_count, "I don't see any reason why the number of indices should be zero"); 
-   {
-      // Always copy indices (they should already be relative to this draw_command's vertices)
-      memcpy(&manager.indices.items[manager.indices.count], indices, indices_count * size_of(u32));
-      manager.indices.count += indices_count;
-      manager.indices.dirty = true;
-   }
-
-
-   return draw_index;
-}
 
 
 // Add surface data to global buffers
@@ -311,10 +259,16 @@ Draw_Index push_arrays_to_manager(
 
    // Update counters
    manager.vertices.count += vertices_count;
+   if (has_joints) {
+      manager.joints.count += vertices_count;
+   }
    manager.indices.count += indices_count;
 
    // Mark buffers as dirty for GPU upload
    manager.vertices.dirty = true;
+   if (has_joints) {
+      manager.joints.dirty = true;
+   }
    manager.indices.dirty = true;
 
    return draw_index;
@@ -380,7 +334,7 @@ void update_manager_gpu_resources() {
 
 
    if (manager.draw_commands.dirty) {
-      trace_info("[Manager] Draw Commands were dirty");
+      trace_info("[Manager] Draw Commands were dirty.");
 
       // TODO: Maybe move this. This might trigger a lot.
       // TODO: Maybe We should have 3 cmd buffers and persistent map
@@ -396,34 +350,77 @@ void update_manager_gpu_resources() {
          instances_count += renderable.count;
       }
 
-      { // Instances buffer management
+      trace_info(
+         "[Manager] Draw Commands: capacity = %lld count = %lld, renderables_count = %lld, instances_count = %lld, size_of_each_command = %lld",
+         (isz)manager.draw_commands.capacity, (isz)manager.draw_commands.count, (isz)manager.scene.renderables.count, (isz)instances_count, (isz)size_of(manager.draw_commands.items[0])
+      );
+
+      {  // Instances buffer management
+         // TODO: Change this to permanently mapped pointer instead and create independent dirty flag for instances
          isz instance_size = size_of(struct Instance);
          isz required_instances_buffer_capacity_in_bytes = instances_count * instance_size;
 
          auto checkpoint = tsave();
-         byte *data = talloc(required_instances_buffer_capacity_in_bytes);
+         struct Instance* gpu_instances = talloc(required_instances_buffer_capacity_in_bytes);
          isz linear_instance_index = 0;
          for (u32 renderable_index = 0; renderable_index < manager.scene.renderables.count; renderable_index += 1) {
             auto renderable = manager.scene.renderables.items[renderable_index];
-            for (u32 instance_index = 0; instance_index < renderable.count;  instance_index += 1) {
+            for (u32 instance_index = 0; instance_index < renderable.count; instance_index += 1) {
                auto instance = renderable.items[instance_index];
-               auto gpu_instance = (struct Instance*)&data[instance_size*linear_instance_index++];
-               gpu_instance->model_matrix = MatrixToFloatV(MatrixCompose(instance.transform));
+
+               assert(linear_instance_index < instances_count);
+               gpu_instances[linear_instance_index].model_matrix = MatrixToFloatV(MatrixCompose(instance.transform));
+               linear_instance_index += 1;
             }
          }
+
          // TODO: Change to capacity
          if (!is_valid_buffer(manager.scene.instances_buffer)) {
-            manager.scene.instances_buffer = create_buffer(BUFFER_USAGE_STATIC, data, required_instances_buffer_capacity_in_bytes);
+            manager.scene.instances_buffer = create_buffer(BUFFER_USAGE_STATIC, gpu_instances, required_instances_buffer_capacity_in_bytes);
          } else {
             resize_buffer_if_needed(&manager.scene.instances_buffer, required_instances_buffer_capacity_in_bytes);
-            update_buffer(&manager.scene.instances_buffer, data, 0, required_instances_buffer_capacity_in_bytes);
+            update_buffer(&manager.scene.instances_buffer, gpu_instances, 0, required_instances_buffer_capacity_in_bytes);
          }
          trestore(checkpoint);
          bind_buffer_view(&manager.scene.instances_buffer, BUFFER_TYPE_STORAGE, BINDING_INSTANCE_BUFFER, 0, required_instances_buffer_capacity_in_bytes);
       }
 
+#if 0
+      {  // Animation buffer management
+         // TODO: Change this to permanently mapped pointer instead and create independent dirty flag for instances
+         isz instance_size = size_of(struct Instance);
+         isz required_instances_buffer_capacity_in_bytes = instances_count * instance_size;
+
+         auto checkpoint = tsave();
+         float16* gpu_geometry_to_world = talloc(required_instances_buffer_capacity_in_bytes);
+         isz linear_instance_index = 0;
+         for (u32 renderable_index = 0; renderable_index < manager.scene.renderables.count; renderable_index += 1) {
+            auto renderable = &manager.scene.renderables.items[renderable_index];
+            for (u32 instance_index = 0; instance_index < renderable.count; instance_index += 1) {
+               auto instance = renderable.items[instance_index];
+               Geometry_To_World_List matrices = joint_matrices_from_animation(&renderable->joint_list, renderable->animation, instance.time);
+               memcpy(&gpu_geometry_to_world[linear_instance_index], joint_matrices_from_animation);
+               linear_instance_index += matrices.count;
+            }
+         }
+
+         // TODO: Change to capacity
+         if (!is_valid_buffer(manager.scene.instances_buffer)) {
+            manager.scene.instances_buffer = create_buffer(BUFFER_USAGE_STATIC, gpu_instances, required_instances_buffer_capacity_in_bytes);
+         } else {
+            resize_buffer_if_needed(&manager.scene.instances_buffer, required_instances_buffer_capacity_in_bytes);
+            update_buffer(&manager.scene.instances_buffer, gpu_instances, 0, required_instances_buffer_capacity_in_bytes);
+         }
+         trestore(checkpoint);
+         bind_buffer_view(&manager.scene.instances_buffer, BUFFER_TYPE_STORAGE, BINDING_INSTANCE_BUFFER, 0, required_instances_buffer_capacity_in_bytes);
+      }
+#endif
+
       isz required_buffer_capacity_in_bytes = manager.draw_commands.capacity * size_of(manager.draw_commands.items[0]);
       resize_buffer_if_needed(&manager.draw_commands.buffer, required_buffer_capacity_in_bytes);
+
+      { // Deduplicate draw_commands with no instances. Maybe do this? Tbh this will only be useful if we like are deleting a lot of scene_nodes every frame?
+      }
 
       isz draw_commands_size = manager.draw_commands.count * size_of(manager.draw_commands.items[0]);
       update_buffer(&manager.draw_commands.buffer, manager.draw_commands.items, 0, draw_commands_size);
@@ -487,6 +484,7 @@ void update_manager_gpu_resources() {
       manager.materials.dirty = false;
    }
 }
+
 
 // Bind textures for a specific material index from the manager
 void bind_material_textures(u32 material_index, Shader shader) {
@@ -603,6 +601,12 @@ void draw_indirect(Shader shader) {
    }
 
    {
+      auto joints_size = manager.joints.count * (size_of(manager.joints.items[0]));
+      bind_buffer_view(&manager.joints.buffer,  BUFFER_TYPE_STORAGE, BINDING_JOINT_BUFFER, 0, joints_size);
+   }
+
+
+   {
       auto material_handles_size = manager.materials.count * size_of(Material);
       bind_buffer_view(&manager.materials.buffer, BUFFER_TYPE_STORAGE, BINDING_MATERIAL, 0, material_handles_size);
    }
@@ -648,18 +652,6 @@ void draw_indirect(Shader shader) {
    // glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
    // glFinish();
 }
-
-// void draw_instance(Draw_Index draw_index, Matrix transform) {
-//    assert(draw_index.count > 0);
-//    draw_commands.dirty = true;
-//    for (int index = 0; index < list.count; index += 1) {
-//       draw_index.index + index;
-//       assert(draw_index.index)
-//       draw_commands.items[]
-//       auto item = list.items[index];
-//    }
-//
-// }
 
 
 void grow_materials_if_needed(u32 required_materials) {
@@ -761,11 +753,17 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
 }
 
 // Push entire model to buffer manager, handling all meshes and materials
-Draw_Index push_model_to_manager(const Model *model) {
+Draw_Index push_model_to_manager(const Model *model, isz *animation_index) {
    assert(model != nullptr);
    assert(model->meshes.items != nullptr);
    assert(model->meshes.count > 0);
 
+   if (model->animations.count > 0 ) {
+      // NOTE: Only one animation for now
+      Animation deep_copied = animation_deep_copy(&model->animations.items[0]);
+      *animation_index = manager.animations.count;
+      da_append(&manager.animations, deep_copied);
+   }
 
    // First, push all materials from the model to the manager
    u32 material_index_base = manager.materials.count;
@@ -798,6 +796,10 @@ Draw_Index push_model_to_manager(const Model *model) {
    return result_draw_index;
 }
 
+
+// void play_animation(Scene_Node node, isz animation_index, double time) {
+// }
+
 Scene_Node internal create_scene_node_from_renderable(isz renderable_index, const Transform transform) {
    auto renderable = &manager.scene.renderables.items[renderable_index];
 
@@ -814,11 +816,44 @@ Scene_Node internal create_scene_node_from_renderable(isz renderable_index, cons
    return (Scene_Node){.index = scene_node_index};
 }
 
+// Create a new draw commands without creating new vertex, indices buffers, it should only affect the draw commands
+Scene_Node create_scene_node_new_cmd(Scene_Node node, const Transform transform) {
+   isz src_renderable_index  = manager.scene.nodes.items[node.index].renderable_index;
+   Draw_Index src_draw_index = manager.scene.renderables.items[src_renderable_index].draw_index;
+   Joint_List src_joint_list = manager.scene.renderables.items[src_renderable_index].joint_list;
+   isz src_animation_index = manager.scene.renderables.items[src_renderable_index].animation_index;
+
+
+   Draw_Index draw_index = {0};
+   for (u32 sequential_index = 0; sequential_index < src_draw_index.count;  sequential_index += 1) {
+      Draw_Command draw_command = manager.draw_commands.items[src_draw_index.base + sequential_index];
+      // This shall be se then updating gpu buffers
+      // draw_command.instance_count = 1;
+      // draw_command.instance_offset = instances_count;
+      Draw_Index curr_draw_index = push_draw_command_to_manager(draw_command);
+      if (0 == draw_index.count) {
+         draw_index.base = curr_draw_index.base;
+      }
+      draw_index.count += 1;
+      assert_msg(draw_index.base + draw_index.count == curr_draw_index.base +  curr_draw_index.count, "The ends should meet because they should be sequential");
+   }
+
+
+   isz renderable_index = manager.scene.renderables.count;
+   da_append(&manager.scene.renderables, {.draw_index = draw_index, .animation_index = src_animation_index, .joint_list = src_joint_list});
+   auto new_node = create_scene_node_from_renderable(renderable_index, transform);
+   return new_node;
+}
+
 // TODO: Change C treesitter query to make overload be a keyword right before the the type instead of after
 Scene_Node overload create_scene_node(const Model *model, const Transform transform) {
-   Draw_Index draw_index = push_model_to_manager(model);
+   isz animation_index = -1;
+   isz animations_count = 0;
+
+   Draw_Index draw_index = push_model_to_manager(model, &animation_index);
+
    isz renderable_index = manager.scene.renderables.count;
-   da_append(&manager.scene.renderables, {.draw_index = draw_index});
+   da_append(&manager.scene.renderables, {.draw_index = draw_index, .animation_index = animation_index, .joint_list = model->joints});
    return create_scene_node_from_renderable(renderable_index, transform);
 }
 
@@ -826,6 +861,36 @@ Scene_Node overload create_scene_node(Scene_Node node, const Transform transform
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    return create_scene_node_from_renderable(renderable_index, transform);
 }
+
+void overload play_animation(Scene_Node node) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto animation = &manager.animations.items[renderable->animation_index];
+   animation->time_current += time_delta();
+   animation->time_current = min(animation->time_current, animation->time_end);
+   if (animation->time_current >= animation->time_end) {
+      animation->time_current = animation->time_begin;
+   }
+   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, animation->time_current);
+   isz  list_data_size = (size_of(list.matrices[0])*list.count);
+
+   static Buffer geometry_to_world_matrices = {0};
+   bool valid = is_valid_buffer(geometry_to_world_matrices);
+   bool needs_resize = valid && geometry_to_world_matrices.size < list_data_size;
+   bool needs_allocation = !valid || needs_resize;
+
+   if (needs_resize) {
+      destroy_buffer(&geometry_to_world_matrices);
+   }
+   if (needs_allocation) {
+      geometry_to_world_matrices = create_buffer(BUFFER_USAGE_SUBDATA, nullptr, list_data_size);
+   }
+
+   update_buffer(&geometry_to_world_matrices, list.matrices, 0, list_data_size);
+   bind_buffer(&geometry_to_world_matrices, BUFFER_TYPE_STORAGE, BINDING_ANIMATION_MATRICES);
+}
+
 
 void destroy_manager_materials() {
    for (u32 i = 0; i < manager.materials.count; i += 1) {

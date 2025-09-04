@@ -38,7 +38,7 @@ typedef struct {
            Vector4    vec4; // Generic way of dealing with both vec3 and quat
         };
         double time;
-      }  *items;
+      } *items;
       u32 count;
    } translation_keyframes, scale_keyframes, rotation_keyframes;
 
@@ -46,15 +46,173 @@ typedef struct {
 
 typedef struct {
    ZString name;
+   // Each joint has its one set of keyframes that needs to go through at a certain time
+   // So we have a Joint_Animation for each joint Joint.
    struct {
       Joint_Animation *items;
-      u32 count; // Must be the same amount as joints in Joint_List and in turn we have the same amount of scene->bones.count
-   } joint_animations;
+      u32 count; // Must be the same amount as joints in Joint_List and in turn we have the same amount of scene->bones.count at the time of load from .fbx file.
+   } joints_animation;
 
    double time_begin;
    double time_end;
    double time_current;
 } Animation;
+
+Joint_List joint_list_deep_copy(const Joint_List *src) {
+   Joint_List dst = zero_of(Joint_List);
+
+   if (src->count == 0) {
+      return dst;
+   }
+
+   // Calculate total memory needed
+   size_t total_bytes = 0;
+
+   // Add space for joints array
+   total_bytes += src->count * sizeof(Joint);
+
+   // Add space for names array (array of ZString pointers)
+   total_bytes += src->count * sizeof(ZString);
+
+   // Add space for each name string
+   for (u32 i = 0; i < src->count; i++) {
+      if (src->names[i] != NULL) {
+         total_bytes += strlen(src->names[i]) + 1; // +1 for null terminator
+      }
+   }
+
+   // Single allocation for all data
+   uint8_t *memory_block = malloc(total_bytes);
+   if (!memory_block) {
+      return zero_of(Joint_List);
+   }
+
+   uint8_t *ptr = memory_block;
+
+   // Copy joints array
+   dst.joints = (Joint *)ptr;
+   dst.count = src->count;
+   ptr += src->count * sizeof(Joint);
+   memcpy(dst.joints, src->joints, src->count * sizeof(Joint));
+
+   // Copy names array (pointers to strings)
+   dst.names = (ZString *)ptr;
+   ptr += src->count * sizeof(ZString);
+
+   // Copy each name string
+   for (u32 i = 0; i < src->count; i++) {
+      if (src->names[i] != NULL) {
+         size_t name_len = strlen(src->names[i]) + 1;
+         dst.names[i] = (ZString)ptr;
+         memcpy(ptr, src->names[i], name_len);
+         ptr += name_len;
+      } else {
+         dst.names[i] = NULL;
+      }
+   }
+
+   dst.hierarchy_transform = src->hierarchy_transform;
+
+   return dst;
+}
+
+void joint_list_free(Joint_List *list) {
+   if (list->joints != NULL) {
+      free(list->joints);
+   }
+   *list = zero_of(Joint_List);
+}
+
+Animation animation_deep_copy(const Animation *src) {
+   Animation dst = {0};
+
+   // Copy basic timing fields
+   dst.time_begin = src->time_begin;
+   dst.time_end = src->time_end;
+   dst.time_current = src->time_current;
+
+   usz total_bytes = 0;
+
+   // Add space for joints array
+   total_bytes += src->joints_animation.count * size_of(Joint_Animation);
+
+   // Add space for all keyframe data
+   for (u32 i = 0; i < src->joints_animation.count; i++) {
+      const Joint_Animation *joint = &src->joints_animation.items[i];
+      total_bytes += joint->translation_keyframes.count * size_of(*joint->translation_keyframes.items);
+      total_bytes += joint->scale_keyframes.count       * size_of(*joint->scale_keyframes.items);
+      total_bytes += joint->rotation_keyframes.count    * size_of(*joint->rotation_keyframes.items);
+   }
+
+   // Add space for name (if it exists)
+   usz name_len = src->name ? strlen(src->name) + 1 : 0;
+   total_bytes += name_len;
+
+   // Single allocation for all data
+   byte *memory_block = malloc(total_bytes);
+   if (!memory_block) {
+      return (Animation){0};
+   }
+
+   // Set up pointer tracking
+   byte *ptr = memory_block;
+
+   // Copy joints array
+   if (src->joints_animation.count > 0) {
+      dst.joints_animation.items = (Joint_Animation *)ptr;
+      dst.joints_animation.count = src->joints_animation.count;
+      ptr += src->joints_animation.count * size_of(Joint_Animation);
+
+      // Copy each joint's data
+      for (u32 i = 0; i < src->joints_animation.count; i++) {
+         const Joint_Animation *src_joint = &src->joints_animation.items[i];
+         Joint_Animation *dst_joint = &dst.joints_animation.items[i];
+
+         // Copy translation keyframes
+         if (src_joint->translation_keyframes.count > 0) {
+            usz size = src_joint->translation_keyframes.count * size_of(*src_joint->translation_keyframes.items);
+            dst_joint->translation_keyframes.items = (typeof(src_joint->translation_keyframes.items))ptr;
+            dst_joint->translation_keyframes.count = src_joint->translation_keyframes.count;
+            memcpy(ptr, src_joint->translation_keyframes.items, size);
+            ptr += size;
+         }
+
+         // Copy scale keyframes
+         if (src_joint->scale_keyframes.count > 0) {
+            usz size = src_joint->scale_keyframes.count * size_of(*src_joint->scale_keyframes.items);
+            dst_joint->scale_keyframes.items = (typeof(src_joint->scale_keyframes.items))ptr;
+            dst_joint->scale_keyframes.count = src_joint->scale_keyframes.count;
+            memcpy(ptr, src_joint->scale_keyframes.items, size);
+            ptr += size;
+         }
+
+         // Copy rotation keyframes
+         if (src_joint->rotation_keyframes.count > 0) {
+            usz size = src_joint->rotation_keyframes.count * size_of(*src_joint->rotation_keyframes.items);
+            dst_joint->rotation_keyframes.items = (typeof(src_joint->rotation_keyframes.items))ptr;
+            dst_joint->rotation_keyframes.count = src_joint->rotation_keyframes.count;
+            memcpy(ptr, src_joint->rotation_keyframes.items, size);
+            ptr += size;
+         }
+      }
+   }
+
+   // Copy name
+   if (name_len > 0) {
+      dst.name = (char *)ptr;
+      memcpy(ptr, src->name, name_len);
+   }
+
+   return dst;
+}
+
+// Only when deep copied because we know we only use a single malloc
+void animation_deep_free(Animation* anim) {
+    if (anim->joints_animation.items) {
+        free(anim->joints_animation.items);
+    }
+    *anim = (Animation){0};
+}
 
 typedef struct {
     struct {
@@ -81,7 +239,7 @@ typedef struct {
 } Model;
 
 
-static const bool please_obj_merge = true;
+const bool internal please_obj_merge = true;
 // Options: https://ufbx.github.io/reference#ufbx_load_opts
 static const ufbx_load_opts ufbx_default_opts = {
    .normalize_normals  = true,
@@ -166,7 +324,7 @@ void trace_ufbx_warnings(const ufbx_scene *scene) {
    int warning_count[UFBX_WARNING_TYPE_COUNT] = {0};
    int ignored_warning_count = 0;
 
-   for (size_t i = 0; i < scene->metadata.warnings.count; i += 1) {
+   for (usz i = 0; i < scene->metadata.warnings.count; i += 1) {
       ufbx_warning warning = scene->metadata.warnings.data[i];
       auto description = warning.description.data;
 
@@ -226,7 +384,7 @@ Matrix raylib_matrix_from_ufbx_matrix(const ufbx_matrix ufbxmat) {
    return rlmat;
 }
 
-// TODO: HashMap
+// TODO: HashMap, let's be honest, i don't think will ever change this to a map 2025-09-03 Deccan_Lea
 usz joint_index_from_ufbx_bone_node(const ufbx_scene *scene, const ufbx_node *bone_node) {
    bool found_bone_index = false;
    usz bone_index = 0;
@@ -322,8 +480,8 @@ void destroy_joint_list(Joint_List *list) {
 Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
    Animation result = {0};
 
-   result.joint_animations.count = scene->bones.count;
-   result.joint_animations.items = calloc(scene->bones.count, size_of(Joint_Animation));
+   result.joints_animation.count = scene->bones.count;
+   result.joints_animation.items = calloc(scene->bones.count, size_of(Joint_Animation));
 
    // Baked animation data is ufbx transforming the fbx data into linearly interpolatable keyframes. Easy enough.
    ufbx_baked_anim *baked = ufbx_bake_anim(scene, anim, nullptr, nullptr);
@@ -337,11 +495,11 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
 
    result.time_current = result.time_begin;
 
-   for (u32 bone_i = 0; bone_i < scene->bones.count; bone_i += 1) {
-      ufbx_bone *bone = scene->bones.data[bone_i];
+   for (u32 bone_index = 0; bone_index < scene->bones.count; bone_index += 1) {
+      ufbx_bone *bone = scene->bones.data[bone_index];
       ufbx_node *node = bone->instances.data[0]; // assuming 1 instance per bone
 
-      Joint_Animation *ja = &result.joint_animations.items[bone_i];
+      Joint_Animation *ja = &result.joints_animation.items[bone_index];
 
       ufbx_baked_node *bnode = ufbx_find_baked_node(baked, node);
       ufbx_baked_node *bnode2 = ufbx_find_baked_node_by_typed_id(baked, node->typed_id);
@@ -382,45 +540,11 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
    return result;
 }
 
-void trace_ufbx_scene_statsold(ufbx_scene *scene) {
-   auto checkpoint = tsave();
-   ZString info = "";
-   info = tprintf("%s %d textures for this scene: ", info, scene->textures.count);
-   for (size_t i = 0; i < scene->textures.count; i += 1) {
-      auto texture = *scene->textures.data[i];
-      ZString base_name = path_base_name(texture.relative_filename.data);
-      info = tprintf("%s    texture (%d): base_name %s", info, i, base_name);
-      info = tprintf("%s                : %s", info, i, texture.relative_filename.data);
-      info = tprintf("%s                : file_textures.count %ld ", info, i, texture.file_textures.count);
-   }
-
-   trestore(checkpoint);
-   trace_info(info);
-
-   info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
-   for (size_t i = 0; i < scene->materials.count; i += 1) {
-      auto material = *scene->materials.data[i];
-      info = tprintf("%s    material '%s' (%d): has %ldd textures", info, i, material.name, material.textures.count);
-      for (size_t j = 0; j < material.textures.count; j += 1) {
-         auto texture = *(material.textures.data[j].texture);
-         ZString base_name = path_base_name(texture.relative_filename.data);
-         info = tprintf("%s        texture (%d): base_name %s", info, i, base_name);
-         info = tprintf("%s                    : %s", info, i, texture.relative_filename.data);
-         info = tprintf("%s                    : file_textures.count %ld ", info, i, texture.file_textures.count);
-         info = tprintf("%s                    : content %p with size %ld ", info, i, texture.content.data, texture.content.size);
-      }
-   }
-
-   trace_info(info);
-
-   trestore(checkpoint);
-}
-
 void trace_ufbx_scene_stats(ufbx_scene *scene) {
    auto checkpoint = tsave();
    ZString info = "";
    info = tprintf("%s %d textures for this scene: ", info, scene->textures.count);
-   for (size_t i = 0; i < scene->textures.count; i += 1) {
+   for (usz i = 0; i < scene->textures.count; i += 1) {
       auto texture = *scene->textures.data[i];
       auto base_name = path_base_name(texture.relative_filename.data);
       info = tprintf("%s    texture (%zu): base_name %s\n", info, i, base_name);
@@ -432,10 +556,10 @@ void trace_ufbx_scene_stats(ufbx_scene *scene) {
    trace_info(info);
 
    info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
-   for (size_t i = 0; i < scene->materials.count; i += 1) {
+   for (usz i = 0; i < scene->materials.count; i += 1) {
       auto material = *scene->materials.data[i];
       info = tprintf("%s    material '%s' (%zu): has %ld textures\n", info, material.name.data, i, material.textures.count);
-      for (size_t j = 0; j < material.textures.count; j += 1) {
+      for (usz j = 0; j < material.textures.count; j += 1) {
          auto texture = *(material.textures.data[j].texture);
          auto base_name = path_base_name(texture.relative_filename.data);
          info = tprintf("%s        texture (%zu): base_name %s\n", info, j, base_name);
@@ -465,7 +589,7 @@ static isz material_index_from_ufbx_scene(ufbx_material* material, ufbx_scene *s
    return index;
 }
 
-// TODO: setup -> create for consistency
+// TODO: `setup -> create` for consistency
 static void setup_materials_from_ufbx_scene(Model *model, ufbx_scene *scene, const char* scene_filepath) {
    // Setup Textures
    if (!model->materials.items) {
@@ -475,6 +599,7 @@ static void setup_materials_from_ufbx_scene(Model *model, ufbx_scene *scene, con
    for (usz material_index = 0; material_index < scene->materials.count; material_index += 1) {
       ufbx_material fbx_material = *scene->materials.data[material_index];
       auto material = &model->materials.items[material_index];
+      // TODO: Update this when pbr pipeline comes in
       // Diffuse
       material->diffuse = filepath_from_ufbx_material_map(scene_filepath, fbx_material.pbr.base_color);
       material->diffuse = material->diffuse ?: filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.diffuse_color);
@@ -483,7 +608,7 @@ static void setup_materials_from_ufbx_scene(Model *model, ufbx_scene *scene, con
       material->specular = filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.specular_color);
       material->specular = material->specular ?: filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.reflection_factor);
 
-      // Emisse ignored
+      // Emisse
       material->emissive = filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.emission_color);
    }
 }
@@ -511,13 +636,13 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    {
       usz total_size = 0;
 
-      usz positions_size   = total_indices             * size_of(mesh.vertices.positions[0]);
-      usz normals_size     = total_indices             * size_of(mesh.vertices.normals[0]);
-      usz uvs_size         = total_indices             * size_of(mesh.vertices.uvs[0]);
-      usz joints_size  = has_bones ?
-                             total_indices             * size_of(mesh.vertices.joints[0]) : 0;
-      usz indices_size     = total_indices             * size_of(u32);
-      usz surfaces_size    = surfaces_count            * size_of(mesh.surfaces.items[0]);
+      usz positions_size = total_indices             * size_of(mesh.vertices.positions[0]);
+      usz normals_size   = total_indices             * size_of(mesh.vertices.normals[0]);
+      usz uvs_size       = total_indices             * size_of(mesh.vertices.uvs[0]);
+      usz joints_size    = has_bones ?
+                           total_indices             * size_of(mesh.vertices.joints[0]) : 0;
+      usz indices_size   = total_indices             * size_of(u32);
+      usz surfaces_size  = surfaces_count            * size_of(mesh.surfaces.items[0]);
 
       total_size = positions_size + normals_size + uvs_size + indices_size + surfaces_size + joints_size;
 
@@ -525,13 +650,13 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
       char *data = malloc(total_size);
 
       // Assign pointers
-      mesh.vertices.positions  = (Vector3*)(data);
-      mesh.vertices.normals    = (Vector3*)(data + positions_size);
-      mesh.vertices.uvs        = (Vector2*)(data + positions_size + normals_size);
-      mesh.vertices.joints =
-         has_bones ?                  (void   *)(data + positions_size + normals_size + uvs_size) : nullptr;
-      mesh.indices.items                  = (u32    *)(data + positions_size + normals_size + uvs_size + joints_size);
-      mesh.surfaces.items           = (void   *)(data + positions_size + normals_size + uvs_size + joints_size + indices_size);
+      mesh.vertices.positions = (Vector3*)(data);
+      mesh.vertices.normals   = (Vector3*)(data + positions_size);
+      mesh.vertices.uvs       = (Vector2*)(data + positions_size + normals_size);
+      mesh.vertices.joints    =
+         has_bones ?            (void   *)(data + positions_size + normals_size + uvs_size) : nullptr;
+      mesh.indices.items      = (u32    *)(data + positions_size + normals_size + uvs_size + joints_size);
+      mesh.surfaces.items     = (void   *)(data + positions_size + normals_size + uvs_size + joints_size + indices_size);
    }
 
 
@@ -578,7 +703,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
             if (skin && mesh.vertices.joints) {
                uint32_t vertex = fbx_mesh->vertex_indices.data[index];
                ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
-               size_t num_weights = skin_vertex.num_weights;
+               usz num_weights = skin_vertex.num_weights;
                if (num_weights > MAX_WEIGHTS)
                   num_weights = MAX_WEIGHTS;
 
@@ -586,7 +711,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
                Vector4 bone_weight     = {0, 0, 0, 0};
                Vector4Int bone_indices = {-1, -1, -1, -1};
 
-               for (size_t i = 0; i < num_weights; i += 1) {
+               for (usz i = 0; i < num_weights; i += 1) {
                   ufbx_skin_weight skin_weight = skin->weights.data[skin_vertex.weight_begin + i];
                   ufbx_skin_cluster *cluster = skin->clusters.data[skin_weight.cluster_index];
                   usz bone_index = joint_index_from_ufbx_bone_node(scene, cluster->bone_node);
@@ -598,7 +723,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
 
                // Normalize weights
                if (total_weight > 0.0f) {
-                  for (size_t i = 0; i < num_weights; i += 1) {
+                  for (usz i = 0; i < num_weights; i += 1) {
                      bone_weight.items[i] /= total_weight;
                   }
                }
@@ -675,11 +800,11 @@ Model create_model(const char *filepath) {
    {   // Setup animations
        model.animations.count = 1;
        model.animations.items = malloc(model.animations.count * size_of(model.animations.items[0]));
-       for (size_t i = 0; i < scene->anim_stacks.count; i += 1) {
+       for (usz i = 0; i < scene->anim_stacks.count; i += 1) {
           ufbx_anim_stack *stack = scene->anim_stacks.data[i];
           printf("i stack %s:\n", stack->name.data);
           Animation animation = create_animation_from_ufbx(scene, stack->anim);
-          assert(animation.joint_animations.items);
+          assert(animation.joints_animation.items);
           model.animations.items[i] = animation;
           break; // TODO: Get mo' animations
        }
@@ -856,7 +981,7 @@ static inline void interpolate_from_keyframes(const typeof(((Joint_Animation *)0
 
 void update_joints_transforms(Joint_List *joint_list, const Animation *animation, double time) {
    for (u32 i = 0; i < joint_list->count; i += 1) {
-      const Joint_Animation *ja = &animation->joint_animations.items[i];
+      const Joint_Animation *ja = &animation->joints_animation.items[i];
 
       Vector3    T = {0.0, 0.0, 0.0};
       Quaternion R = {0.0, 0.0, 0.0, 1.0};
@@ -974,15 +1099,15 @@ Geometry_To_World_List joint_matrices_using_animation(double time) {
 
    // Iterate over every animation stack (aka. clip/take) in the file
    static Animation animation = {0};
-   if (!animation.joint_animations.items) {
-       for (size_t i = 0; i < scene->anim_stacks.count; i += 1) {
+   if (!animation.joints_animation.items) {
+       for (usz i = 0; i < scene->anim_stacks.count; i += 1) {
           ufbx_anim_stack *stack = scene->anim_stacks.data[i];
           printf("i stack %s:\n", stack->name.data);
           animation = create_animation_from_ufbx(scene, stack->anim);
           break; // TODO: Get mo' animations
        }
    }
-   assert(animation.joint_animations.items);
+   assert(animation.joints_animation.items);
 
    update_joints_transforms(&joint_list, &animation, time);
    for (usz index = 0; index < joint_list.count; index += 1) {
@@ -1018,7 +1143,7 @@ Geometry_To_World_List joint_matrices_from_animation(Joint_List *joints, const A
 
    assert(capacity >= joints->count);
    assert(list.count == joints->count);
-   assert(animation->joint_animations.items);
+   assert(animation->joints_animation.items);
 
    update_joints_transforms(joints, animation, time);
    for (usz index = 0; index < joints->count; index += 1) {

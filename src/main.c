@@ -214,8 +214,8 @@ int main() {
    camera = camera_default;
 
 
-   Application *apps[] = {(Application*)&raymarching_application, (Application*)&projection_application};
-   // Application *apps[] = {(Application*)&projection_application};
+   // Application *apps[] = {(Application*)&raymarching_application, (Application*)&projection_application};
+   Application *apps[] = {(Application*)&projection_application};
    // Application *apps[] = {(Application*)&raymarching_application};
 
    for (isz idx = 0; idx < count_of(apps); idx++) {

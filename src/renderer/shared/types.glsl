@@ -13,8 +13,8 @@ struct Draw_Command {
    uint material_index;
    uint vertices_count;
    uint has_joints;
-   uint is_inverleaved;
    uint joints_offset;
+   uint is_inverleaved;
    uint pad2, pad3;
 };
 

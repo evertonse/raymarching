@@ -43,7 +43,7 @@ layout(std140, binding = BINDING_PER_FRAME) uniform Per_Frame {
 } per_frame;
 
 layout(std430, binding = BINDING_ANIMATION_MATRICES) buffer Animation_Matrices_Buffer {
-   mat4 geometry_to_model[]; // Geometry (vertices) to Model Space.
+   mat4 geometry_to_model[]; // Geometry (vertices) to Model Space. We have one per joint of all renderables and its instances of the current scene
 };
 
 layout(std430, binding = BINDING_JOINT_BUFFER) buffer Joint_Buffer {
