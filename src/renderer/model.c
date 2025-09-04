@@ -797,7 +797,7 @@ Model create_model(const char *filepath) {
 
    trace_ufbx_scene_stats(scene);
 
-   {   // Setup animations
+   if (scene->anim_stacks.count > 0) {   // Setup animations
        model.animations.count = 1;
        model.animations.items = malloc(model.animations.count * size_of(model.animations.items[0]));
        for (usz i = 0; i < scene->anim_stacks.count; i += 1) {
@@ -836,6 +836,10 @@ Model create_model(const char *filepath) {
 
    assert(scene->meshes.count == (usz)model.meshes.count);
    ufbx_free_scene(scene);
+   if (model.animations.count > 0 && 0 == model.joints.count) {
+      trace_error("We DO NOT handle animations with no joints, does that even make sense? Maybe for retargeting.");
+      exit(1);
+   }
    return model;
 }
 
@@ -1022,7 +1026,10 @@ Matrix joint_calculate_node_to_world_matrix(Joint_List* list, Joint *node) {
 
 
 typedef struct {
-   float16 *matrices;
+   union {
+      float16 *matrices;
+      float16 *items;
+   };
    u32 count;
 } Geometry_To_World_List;
 
@@ -1149,12 +1156,14 @@ Geometry_To_World_List joint_matrices_from_animation(Joint_List *joints, const A
    for (usz index = 0; index < joints->count; index += 1) {
       auto joint = &joints->joints[index];
       Matrix node_to_world = joint_calculate_node_to_world_matrix(joints, joint);
-      if (false) {
-         Matrix scene_hierarchy_matrix = MatrixCompose(joints->hierarchy_transform);
-         Matrix geometry_to_world = mul(scene_hierarchy_matrix, mul(node_to_world, joint->matrices.geometry_to_node));
-      }
       Matrix geometry_to_world = mul(node_to_world, joint->matrices.geometry_to_node);
-      trace_debug("%d joint (%s):\n\tgeometry_to_node", index, joints->names[index]);
+
+      const bool debug = false;
+      if (debug) {
+         trace_info("%d time = %f joint (%s):\n\tgeometry_to_node", index, time, joints->names[index]);
+         trace_struct(joint->matrices.geometry_to_node);
+      }
+
       Matrix scene_hierarchy_matrix = MatrixCompose(joints->hierarchy_transform);
       geometry_to_world = mul(scene_hierarchy_matrix, geometry_to_world);
       list.matrices[index] = MatrixToFloatV(geometry_to_world);

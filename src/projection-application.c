@@ -473,13 +473,13 @@ void projection_update(Projection_Application *app, f64 dt) {
       return;
    }
 
-   // static GLsync sync = nullptr;
+   static GLsync sync = nullptr;
 
-   // if (!sync) {
-      // trace_warn("Sync object is null");
-   // }
+   if (!sync) {
+      trace_warn("Sync object is null");
+   }
 
-   // wait_sync_point(sync);
+   wait_sync_point(sync);
 
 
    static Vector3 light_position = {110.0f,  16.f, 4.0f};
@@ -496,7 +496,7 @@ void projection_update(Projection_Application *app, f64 dt) {
    {  //  Update the main uniform buffer
       auto per_frame = &app->per_frame;
       Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
-      Matrix  view      = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
+      Matrix view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
 
       *per_frame   =  (typeof(app->per_frame)) {
          .model           = MatrixToFloatV(MatrixIdentity()),
@@ -610,81 +610,57 @@ void projection_update(Projection_Application *app, f64 dt) {
    static bool scene_loaded = false;
    if (!scene_loaded) {
       scene_loaded = true;
+      ZString model_filepath = "";
 
-      ZString model_filepath = "res/models/mari/source/Mari.fbx";
+      Model boy_model = create_model("res/models/boy/boy_animation_textured.fbx");
+      model_filepath = "res/models/mari/source/Mari.fbx";
+      // model_filepath = "res/models/boy/boy_animation_textured.fbx";
       begin_profile();
       {
          Model m  = create_model(model_filepath);
          Transform transform = transform_identity;
          scene_nodes[0] = create_scene_node(&m, transform);
+         set_animation_time(scene_nodes[0], 0.0);
          play_animation(scene_nodes[0]);
+
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         scene_nodes[2] = create_scene_node(&boy_model, transform);
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         scene_nodes[4] = create_scene_node(scene_nodes[2], transform);
+         set_animation_time (scene_nodes[4], 0.65);
+         set_animation_speed(scene_nodes[4], 1.65);
+
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         scene_nodes[3] = create_scene_node_new_cmd(scene_nodes[0], transform);
+         set_animation_time(scene_nodes[3], 0.25);
+         set_animation_speed(scene_nodes[3], 0.1);
+         play_animation(scene_nodes[3]);
       }
       end_profile(model_filepath);
 
-
       model_filepath = "res/models/backpack/backpack.obj";
       begin_profile();
-      {
+      if (true) {
          Model m  = create_model(model_filepath);
          Transform transform = transform_identity;
          transform.scale = mul(transform.scale, 5.);
          transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
-
-         Vector3 axis = {1., 1., 1.};
-         transform.rotation = QuaternionFromAxisAngle(axis, RAD2DEG * PI/2.);
-         scene_nodes[1] = create_scene_node(&m, transform);
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         scene_nodes[5] = create_scene_node(&m, transform);
+         play_animation(scene_nodes[5]);
       }
       end_profile(model_filepath);
 
-      begin_profile();
-      if (false) {
-         Transform transform = transform_identity;
-         transform.scale = mul(transform.scale, 5.);
-         transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
-         scene_nodes[1] = create_scene_node(scene_nodes[0], transform);
-         transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
-         Vector3 axis = {1., 1., 1.};
-         transform.rotation = QuaternionFromAxisAngle(axis, RAD2DEG * PI/4.);
-         scene_nodes[4] = create_scene_node(scene_nodes[3], transform);
-         transform.rotation = QuaternionFromAxisAngle(axis, RAD2DEG * PI/6.);
-         transform.translation = add(transform.translation, ((Vector3){10., 10., 0}));
-
-         usz n_replicas = 5000;
-         // isz instance_per_cmd = n_replicas;
-         isz instance_per_cmd = 1;
-         Vector3 translation_offset = (Vector3){10., 10., 0};
-
-         if (false) { // Testing somethings
-            glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
-            glDepthMask(GL_TRUE);
-            glDisable(GL_BLEND);
-            glDepthFunc(GL_LESS);
-         }
-
-         for (usz i = 0; i < n_replicas/instance_per_cmd; i++) {
-            transform.translation = add(transform.translation, translation_offset);
-            auto new = create_scene_node_new_cmd(scene_nodes[0], transform);
-            for (isz i = 0; i < (instance_per_cmd-1); i++) {
-               transform.translation = add(transform.translation, translation_offset);
-               create_scene_node(new, transform);
-            }
-         }
-
-         // scene_nodes[2] = create_scene_node(scene_nodes[0], transform);
-
+      if (false) { // Testing somethings
+         glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
+         glDepthMask(GL_TRUE);
+         glDisable(GL_BLEND);
+         glDepthFunc(GL_LESS);
       }
-      end_profile(model_filepath);
+
       // TODO: Create a destroy function
       // destroy_model(&m);
 
-      // begin_profile();
-      // {
-      //    // ZString model_filepath = "res/models/akm-free-lowpoly/source/AK.fbx";
-      //    model_filepath = "res/models/backpack/backpack.obj";
-      //    Model m = create_model(model_filepath);
-      //    model_draw_index = push_model_to_manager(&m);
-      // }
-      // end_profil(model_filepath);
    }
 
    const bool draw_with_manager = true;
@@ -704,11 +680,17 @@ void projection_update(Projection_Application *app, f64 dt) {
       upload_uniform_int(app->shader, "is_special", 0);
 
 
-      // draw_from_index(model_draw_index, app->shader);
-      // begin_profile();
+      play_animation(scene_nodes[3]);
       play_animation(scene_nodes[0]);
+      play_animation(scene_nodes[2]);
+      play_animation(scene_nodes[4]);
+      if (is_button_pressed(BUTTON_B)) {
+         set_animation_speed(scene_nodes[4], 0.65);
+      } else if (is_button_pressed(BUTTON_N)) {
+         set_animation_speed(scene_nodes[4], 1.65);
+      }
+
       draw_indirect(app->shader);
-      // end_profile("draw_indirect");
 
       upload_uniform_int(app->shader, "is_special", 0);
    }
@@ -716,7 +698,7 @@ void projection_update(Projection_Application *app, f64 dt) {
    // draw_old_way(app, shader, camera);
 
 
-   // sync = sync_point(sync);
+   sync = sync_point(sync);
 
    if (!is_window_minimized()) {
       Framebuffer final_fb = app->fb;

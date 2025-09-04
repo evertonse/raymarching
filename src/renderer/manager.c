@@ -100,15 +100,19 @@ typedef struct {
             Joint_List joint_list; // NOTE: It's not that lean of a structure, maybe we sould make use an index instead?
             // TODO: Make it possible to share 1 Animation between instances
             struct {
-               f64 animation_curr_time;
-               Transform transform;
-               struct { // TODO: make it possible to have instances with differentes materials considering surfaces in a mesh
-                  u32 base;
-                  u32 count;
-               } material_index;
-            } *items;
-            u32 count;
-            u32 capacity;
+               struct {
+                  f64 animation_current_time;
+                  f64 animation_speed;
+                  Transform transform;
+                  Geometry_To_World_List geometry_to_world_matrices;
+                  struct { // TODO: make it possible to have instances with differentes materials considering surfaces in a mesh
+                     u32 base;
+                     u32 count;
+                  } material_index;
+               } *items;
+               u32 count;
+               u32 capacity;
+            } instances;
          } *items; // Instances for a renderable unit
          u32 count;
          u32 capacity;
@@ -120,6 +124,8 @@ typedef struct {
          isz renderable_index;
       }) nodes;
       Buffer instances_buffer;
+      Buffer geometry_to_world_matrices_buffer;
+      bool  instances_dirty;
    } scene;
 
 
@@ -332,6 +338,82 @@ void update_manager_gpu_resources() {
       manager.indices.dirty = false;
    }
 
+   if (manager.scene.instances_dirty) {
+      isz instances_count = 0;
+      // Count instances
+      for (u32 renderable_index = 0; renderable_index < manager.scene.renderables.count; renderable_index += 1) {
+         auto renderable = manager.scene.renderables.items[renderable_index];
+         instances_count += renderable.instances.count;
+      }
+
+      isz total_geometry_matrices_count = 0;
+      {  // Instances buffer management
+         // TODO: Change this to permanently mapped pointer instead and create independent dirty flag for instances
+         isz instance_size = size_of(struct Instance);
+         isz required_instances_buffer_capacity_in_bytes = instances_count * instance_size;
+
+         auto checkpoint = tsave();
+         struct Instance* gpu_instances = talloc(required_instances_buffer_capacity_in_bytes);
+         isz linear_instance_index  = 0;
+         isz linear_matrices_offset = 0;
+         for (u32 renderable_index = 0; renderable_index < manager.scene.renderables.count; renderable_index += 1) {
+            auto renderable = manager.scene.renderables.items[renderable_index];
+            for (u32 instance_index = 0; instance_index < renderable.instances.count; instance_index += 1) {
+               auto instance = renderable.instances.items[instance_index];
+               auto geometry_to_world_matrices = instance.geometry_to_world_matrices;
+
+               assert(linear_instance_index < instances_count);
+               gpu_instances[linear_instance_index].model_matrix = MatrixToFloatV(MatrixCompose(instance.transform));
+               gpu_instances[linear_instance_index].geometry_to_model_offset = linear_matrices_offset;
+               linear_instance_index  += 1;
+               // NOTE: Either make geometry_to_world_matrices always instance available (rn is lazy from play_animation) or use joint_list from renderable
+               // linear_matrices_offset += instance.geometry_to_world_matrices.count;
+               trace_debug("matrices_offset %lld, instance_index=%lld, renderable_index=%lld",
+                     (isz)linear_matrices_offset, (isz)instance_index, (isz)renderable_index
+               );
+               linear_matrices_offset += renderable.joint_list.count;
+            }
+         }
+         total_geometry_matrices_count = linear_matrices_offset;
+
+         // TODO: Change to capacity
+         if (!is_valid_buffer(manager.scene.instances_buffer)) {
+            manager.scene.instances_buffer = create_buffer(BUFFER_USAGE_MAP_PERSISTENT_WRITE, gpu_instances, required_instances_buffer_capacity_in_bytes);
+         } else {
+            resize_buffer_if_needed(&manager.scene.instances_buffer, required_instances_buffer_capacity_in_bytes);
+            update_buffer(&manager.scene.instances_buffer, gpu_instances, 0, required_instances_buffer_capacity_in_bytes);
+         }
+         trestore(checkpoint);
+         bind_buffer_view(&manager.scene.instances_buffer, BUFFER_TYPE_STORAGE, BINDING_INSTANCE_BUFFER, 0, required_instances_buffer_capacity_in_bytes);
+      }
+
+      {  // Animation buffer management
+         isz require_size = total_geometry_matrices_count * size_of(float16);
+         auto checkpoint = tsave();
+         float16* gpu_matrices = talloc(require_size);
+         byte* gpu_matrices_ptr = (byte*)gpu_matrices;
+         for (u32 renderable_index = 0; renderable_index < manager.scene.renderables.count; renderable_index += 1) {
+            auto renderable = manager.scene.renderables.items[renderable_index];
+            for (u32 instance_index = 0; instance_index < renderable.instances.count; instance_index += 1) {
+               auto instance = renderable.instances.items[instance_index];
+               auto matrices = instance.geometry_to_world_matrices;
+               isz matrices_size_in_bytes = matrices.count * size_of(matrices.items[0]);
+               memcpy(gpu_matrices_ptr, matrices.items, matrices_size_in_bytes);
+               gpu_matrices_ptr += matrices_size_in_bytes;
+            }
+         }
+
+         if (!is_valid_buffer(manager.scene.geometry_to_world_matrices_buffer)) {
+            manager.scene.geometry_to_world_matrices_buffer
+               = create_buffer(BUFFER_USAGE_MAP_PERSISTENT_WRITE, gpu_matrices, require_size);
+         } else {
+            resize_buffer_if_needed(&manager.scene.geometry_to_world_matrices_buffer, require_size);
+            update_buffer(&manager.scene.geometry_to_world_matrices_buffer, gpu_matrices, 0, require_size);
+         }
+         trestore(checkpoint);
+         bind_buffer_view(&manager.scene.geometry_to_world_matrices_buffer, BUFFER_TYPE_STORAGE, BINDING_ANIMATION_MATRICES, 0, require_size);
+      }
+   }
 
    if (manager.draw_commands.dirty) {
       trace_info("[Manager] Draw Commands were dirty.");
@@ -344,10 +426,10 @@ void update_manager_gpu_resources() {
          auto draw_index = renderable.draw_index;
          for (u32 sequential_index = 0; sequential_index < draw_index.count;  sequential_index += 1) {
             auto draw_command = &manager.draw_commands.items[draw_index.base + sequential_index];
-            draw_command->instance_count = renderable.count;
+            draw_command->instance_count = renderable.instances.count;
             draw_command->instance_offset = instances_count;
          }
-         instances_count += renderable.count;
+         instances_count += renderable.instances.count;
       }
 
       trace_info(
@@ -355,66 +437,6 @@ void update_manager_gpu_resources() {
          (isz)manager.draw_commands.capacity, (isz)manager.draw_commands.count, (isz)manager.scene.renderables.count, (isz)instances_count, (isz)size_of(manager.draw_commands.items[0])
       );
 
-      {  // Instances buffer management
-         // TODO: Change this to permanently mapped pointer instead and create independent dirty flag for instances
-         isz instance_size = size_of(struct Instance);
-         isz required_instances_buffer_capacity_in_bytes = instances_count * instance_size;
-
-         auto checkpoint = tsave();
-         struct Instance* gpu_instances = talloc(required_instances_buffer_capacity_in_bytes);
-         isz linear_instance_index = 0;
-         for (u32 renderable_index = 0; renderable_index < manager.scene.renderables.count; renderable_index += 1) {
-            auto renderable = manager.scene.renderables.items[renderable_index];
-            for (u32 instance_index = 0; instance_index < renderable.count; instance_index += 1) {
-               auto instance = renderable.items[instance_index];
-
-               assert(linear_instance_index < instances_count);
-               gpu_instances[linear_instance_index].model_matrix = MatrixToFloatV(MatrixCompose(instance.transform));
-               linear_instance_index += 1;
-            }
-         }
-
-         // TODO: Change to capacity
-         if (!is_valid_buffer(manager.scene.instances_buffer)) {
-            manager.scene.instances_buffer = create_buffer(BUFFER_USAGE_STATIC, gpu_instances, required_instances_buffer_capacity_in_bytes);
-         } else {
-            resize_buffer_if_needed(&manager.scene.instances_buffer, required_instances_buffer_capacity_in_bytes);
-            update_buffer(&manager.scene.instances_buffer, gpu_instances, 0, required_instances_buffer_capacity_in_bytes);
-         }
-         trestore(checkpoint);
-         bind_buffer_view(&manager.scene.instances_buffer, BUFFER_TYPE_STORAGE, BINDING_INSTANCE_BUFFER, 0, required_instances_buffer_capacity_in_bytes);
-      }
-
-#if 0
-      {  // Animation buffer management
-         // TODO: Change this to permanently mapped pointer instead and create independent dirty flag for instances
-         isz instance_size = size_of(struct Instance);
-         isz required_instances_buffer_capacity_in_bytes = instances_count * instance_size;
-
-         auto checkpoint = tsave();
-         float16* gpu_geometry_to_world = talloc(required_instances_buffer_capacity_in_bytes);
-         isz linear_instance_index = 0;
-         for (u32 renderable_index = 0; renderable_index < manager.scene.renderables.count; renderable_index += 1) {
-            auto renderable = &manager.scene.renderables.items[renderable_index];
-            for (u32 instance_index = 0; instance_index < renderable.count; instance_index += 1) {
-               auto instance = renderable.items[instance_index];
-               Geometry_To_World_List matrices = joint_matrices_from_animation(&renderable->joint_list, renderable->animation, instance.time);
-               memcpy(&gpu_geometry_to_world[linear_instance_index], joint_matrices_from_animation);
-               linear_instance_index += matrices.count;
-            }
-         }
-
-         // TODO: Change to capacity
-         if (!is_valid_buffer(manager.scene.instances_buffer)) {
-            manager.scene.instances_buffer = create_buffer(BUFFER_USAGE_STATIC, gpu_instances, required_instances_buffer_capacity_in_bytes);
-         } else {
-            resize_buffer_if_needed(&manager.scene.instances_buffer, required_instances_buffer_capacity_in_bytes);
-            update_buffer(&manager.scene.instances_buffer, gpu_instances, 0, required_instances_buffer_capacity_in_bytes);
-         }
-         trestore(checkpoint);
-         bind_buffer_view(&manager.scene.instances_buffer, BUFFER_TYPE_STORAGE, BINDING_INSTANCE_BUFFER, 0, required_instances_buffer_capacity_in_bytes);
-      }
-#endif
 
       isz required_buffer_capacity_in_bytes = manager.draw_commands.capacity * size_of(manager.draw_commands.items[0]);
       resize_buffer_if_needed(&manager.draw_commands.buffer, required_buffer_capacity_in_bytes);
@@ -426,6 +448,7 @@ void update_manager_gpu_resources() {
       update_buffer(&manager.draw_commands.buffer, manager.draw_commands.items, 0, draw_commands_size);
       manager.draw_commands.dirty = false;
    }
+
 
 
    if (manager.materials.dirty) {
@@ -721,7 +744,7 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
 
       // Push this surface's data to the manager
       // DONE: This was wasteful, now we avoid repeated postiions.
-      u32 vertices_count = (0 == surface_index) ?  mesh->vertices.count : 0;
+      u32 vertices_count = (0 == surface_index) ? mesh->vertices.count : 0;
       Draw_Index draw_index = push_arrays_to_manager(
          mesh->vertices.positions,   // All positions
          mesh->vertices.normals,     // All normals
@@ -760,9 +783,10 @@ Draw_Index push_model_to_manager(const Model *model, isz *animation_index) {
 
    if (model->animations.count > 0 ) {
       // NOTE: Only one animation for now
-      Animation deep_copied = animation_deep_copy(&model->animations.items[0]);
+      // Animation  deep_copied_animation = animation_deep_copy(&model->animations.items[0]);
+      Animation  deep_copied_animation = model->animations.items[0];
       *animation_index = manager.animations.count;
-      da_append(&manager.animations, deep_copied);
+      da_append(&manager.animations, deep_copied_animation);
    }
 
    // First, push all materials from the model to the manager
@@ -796,22 +820,25 @@ Draw_Index push_model_to_manager(const Model *model, isz *animation_index) {
    return result_draw_index;
 }
 
-
-// void play_animation(Scene_Node node, isz animation_index, double time) {
-// }
-
+// NOTE: 2025-09-04 Every Instace is created here renderable is created elsewhere
 Scene_Node internal create_scene_node_from_renderable(isz renderable_index, const Transform transform) {
    auto renderable = &manager.scene.renderables.items[renderable_index];
 
-   isz instance_index = renderable->count;
-   da_append(renderable,
-      { .transform = transform }
+   isz instance_index = renderable->instances.count;
+   da_append(&renderable->instances,
+      { .transform = transform, .animation_speed = 1. }
    );
 
    isz scene_node_index = manager.scene.nodes.count;
    da_append(&manager.scene.nodes,
       {.node_parent = -1, .instance_index = instance_index, .renderable_index = renderable_index}
    );
+
+   // Because the instance transform needs to be updated
+   manager.scene.instances_dirty = true;
+
+   // Because instance_count has to be updated for each draw command.
+   manager.draw_commands.dirty = true;
 
    return (Scene_Node){.index = scene_node_index};
 }
@@ -821,15 +848,17 @@ Scene_Node create_scene_node_new_cmd(Scene_Node node, const Transform transform)
    isz src_renderable_index  = manager.scene.nodes.items[node.index].renderable_index;
    Draw_Index src_draw_index = manager.scene.renderables.items[src_renderable_index].draw_index;
    Joint_List src_joint_list = manager.scene.renderables.items[src_renderable_index].joint_list;
-   isz src_animation_index = manager.scene.renderables.items[src_renderable_index].animation_index;
+   isz src_animation_index   = manager.scene.renderables.items[src_renderable_index].animation_index;
 
 
    Draw_Index draw_index = {0};
    for (u32 sequential_index = 0; sequential_index < src_draw_index.count;  sequential_index += 1) {
       Draw_Command draw_command = manager.draw_commands.items[src_draw_index.base + sequential_index];
-      // This shall be se then updating gpu buffers
+      //
+      // These shall be set when updating gpu buffers
       // draw_command.instance_count = 1;
       // draw_command.instance_offset = instances_count;
+      //
       Draw_Index curr_draw_index = push_draw_command_to_manager(draw_command);
       if (0 == draw_index.count) {
          draw_index.base = curr_draw_index.base;
@@ -862,33 +891,59 @@ Scene_Node overload create_scene_node(Scene_Node node, const Transform transform
    return create_scene_node_from_renderable(renderable_index, transform);
 }
 
-void overload play_animation(Scene_Node node) {
+void set_animation_time(Scene_Node node, f64 time) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
 
    auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto animation  = &manager.animations.items[renderable->animation_index];
+   auto instance   = &renderable->instances.items[instance_index];
+   instance->animation_current_time = clamp(time, animation->time_begin, animation->time_end);
+}
+
+void set_animation_speed(Scene_Node node, f64 speed) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto animation  = &manager.animations.items[renderable->animation_index];
+   auto instance   = &renderable->instances.items[instance_index];
+   instance->animation_speed = clamp(speed, 0, F64_MAX);
+}
+
+void play_animation(Scene_Node node) {
+   // Needs to update geometry_to_world_matrices_buffer after this
+   manager.scene.instances_dirty = true;
+
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+
+   if (renderable->animation_index < 0) {
+      trace_warn("Trying to play animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
+      return;
+   }
+
    auto animation = &manager.animations.items[renderable->animation_index];
-   animation->time_current += time_delta();
-   animation->time_current = min(animation->time_current, animation->time_end);
-   if (animation->time_current >= animation->time_end) {
-      animation->time_current = animation->time_begin;
+   auto instance  = &renderable->instances.items[instance_index];
+   f64 *curr_time = &instance->animation_current_time;
+   const f64 animation_speed = instance->animation_speed;
+   *curr_time += time_delta() * animation_speed;
+   // *curr_time += 0.0001;
+   // *curr_time = min(*curr_time, animation->time_end);
+   if (*curr_time >= animation->time_end) {
+      *curr_time = animation->time_begin;
    }
-   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, animation->time_current);
-   isz  list_data_size = (size_of(list.matrices[0])*list.count);
-
-   static Buffer geometry_to_world_matrices = {0};
-   bool valid = is_valid_buffer(geometry_to_world_matrices);
-   bool needs_resize = valid && geometry_to_world_matrices.size < list_data_size;
-   bool needs_allocation = !valid || needs_resize;
-
-   if (needs_resize) {
-      destroy_buffer(&geometry_to_world_matrices);
+   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, *curr_time);
+   isz list_data_size = size_of(list.matrices[0]) * list.count;
+   if (instance->geometry_to_world_matrices.count <= 0 && nullptr == instance->geometry_to_world_matrices.items) {
+      assert_msg(renderable->joint_list.count == list.count, "Joint list and the Joint matrices should have the same count, because it's a bijection to the bones count");
+      instance->geometry_to_world_matrices.items = malloc(list_data_size);
+      instance->geometry_to_world_matrices.count = list.count;
    }
-   if (needs_allocation) {
-      geometry_to_world_matrices = create_buffer(BUFFER_USAGE_SUBDATA, nullptr, list_data_size);
-   }
-
-   update_buffer(&geometry_to_world_matrices, list.matrices, 0, list_data_size);
-   bind_buffer(&geometry_to_world_matrices, BUFFER_TYPE_STORAGE, BINDING_ANIMATION_MATRICES);
+   memcpy(instance->geometry_to_world_matrices.items, list.items, list_data_size);
+   // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it
+   return;
 }
 
 

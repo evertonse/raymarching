@@ -1131,7 +1131,10 @@ void cye_ds_printf(Cye_DString *ds, ZString fmt, ...);
 #endif
 
 // Clamp float value
-f32 cye_clamp(f32 value, f32 min, f32 max);
+// f32 cye_clamp(f32 value, f32 min, f32 max);
+#ifndef cye_clamp
+#   define cye_clamp(value, min, max) ((value) < (min) ? (min) : ((value) > (max) ? (max) : (value)))
+#endif
 
 // Calculate linear interpolation between two floats
 f32 cye_lerp(f32 start, f32 end, f32 amount);
@@ -4638,11 +4641,11 @@ void cye_ds_printf(Cye_DString *ds, ZString fmt, ...) {
 //----------------------------------------------------------------------------------
 
 // Clamp float value
-f32 cye_clamp(f32 value, f32 min, f32 max) {
-    f32 result = (value < min)? min : value;
-    if (result > max) result = max;
-    return result;
-}
+// f32 cye_clamp(f32 value, f32 min, f32 max) {
+//     f32 result = (value < min)? min : value;
+//     if (result > max) result = max;
+//     return result;
+// }
 
 // Calculate linear interpolation between two floats
 f32 cye_lerp(f32 start, f32 end, f32 amount) {

@@ -91,20 +91,20 @@ void main() {
    mat4 gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
 
    mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
+   uint geometry_to_model_offset = instances[gl_BaseInstance + gl_InstanceID].geometry_to_model_offset;
+   // uint geometry_to_model_offset = 1;
 
-   // if (false && draw_command.has_joints == 1) {
    if (draw_command.has_joints == 1) {
-      ivec4 joint_idxs    = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_idxs;
+      ivec4 joint_indices = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_indices;
       vec4  joint_weights = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_weights;
-      if (length(joint_weights) != 0) {
-      }
       position =
-           joint_weights[0] * (geometry_to_model[joint_idxs[0]] * position)
-         + joint_weights[1] * (geometry_to_model[joint_idxs[1]] * position)
-         + joint_weights[2] * (geometry_to_model[joint_idxs[2]] * position)
-         + joint_weights[3] * (geometry_to_model[joint_idxs[3]] * position);
-      // position = model * position;
+           joint_weights[0] * (geometry_to_model[geometry_to_model_offset + joint_indices[0]] * position)
+         + joint_weights[1] * (geometry_to_model[geometry_to_model_offset + joint_indices[1]] * position)
+         + joint_weights[2] * (geometry_to_model[geometry_to_model_offset + joint_indices[2]] * position)
+         + joint_weights[3] * (geometry_to_model[geometry_to_model_offset + joint_indices[3]] * position)
+      ;
    }
+
    position = model * position;
 
    { // Send to next shader

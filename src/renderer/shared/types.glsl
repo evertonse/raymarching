@@ -21,6 +21,7 @@ struct Draw_Command {
 // TODO: Migrate to material_index for instance instead of the full draw command
 struct Instance {
    mat4 model_matrix;
+   uint geometry_to_model_offset, pad1, pad2, pad3;
 };
 
 struct Material {
@@ -31,7 +32,7 @@ struct Material {
 };
 
 struct Joint_Vertex {
-   ivec4 joint_idxs;     // index into geometry_to_model
+   ivec4 joint_indices;  // index into geometry_to_model
    vec4  joint_weights;  // \sum_over_(i=4){joint_weights[i] * bone_idxs[i]}
 };
 
