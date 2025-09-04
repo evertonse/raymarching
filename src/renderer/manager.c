@@ -255,7 +255,7 @@ Draw_Index push_arrays_to_manager(
 
       // Copy joint data if present
       if (has_joints) {
-         memcpy(&manager.joints.items[manager.vertices.count], joints, vertices_count * size_of(manager.joints.items[0]));
+         memcpy(&manager.joints.items[manager.joints.count], joints, vertices_count * size_of(manager.joints.items[0]));
       }
    }
 

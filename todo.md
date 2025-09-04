@@ -23,9 +23,24 @@
 # Projection Pipeline
 
 
-- [ ] Raycast from camera to closest triangle to scale down moving forward to avoid going through geometry, as you get close the slower you zoom
+- [ ] Model Animation: various models with varying complexity
+- [ ] Animation Normal inverse transforming
+- [ ] Model Animation support blending animation into another one smoothly.
+- [ ] Model Animation transistion from walk to idle
 
 ---
+
+- [ ] Normal Mapping.
+
+- [ ] Bluring Emissive Objects (After pbr). In fact I believe we're only ever gonna streamline the light creation when we get around pbr.
+
+- [ ] Parallax Corrected Reflections using cube box of the scene to get reflection in a pbr pipeline. The cube box must rendered from multiple angles I suppose then sampled in the final shader, I also wanna do this in forward redering.
+
+- [ ] Specular reflections
+
+- [ ] PBR Shading
+
+- [ ] Raycast from camera to closest triangle to scale down moving forward to avoid going through geometry, as you get close the slower you zoom
 - [x] (edit: chose scene node) Model GpuData: What is the best way to setup the gpu data for a model and pass a lighter structure around? Figure it out. For now  we're using some anonymous structure as a "bundle".
 
 - [x] Make an easy way to draw instance from Cpu side, like ``draw_another(Draw_Index index, Instance data_for_instance)`` instance should have the model_matrix.
@@ -36,16 +51,17 @@
 - [ ] (edit: Scrap that, make default textures). Instead of passing has_animation, has_diffuse, pass a clamping value or intensity value that inquires a math operation instead of an if.
 
 - [x] Abstract every renderable into cpu data and gpu data counterpart. (edit: The abstraction is Draw_Command that includes extra data)
-- [ ] Refactor Buffer to just have buffer with additional specific data, rather than multiple types.
+- [x] Refactor Buffer to just have buffer with additional specific data, rather than multiple types.
 
 - [ ] Investigate animation problem 17.99s (mari.fbx)
 
-- [ ] Make shared binary compatible types that gets included by both c and glsl
-- [ ] Make Defines for bindings used by both c and glsl
+- [x] Make shared binary compatible types that gets included by both c and glsl
+- [x] Make Defines for bindings used by both c and glsl
 
-- [ ] Shader remap error to correct line in folder
+- [x] (edit: That was harder than I thought, plus we need to test more, but it's done for now) Shader remap error to correct line in folder
 - [ ] Raytraced Shadows
-- [ ] PBR chekckoutr Disney App with various BRDFs
+
+- [ ] PBR checkouts Disney App with various BRDFs
 
 - [x] Renderbuffer, SSBO, Uniform buffer objects create and use
 
@@ -75,21 +91,17 @@
 - [x] Manager bind vb and ib, you forgot
 
 - [x] Model Skeleton:  simple model
-- [ ] Model Animation: various models with varying complexity
-- [ ] Model Animation: Simplify updating animation
+- [x] Model Animation: Simplify updating animation
 - [ ] Camera make the camera follow the carachter prolly by having a certing offsset from a certain view direction (the character's)
+
 
 - [ ] Simple manager add/remove light function
 - [ ] Streamline camera access
-
-- [ ] Model Animation support multiply animation.
-- [ ] Model Animation suport blending animation into another one smoothly.
-- [ ] Model Animation suport multiple meshes with different geomtry_to_node matrices (inverse bind matrices).
-- [ ] Model Animation Transistion from walk to idle
+- [x] Model Animation support multiply animation.
+- [x] Model Animation suport multiple meshes with different geomtry_to_node matrices (inverse bind matrices).
 - [ ] GPU matrices and joint with MDI
-- [ ] Instance struct as buffer
+- [x] Instance struct as buffer
 - [x] Material struct as buffer
-- [ ] Normal inverse transforming
 - [ ] uniform buffers for most thing, model matrices shall be send Storage Buffer
 
 - [x] (nuklear has been chosen) Now setup gui.c. RayGui with no raylib or some other immediate mode

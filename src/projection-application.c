@@ -312,6 +312,7 @@ void projection_init(Projection_Application *app) {
    {
       // ZString animation_filepath = "res/models/boy/boy_animation_textured.fbx";
       ZString model_filepath = "res/models/mari/source/Mari.fbx";
+
       // ZString model_filepath = "res/models/trees/TreeLareg0.fbx";
       init_model_and_its_gpu_data(&app->boy, model_filepath);
    }
@@ -613,6 +614,8 @@ void projection_update(Projection_Application *app, f64 dt) {
       ZString model_filepath = "";
 
       Model boy_model = create_model("res/models/boy/boy_animation_textured.fbx");
+      Model luster_model = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
+
       model_filepath = "res/models/mari/source/Mari.fbx";
       // model_filepath = "res/models/boy/boy_animation_textured.fbx";
       begin_profile();
@@ -651,6 +654,12 @@ void projection_update(Projection_Application *app, f64 dt) {
       }
       end_profile(model_filepath);
 
+      {
+         Transform transform = transform_identity;
+         transform.translation = add(transform.translation, ((Vector3){45., 15., 0}));
+         scene_nodes[8] = create_scene_node(&luster_model, transform);
+      }
+
       if (false) { // Testing somethings
          glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
          glDepthMask(GL_TRUE);
@@ -684,10 +693,13 @@ void projection_update(Projection_Application *app, f64 dt) {
       play_animation(scene_nodes[0]);
       play_animation(scene_nodes[2]);
       play_animation(scene_nodes[4]);
+      play_animation(scene_nodes[8]);
       if (is_button_pressed(BUTTON_B)) {
          set_animation_speed(scene_nodes[4], 0.65);
+         set_animation_speed(scene_nodes[8], 0.65);
       } else if (is_button_pressed(BUTTON_N)) {
          set_animation_speed(scene_nodes[4], 1.65);
+         set_animation_speed(scene_nodes[8], 1.65);
       }
 
       draw_indirect(app->shader);
