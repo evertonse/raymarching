@@ -28,6 +28,10 @@
 - [ ] Model Animation support blending animation into another one smoothly.
 - [ ] Model Animation transistion from walk to idle
 
+- [ ] Hdr and tonemap and bloom
+
+- [ ] Respect the model's texture's wrapping characteristic
+
 ---
 
 - [ ] Normal Mapping.

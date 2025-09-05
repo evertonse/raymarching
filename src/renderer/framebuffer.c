@@ -306,6 +306,52 @@ Framebuffer create_framebuffer_multisample_with_renderbuffers(int width, int hei
     // Color renderbuffer
     GLuint color_rb;
     glCreateRenderbuffers(1, &color_rb);
+    glNamedRenderbufferStorageMultisample(color_rb, (samples == 1 ? 0 : samples), GL_RGBA32F, width, height);
+    glNamedFramebufferRenderbuffer(fb.handle, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color_rb);
+
+    // Depth renderbuffer
+    GLuint depth_rb;
+    glCreateRenderbuffers(1, &depth_rb);
+    glNamedRenderbufferStorageMultisample(depth_rb, (samples == 1 ? 0 : samples), GL_DEPTH_COMPONENT24, width, height);
+    glNamedFramebufferRenderbuffer(fb.handle, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_rb);
+
+    // Use dummy textures for compatibility with framebuffer struct
+    fb.color = (Texture){
+        .handle  = color_rb,
+        .width   = width,
+        .height  = height,
+        .format  = TEXTURE_FORMAT_RGBA32F,
+        .type    = TEXTURE_TYPE_2D,
+        .samples = samples
+    };
+
+    fb.depth = (Texture){
+        .handle  = depth_rb,
+        .width   = width,
+        .height  = height,
+        .format  = TEXTURE_FORMAT_DEPTH24,
+        .type    = TEXTURE_TYPE_2D,
+        .samples = samples
+    };
+
+    GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
+    if (GL_FRAMEBUFFER_COMPLETE !=  status) {
+        fprintf(stderr, "[ERROR] Multisample framebuffer incomplete: 0x%X\n", status);
+        glDeleteFramebuffers(1, &fb.handle);
+        fb.handle = 0;
+    }
+
+    return fb;
+}
+
+Framebuffer create_framebuffer_multisample_with_renderbuffers_8bpp(int width, int height, int samples) {
+    Framebuffer fb = {0};
+
+    glCreateFramebuffers(1, &fb.handle);
+
+    // Color renderbuffer
+    GLuint color_rb;
+    glCreateRenderbuffers(1, &color_rb);
     glNamedRenderbufferStorageMultisample(color_rb, (samples == 1 ? 0 : samples), GL_RGBA8, width, height);
     glNamedFramebufferRenderbuffer(fb.handle, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color_rb);
 

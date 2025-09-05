@@ -474,14 +474,16 @@ void projection_update(Projection_Application *app, f64 dt) {
       return;
    }
 
+   const  bool   please_sync = true;
    static GLsync sync = nullptr;
+   if (please_sync) {
 
-   if (!sync) {
-      trace_warn("Sync object is null");
+      if (!sync) {
+         trace_warn("Sync object is null");
+      }
+
+      wait_sync_point(sync);
    }
-
-   wait_sync_point(sync);
-
 
    static Vector3 light_position = {110.0f,  16.f, 4.0f};
    gui_vector3("Light Position", &light_position);
@@ -505,9 +507,9 @@ void projection_update(Projection_Application *app, f64 dt) {
          .view            = MatrixToFloatV(view),
          .light = {
             .position  = light_position,
-            .ambient     = {0.89f,  0.85f,  0.99f },
-            .diffuse     = {0.99f,  0.85f,  0.80f },
-            .specular    = {0.88f,  0.99f,  0.75f },
+            .ambient     = {0.59f,  0.55f,  0.99f },
+            .diffuse     = {0.77f,  0.55f,  0.50f },
+            .specular    = {0.55f,  0.99f,  0.75f },
          },
          .camera = {
             .position = camera.position,
@@ -609,12 +611,25 @@ void projection_update(Projection_Application *app, f64 dt) {
 
    static Scene_Node scene_nodes[10] = {0};
    static bool scene_loaded = false;
+   static Scene_Node alleyana = {0};
+   unused(alleyana);
+
    if (!scene_loaded) {
       scene_loaded = true;
       ZString model_filepath = "";
 
       Model boy_model = create_model("res/models/boy/boy_animation_textured.fbx");
       Model luster_model = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
+      static Model alleyana_model = {0};
+
+      alleyana_model = create_model("res/models/alleyana/source/Alleyana.fbx");
+      // alleyana_model = create_model("res/models/alleyana-no-content/source/untitled.obj");
+      // alleyana_model = create_model("res/models/alleyana-no-content/source/Alleyana.fbx");
+
+      Transform alleyana_transform = transform_identity;
+      alleyana_transform.scale = mul(alleyana_transform.scale, 20.);
+      alleyana_transform.translation = add(alleyana_transform.translation, ((Vector3){-20., 0, 0}));
+      alleyana = create_scene_node(&alleyana_model, alleyana_transform);
 
       model_filepath = "res/models/mari/source/Mari.fbx";
       // model_filepath = "res/models/boy/boy_animation_textured.fbx";
@@ -641,6 +656,8 @@ void projection_update(Projection_Application *app, f64 dt) {
       }
       end_profile(model_filepath);
 
+
+
       model_filepath = "res/models/backpack/backpack.obj";
       begin_profile();
       if (true) {
@@ -654,11 +671,14 @@ void projection_update(Projection_Application *app, f64 dt) {
       }
       end_profile(model_filepath);
 
+
       {
          Transform transform = transform_identity;
-         transform.translation = add(transform.translation, ((Vector3){45., 15., 0}));
+         transform.scale = mul(transform.scale, 0.25);
+         transform.translation = add(transform.translation, ((Vector3){-45., 5., 0}));
          scene_nodes[8] = create_scene_node(&luster_model, transform);
       }
+
 
       if (false) { // Testing somethings
          glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
@@ -674,43 +694,44 @@ void projection_update(Projection_Application *app, f64 dt) {
 
    const bool draw_with_manager = true;
    if (draw_with_manager) {
-      upload_uniform_int(app->shader, "is_special", 1);
-      float   scale_single = 7;
-      Vector3 scale = (Vector3){scale_single, scale_single, scale_single};
-      Vector4 rotation = {1, 1, 1, 0};
-      Vector3 position = (Vector3){0., 25., 0.};
 
-      Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
-      Matrix scale_matrix       = MatrixScale    (scale_single, scale_single, scale_single);
-      Matrix rotation_matrix    = MatrixRotate   ((Vector3){rotation.x, rotation.y, rotation.z}, rotation.w);
-      Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
-
-      update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-      upload_uniform_int(app->shader, "is_special", 0);
+      // update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
 
 
+      // TODO: make sure scene_node with 0 index is invalid
       play_animation(scene_nodes[3]);
       play_animation(scene_nodes[0]);
       play_animation(scene_nodes[2]);
       play_animation(scene_nodes[4]);
       play_animation(scene_nodes[8]);
+
+
+
       if (is_button_pressed(BUTTON_B)) {
          set_animation_speed(scene_nodes[4], 0.65);
          set_animation_speed(scene_nodes[8], 0.65);
+         play_animation_identity(alleyana);
       } else if (is_button_pressed(BUTTON_N)) {
          set_animation_speed(scene_nodes[4], 1.65);
          set_animation_speed(scene_nodes[8], 1.65);
+         play_animation(alleyana);
       }
 
-      draw_indirect(app->shader);
+      static Texture tex = {0};
+      if (!is_valid_texture(tex)) {
+         tex = create_texture_from_filepath("res/models/alleyana/textures/mn_vonr_00_body_d.png");
+      }
 
-      upload_uniform_int(app->shader, "is_special", 0);
+      bind_texture(tex, 3);
+      draw_indirect(tex, app->shader);
    }
 
    // draw_old_way(app, shader, camera);
 
 
-   sync = sync_point(sync);
+   if (please_sync) {
+      sync = sync_point(sync);
+   }
 
    if (!is_window_minimized()) {
       Framebuffer final_fb = app->fb;

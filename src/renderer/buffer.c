@@ -75,6 +75,10 @@ bool is_valid_buffer(const Buffer b) {
 
 Buffer create_buffer(Buffer_Usage usage, const void *data, isz size) {
    Buffer buffer = {0};
+   if (size <= 0) {
+      trace_warn("Trying to create a 0 sized buffer from pointer %p. Really human?", data);
+      return (Buffer){0};
+   }
    buffer.type       = BUFFER_TYPE_NONE;
    buffer.binding    = -1;
    buffer.size       = size;
@@ -487,31 +491,32 @@ void bind_buffer(Buffer* buffer, Buffer_Type type, i64 binding) {
 }
 
 void bind_buffer_draw_indirect(Buffer* buffer) {
-    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer->handle);
+   glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer->handle);
 }
 
-void bind_buffer_view(Buffer* buffer, Buffer_Type type, isz binding, isz offset, isz size) {
-    if (!buffer || buffer->handle == 0 || size <= 0) {
-        trace_error("%s Invalid buffer or size.\n", __func__);
-        return;
-    }
+void bind_buffer_view(Buffer *buffer, Buffer_Type type, isz binding, isz offset, isz size) {
+   if (!buffer || buffer->handle == 0 || size <= 0) {
+      // Just ignore basically
+      trace_debug("%s Invalid buffer or size.\n", __func__);
+      return;
+   }
 
-    GLenum target = 0;
-    switch (type) {
-    case BUFFER_TYPE_UNIFORM:
-        target = GL_UNIFORM_BUFFER;
-        break;
-    case BUFFER_TYPE_STORAGE:
-        target = GL_SHADER_STORAGE_BUFFER;
-        break;
-    default:
-        trace_warn("%s Invalid buffer or size.\n Unsupported buffer type. %d", __func__, type);
-        return;
-    }
+   GLenum target = 0;
+   switch (type) {
+   case BUFFER_TYPE_UNIFORM:
+      target = GL_UNIFORM_BUFFER;
+      break;
+   case BUFFER_TYPE_STORAGE:
+      target = GL_SHADER_STORAGE_BUFFER;
+      break;
+   default:
+      trace_warn("%s Invalid buffer or size.\n Unsupported buffer type. %d", __func__, type);
+      return;
+   }
 
-    glBindBufferRange(target, binding, buffer->handle, offset, size);
-    buffer->binding = binding;
-    buffer->type = type;
+   glBindBufferRange(target, binding, buffer->handle, offset, size);
+   buffer->binding = binding;
+   buffer->type = type;
 }
 
 inline void delete_texture_buffer(Texture_Buffer* buffer) {

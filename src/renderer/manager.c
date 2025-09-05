@@ -146,6 +146,16 @@ typedef struct {
 static Manager manager = {0};
 
 
+bool overload has_animation(Scene_Node node) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   const auto *renderable = &manager.scene.renderables.items[renderable_index];
+   if (renderable->animation_index < 0 || renderable->joint_list.count <= 0) {
+      return false;
+   }
+   return true;
+}
+
+
 // Why is this taking u32?
 void grow_manager_if_needed(u32 required_vertices, u32 required_indices, bool has_joints) {
    // Check if we need to grow vertex arrays
@@ -246,14 +256,14 @@ Draw_Index push_arrays_to_manager(
    Draw_Index draw_index = push_draw_command_to_manager(draw_command);
 
    // Copy vertex data to CPU staging arrays
-   // The key insight: we store data in separate sections per draw_command
+   // We store data in separate sections per draw_command
    // Layout: [pos0,pos1,pos2...][norm0,norm1,norm2...][uv0,uv1,uv2...]
    if (vertices_count > 0) {
       memcpy(&manager.vertices.positions[manager.vertices.count], positions, vertices_count * size_of(Vector3));
       memcpy(&manager.vertices.normals  [manager.vertices.count], normals,   vertices_count * size_of(Vector3));
       memcpy(&manager.vertices.uvs      [manager.vertices.count], uvs,       vertices_count * size_of(Vector2));
 
-      // Copy joint data if present
+      // Copy joint data if present, same count as vertices but different cpu buffer
       if (has_joints) {
          memcpy(&manager.joints.items[manager.joints.count], joints, vertices_count * size_of(manager.joints.items[0]));
       }
@@ -387,6 +397,7 @@ void update_manager_gpu_resources() {
          bind_buffer_view(&manager.scene.instances_buffer, BUFFER_TYPE_STORAGE, BINDING_INSTANCE_BUFFER, 0, required_instances_buffer_capacity_in_bytes);
       }
 
+      if (total_geometry_matrices_count > 0)
       {  // Animation buffer management
          isz require_size = total_geometry_matrices_count * size_of(float16);
          auto checkpoint = tsave();
@@ -402,6 +413,7 @@ void update_manager_gpu_resources() {
                gpu_matrices_ptr += matrices_size_in_bytes;
             }
          }
+
 
          if (!is_valid_buffer(manager.scene.geometry_to_world_matrices_buffer)) {
             manager.scene.geometry_to_world_matrices_buffer
@@ -560,7 +572,7 @@ void bind_material_textures(u32 material_index, Shader shader) {
 // TODO: change to this instead https://docs.gl/gl4/glDrawElementsIndirect
 void draw_from_index(const Draw_Index draw_index, Shader shader) {
    if (draw_index.base + draw_index.count > manager.draw_commands.count) {
-      trace_error("%s: You are tripping dawg", __func__);
+      trace_error("%s: You are tripping dawg, bogus draw_index", __func__);
       return;
    }
 
@@ -588,7 +600,8 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
 }
 
 // Draw all indices ever created
-void draw_indirect(Shader shader) {
+// Accept diffuse texture for debugging shader
+void draw_indirect(Texture diffuse, Shader shader) {
    update_manager_gpu_resources();
 
    {
@@ -657,6 +670,8 @@ void draw_indirect(Shader shader) {
       }
    }
 #endif
+   assert(is_valid_texture(diffuse));
+   bind_texture(diffuse, 3);
 
    glMultiDrawElementsIndirect(
        GL_TRIANGLES, GL_UNSIGNED_INT,
@@ -725,6 +740,7 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
    // It's expected and correct that 1 mesh has continuous buffer that surfaces view into. Thats all.
    // If it changes and somehow surfaces has never before seen owned positions data then this will be wrong.
    // Thats why every surface had the same base_vertices_offset
+
    auto base_vertices_offset = manager.vertices.count;
    auto base_joints_offset   = manager.joints.count;
 
@@ -820,6 +836,73 @@ Draw_Index push_model_to_manager(const Model *model, isz *animation_index) {
    return result_draw_index;
 }
 
+void play_animation(Scene_Node node) {
+
+   // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it.
+   // For now we use instaces_dirty to update geometry_to_world_matrices_buffer after this
+   manager.scene.instances_dirty = true;
+
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+
+   if (renderable->animation_index < 0) {
+      trace_warn("Trying to play animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
+      return;
+   }
+
+   auto animation = &manager.animations.items[renderable->animation_index];
+   auto instance  = &renderable->instances.items[instance_index];
+   f64 *curr_time = &instance->animation_current_time;
+   const f64 animation_speed = instance->animation_speed;
+   *curr_time += time_delta() * animation_speed;
+   // *curr_time += 0.0001;
+   // *curr_time = min(*curr_time, animation->time_end);
+   if (*curr_time >= animation->time_end) {
+      *curr_time = animation->time_begin;
+   }
+   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, *curr_time);
+   isz list_data_size = size_of(list.matrices[0]) * list.count;
+   if (instance->geometry_to_world_matrices.count <= 0 && nullptr == instance->geometry_to_world_matrices.items) {
+      assert_msg(renderable->joint_list.count == list.count, "Joint list and the Joint matrices should have the same count, because it's a bijection to the bones count");
+      instance->geometry_to_world_matrices.items = malloc(list_data_size);
+      instance->geometry_to_world_matrices.count = list.count;
+   }
+   memcpy(instance->geometry_to_world_matrices.items, list.items, list_data_size);
+   return;
+}
+
+// T Pose
+void play_animation_identity(Scene_Node node) {
+   // Needs to update geometry_to_world_matrices_buffer after this
+   manager.scene.instances_dirty = true;
+
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+
+   if (renderable->animation_index < 0) {
+      trace_warn("Trying to play animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
+      return;
+   }
+
+   auto animation = &manager.animations.items[renderable->animation_index];
+   auto instance  = &renderable->instances.items[instance_index];
+
+   if (instance->geometry_to_world_matrices.count <= 0 && nullptr == instance->geometry_to_world_matrices.items) {
+      instance->geometry_to_world_matrices.count = renderable->joint_list.count;
+      isz size = size_of(float16) * instance->geometry_to_world_matrices.count;
+      instance->geometry_to_world_matrices.items = malloc(size);
+   }
+   float16 identity = MatrixToFloatV(MatrixIdentity());
+   for (u32 index = 0; index < instance->geometry_to_world_matrices.count; index += 1) {
+      instance->geometry_to_world_matrices.items[index] = identity;
+   }
+   // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it
+   return;
+}
+
+
 // NOTE: 2025-09-04 Every Instace is created here renderable is created elsewhere
 Scene_Node internal create_scene_node_from_renderable(isz renderable_index, const Transform transform) {
    auto renderable = &manager.scene.renderables.items[renderable_index];
@@ -834,13 +917,20 @@ Scene_Node internal create_scene_node_from_renderable(isz renderable_index, cons
       {.node_parent = -1, .instance_index = instance_index, .renderable_index = renderable_index}
    );
 
+   Scene_Node scene_node = {.index = scene_node_index};
+
+   // T Pose by default
+   if (has_animation(scene_node)) {
+      play_animation_identity(scene_node);
+   }
+
    // Because the instance transform needs to be updated
    manager.scene.instances_dirty = true;
 
    // Because instance_count has to be updated for each draw command.
    manager.draw_commands.dirty = true;
 
-   return (Scene_Node){.index = scene_node_index};
+   return scene_node;
 }
 
 // Create a new draw commands without creating new vertex, indices buffers, it should only affect the draw commands
@@ -911,40 +1001,7 @@ void set_animation_speed(Scene_Node node, f64 speed) {
    instance->animation_speed = clamp(speed, 0, F64_MAX);
 }
 
-void play_animation(Scene_Node node) {
-   // Needs to update geometry_to_world_matrices_buffer after this
-   manager.scene.instances_dirty = true;
 
-   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
-   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
-   auto renderable = &manager.scene.renderables.items[renderable_index];
-
-   if (renderable->animation_index < 0) {
-      trace_warn("Trying to play animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
-      return;
-   }
-
-   auto animation = &manager.animations.items[renderable->animation_index];
-   auto instance  = &renderable->instances.items[instance_index];
-   f64 *curr_time = &instance->animation_current_time;
-   const f64 animation_speed = instance->animation_speed;
-   *curr_time += time_delta() * animation_speed;
-   // *curr_time += 0.0001;
-   // *curr_time = min(*curr_time, animation->time_end);
-   if (*curr_time >= animation->time_end) {
-      *curr_time = animation->time_begin;
-   }
-   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, *curr_time);
-   isz list_data_size = size_of(list.matrices[0]) * list.count;
-   if (instance->geometry_to_world_matrices.count <= 0 && nullptr == instance->geometry_to_world_matrices.items) {
-      assert_msg(renderable->joint_list.count == list.count, "Joint list and the Joint matrices should have the same count, because it's a bijection to the bones count");
-      instance->geometry_to_world_matrices.items = malloc(list_data_size);
-      instance->geometry_to_world_matrices.count = list.count;
-   }
-   memcpy(instance->geometry_to_world_matrices.items, list.items, list_data_size);
-   // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it
-   return;
-}
 
 
 void destroy_manager_materials() {

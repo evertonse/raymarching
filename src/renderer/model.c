@@ -65,7 +65,6 @@ Joint_List joint_list_deep_copy(const Joint_List *src) {
       return dst;
    }
 
-   // Calculate total memory needed
    size_t total_bytes = 0;
 
    // Add space for joints array
@@ -95,11 +94,11 @@ Joint_List joint_list_deep_copy(const Joint_List *src) {
    ptr += src->count * sizeof(Joint);
    memcpy(dst.joints, src->joints, src->count * sizeof(Joint));
 
-   // Copy names array (pointers to strings)
+   // Copy the pointers to strings
    dst.names = (ZString *)ptr;
    ptr += src->count * sizeof(ZString);
 
-   // Copy each name string
+   // New we copy each name string
    for (u32 i = 0; i < src->count; i++) {
       if (src->names[i] != NULL) {
          size_t name_len = strlen(src->names[i]) + 1;
@@ -127,8 +126,8 @@ Animation animation_deep_copy(const Animation *src) {
    Animation dst = {0};
 
    // Copy basic timing fields
-   dst.time_begin = src->time_begin;
-   dst.time_end = src->time_end;
+   dst.time_begin   = src->time_begin;
+   dst.time_end     = src->time_end;
    dst.time_current = src->time_current;
 
    usz total_bytes = 0;
@@ -154,7 +153,6 @@ Animation animation_deep_copy(const Animation *src) {
       return (Animation){0};
    }
 
-   // Set up pointer tracking
    byte *ptr = memory_block;
 
    // Copy joints array
@@ -239,30 +237,69 @@ typedef struct {
 } Model;
 
 
-const bool internal please_obj_merge = true;
+const bool internal please_obj_merge = false;
 // Options: https://ufbx.github.io/reference#ufbx_load_opts
+
+static const ufbx_load_opts ufbx_default_opts_godot = {
+   .target_axes = ufbx_axes_right_handed_y_up,
+   .target_unit_meters = 1.0f,
+   .space_conversion = UFBX_SPACE_CONVERSION_MODIFY_GEOMETRY,
+#if 0
+		.geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY_NO_FALLBACK,
+		.inherit_mode_handling = UFBX_INHERIT_MODE_HANDLING_COMPENSATE_NO_FALLBACK,
+#else
+		.geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_HELPER_NODES,
+		.inherit_mode_handling = UFBX_INHERIT_MODE_HANDLING_COMPENSATE,
+#endif
+	.pivot_handling = UFBX_PIVOT_HANDLING_ADJUST_TO_PIVOT,
+	.geometry_transform_helper_name.data = "GeometryTransformHelper",
+	.geometry_transform_helper_name.length = SIZE_MAX,
+	.scale_helper_name.data = "ScaleHelper",
+	.scale_helper_name.length = SIZE_MAX,
+	.node_depth_limit = 512,
+	.target_camera_axes = ufbx_axes_right_handed_y_up,
+	.target_light_axes = ufbx_axes_right_handed_y_up,
+	.clean_skin_weights = true,
+	.generate_missing_normals = true
+};
+
 static const ufbx_load_opts ufbx_default_opts = {
    .normalize_normals  = true,
    .normalize_tangents = true,
    .ignore_embedded = false,
-   // .target_axes = ufbx_axes_right_handed_y_up,
+
+   .target_axes = ufbx_axes_right_handed_y_up,
+	.target_camera_axes = ufbx_axes_right_handed_y_up,
+	.target_light_axes = ufbx_axes_right_handed_y_up,
+
    .generate_missing_normals = true,
    .strict = true,
-   .target_unit_meters = 0.1f,
+   .target_unit_meters = 0.05f,
+
    // UFBX_GEOMETRY_TRANSFORM_HANDLING_PRESERVE
-   // UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY
+   .space_conversion            = UFBX_SPACE_CONVERSION_MODIFY_GEOMETRY, // This one is important to help on getting the animation matrices
+
+
+#if 1
+   // Modified the geomtry and be done with it
    .geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY,
-   .space_conversion = UFBX_SPACE_CONVERSION_MODIFY_GEOMETRY, // This one is important to help on getting the animation matrices
-   #if 1
+   .inherit_mode_handling       = UFBX_INHERIT_MODE_HANDLING_COMPENSATE,
+#elif 0
+   // .geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_HELPER_NODES,
+   .geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY_NO_FALLBACK,
+   .inherit_mode_handling = UFBX_INHERIT_MODE_HANDLING_COMPENSATE_NO_FALLBACK,
+#else
+   // Helper nodes all around
+   .space_conversion            = UFBX_SPACE_CONVERSION_ADJUST_TRANSFORMS,
+   .geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_HELPER_NODES,
+   .inherit_mode_handling = UFBX_INHERIT_MODE_HANDLING_HELPER_NODES,
+#endif
+
+
+
+
    .obj_search_mtl_by_filename = true,
    .load_external_files = true, // IMPORTANT: Auto load mtl and other texture files (unsafe if user defined data)0
-   #else
-   // (.obj) Path to the .mtl file.
-   // .obj_mtl_path = {
-   //     .data = "res/models/backpack/backpack.mtl",
-   //     .length = strlen("res/models/backpack/backpack.mtl")
-   // },
-   #endif
 
    // (.obj) Don't split geometry into meshes by object.
    .obj_merge_objects = please_obj_merge,
@@ -295,11 +332,25 @@ static const char* filepath_from_ufbx_material_map(ZString scene_path, const ufb
       return nullptr;
    }
 
+
    ZString texture_path = map.texture->filename.data;
    if (!file_exists(texture_path)) {
+
+
+
       ZString texture_base_name = path_base_name(texture_path);
       ZString base_directory = path_dir_of(scene_path);
       texture_path = path_create(base_directory, texture_base_name);
+
+      auto content = map.texture->content;
+      if (content.size > 0) {
+         // FIX: We're gonna end up loading this twice, first we loaded from content and writting to disk
+         //      then read again from disk when loading materials >.<.
+         write_file(texture_path, content.data, content.size);
+         trace_okay("Embeded content inside model %s. Wrote %llu bytes to path '%s'", scene_path, (usz)content.size, texture_path);
+         goto done;
+      }
+
       if (!file_exists(texture_path)) {
          base_directory = path_create(path_dir_of(base_directory), "textures");
          texture_path   = path_create(base_directory, texture_base_name);
@@ -308,6 +359,8 @@ static const char* filepath_from_ufbx_material_map(ZString scene_path, const ufb
          }
       }
    }
+
+done:
    assert_msg(file_exists(texture_path), "We should previously return null if the file doesnt exist, period.");
    trace_okay("`%s` Texture Path exists for scene `%s`", texture_path, scene_path);
    return strdup(texture_path); // @Leak
@@ -550,14 +603,16 @@ void trace_ufbx_scene_stats(ufbx_scene *scene) {
       info = tprintf("%s    texture (%zu): base_name %s\n", info, i, base_name);
       info = tprintf("%s                : %s\n", info, texture.relative_filename.data);
       info = tprintf("%s                : file_textures.count %ld\n", info, texture.file_textures.count);
+      assert_msg(false == texture.has_uv_transform, "We do not handle that");
    }
 
    trestore(checkpoint);
-   trace_info(info);
+   trace_debug("%s", info);
 
    info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
    for (usz i = 0; i < scene->materials.count; i += 1) {
       auto material = *scene->materials.data[i];
+
       info = tprintf("%s    material '%s' (%zu): has %ld textures\n", info, material.name.data, i, material.textures.count);
       for (usz j = 0; j < material.textures.count; j += 1) {
          auto texture = *(material.textures.data[j].texture);
@@ -569,7 +624,7 @@ void trace_ufbx_scene_stats(ufbx_scene *scene) {
       }
    }
 
-   trace_info(info);
+   trace_debug("%s", info);
 
    trestore(checkpoint);
 }
@@ -590,8 +645,15 @@ static isz material_index_from_ufbx_scene(ufbx_material* material, ufbx_scene *s
 }
 
 // TODO: `setup -> create` for consistency
-static void setup_materials_from_ufbx_scene(Model *model, ufbx_scene *scene, const char* scene_filepath) {
+// TODO: Support content.data content.size extraction as models some only have this embeded content.
+static void setup_materials_from_ufbx_scene(Model *model, const ufbx_scene *const scene, const char* scene_filepath) {
    // Setup Textures
+   if (0 == scene->materials.count) {
+      model->materials.count = scene->materials.count;
+      model->materials.items = nullptr;
+      return;
+   }
+
    if (!model->materials.items) {
       model->materials.count = scene->materials.count;
       model->materials.items = malloc(size_of(model->materials.items[0])*model->materials.count);
@@ -599,14 +661,24 @@ static void setup_materials_from_ufbx_scene(Model *model, ufbx_scene *scene, con
    for (usz material_index = 0; material_index < scene->materials.count; material_index += 1) {
       ufbx_material fbx_material = *scene->materials.data[material_index];
       auto material = &model->materials.items[material_index];
-      // TODO: Update this when pbr pipeline comes in
+      // TODO: Update this when pbr pipeline comes in.
       // Diffuse
-      material->diffuse = filepath_from_ufbx_material_map(scene_filepath, fbx_material.pbr.base_color);
-      material->diffuse = material->diffuse ?: filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.diffuse_color);
+      const ufbx_material_map diffuse_maps[] = {fbx_material.pbr.base_color, fbx_material.fbx.diffuse_color};
+      for (usz i = 0; i < count_of(diffuse_maps); i += 1) {
+         material->diffuse = filepath_from_ufbx_material_map(scene_filepath, diffuse_maps[i]);
+         if (material->diffuse) {
+            break;
+         }
+      }
 
       // Specular
-      material->specular = filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.specular_color);
-      material->specular = material->specular ?: filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.reflection_factor);
+      const ufbx_material_map specular_maps[] = {fbx_material.fbx.specular_color, fbx_material.pbr.roughness, fbx_material.pbr.specular_color, fbx_material.fbx.reflection_factor};
+      for (usz i = 0; i < count_of(specular_maps); i += 1) {
+         material->specular = filepath_from_ufbx_material_map(scene_filepath, specular_maps[i]);
+         if (material->specular) {
+            break;
+         }
+      }
 
       // Emisse
       material->emissive = filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.emission_color);
@@ -618,6 +690,9 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
 
    auto fbx_mesh = node->mesh;
    assert(fbx_mesh);
+   if (fbx_mesh->uv_sets.count > 1) {
+      trace_warn("fbx mesh has more than 1 uv_sets which we're ignoring.");
+   }
 
    usz checkpoint = tsave();
 
@@ -625,7 +700,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    usz total_indices   = total_triangles * 3;
 
    isz  tri_indices_count = fbx_mesh->max_face_triangles * 3;
-   u32 *tri_indices       = talloc(tri_indices_count * size_of(u32));
+   u32 *tri_indices       = malloc(tri_indices_count * size_of(u32));
 
    bool has_bones = scene->bones.count > 0;
 
@@ -693,7 +768,13 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
             // Get vertex data
             ufbx_vec3 ufbx_position = ufbx_get_vertex_vec3(&fbx_mesh->vertex_position, index);
             ufbx_vec3 ufbx_normal = ufbx_get_vertex_vec3(&fbx_mesh->vertex_normal, index);
-            ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&fbx_mesh->vertex_uv, index);
+            assert(fbx_mesh->uv_sets.count);
+
+            // ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&fbx_mesh->vertex_uv, index);
+            ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&fbx_mesh->uv_sets.data[0].vertex_uv, index);
+
+            assert(!isnan(ufbx_uv.x) && !isnan(ufbx_uv.y));
+            assert(!(ufbx_uv.x < 0.0f || ufbx_uv.y < 0.0f));
 
             Vector3 position = {(f32)ufbx_position.x, (f32)ufbx_position.y, (f32)ufbx_position.z};
             Vector3 normal = {(f32)ufbx_normal.x, (f32)ufbx_normal.y, (f32)ufbx_normal.z};
@@ -749,19 +830,20 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
 
    // Set final counts
    mesh.vertices.count = total_vertex_count;
-   mesh.indices.count       = total_index_count;
-   mesh.surfaces.count      = surfaces_count;
+   mesh.indices.count  = total_index_count;
+   mesh.surfaces.count = surfaces_count;
 
    trestore(checkpoint);
 
-   // Optional: Optimize with vertex deduplication
-   const bool reduce_indices = true;
+   // Optimize with vertex deduplication
+   const bool reduce_indices = false;
    if (reduce_indices) {
       ufbx_vertex_stream streams[] = {
-          {mesh.vertices.positions,  total_vertex_count, size_of(mesh.vertices.positions[0])},
-          {mesh.vertices.normals,    total_vertex_count, size_of(mesh.vertices.normals[0])},
-          {mesh.vertices.uvs,        total_vertex_count, size_of(mesh.vertices.uvs[0])},
-          {mesh.vertices.joints,     total_vertex_count, size_of(mesh.vertices.joints[0])},
+         {mesh.vertices.positions,  total_vertex_count, size_of(mesh.vertices.positions[0])},
+         {mesh.vertices.normals,    total_vertex_count, size_of(mesh.vertices.normals[0])},
+         {mesh.vertices.uvs,        total_vertex_count, size_of(mesh.vertices.uvs[0])},
+         // joints has to be last
+         {mesh.vertices.joints,     total_vertex_count, size_of(mesh.vertices.joints[0])},
       };
       isz streams_count = mesh.vertices.joints ? count_of(streams) : count_of(streams) - 1;
 
@@ -772,7 +854,6 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
       // Surface indices are still valid - they reference the same index buffer positions
       // ufbx_generate_indices only remaps vertex data and updates the index values
       // but preserves the index buffer structure and ordering. Or so I believe.
-
       trace_okay("ufbx_generate_indices optimized from %lld to %lld vertices", total_vertex_count, vertices_count_new);
    }
 
@@ -1144,7 +1225,7 @@ Geometry_To_World_List joint_matrices_from_animation(Joint_List *joints, const A
    static isz capacity = 0;
    if (!list.matrices || joints->count > capacity) {
       capacity = joints->count*2;
-      list.matrices = realloc(list.matrices, size_of(list.matrices[0]) * capacity);
+      list.matrices = realloc(list.matrices, size_of(list.matrices[0]) * capacity); // @Leak
    }
    list.count = joints->count;
 

@@ -118,8 +118,10 @@ char* get_fps_string() {
       consistency = 100.0;
    }
 
-   snprintf(str, 256, "fps: %.1f | min: %.1f | max: %.1f | frames: %d | consistency: %.1f%%",
-         __state.fps.avg_fps, __state.fps.min_fps == 999999.0 ? 0.0 : __state.fps.min_fps, __state.fps.max_fps, __state.fps.total_frames, consistency);
+   snprintf(str, 256, "fps: %.1f | framtime: %.7fms | min: %.1f | max: %.1f | frames: %d | consistency: %.1f%%",
+      __state.fps.avg_fps, __state.fps.frame_times[__state.fps.sample_count-1], __state.fps.min_fps == 999999.0 ? 0.0 : __state.fps.min_fps, __state.fps.max_fps, __state.fps.total_frames, consistency
+   );
+
 
    return str;
 }

@@ -1,5 +1,6 @@
 
 
+// TODO: Add 16F when hdr pipeline and test performance compared to 32F
 typedef enum {
    TEXTURE_FORMAT_UNDEFINED,
    TEXTURE_FORMAT_DEPTH24,
@@ -86,9 +87,9 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
 
    // Type decoding
    switch (type) {
-      case     TEXTURE_TYPE_BUFFER:       buffer_backed =       true;   break;
-      case     TEXTURE_TYPE_2D_MIPMAPPED: mipmapped     =       true;   break;
-      case     TEXTURE_TYPE_2D: break;
+      case  TEXTURE_TYPE_BUFFER:       buffer_backed = true; break;
+      case  TEXTURE_TYPE_2D_MIPMAPPED: mipmapped     = true; break;
+      case  TEXTURE_TYPE_2D:                                 break;
 
       default: assert_msg(false,"Unsupported  texture type"); return result;
    }
@@ -130,8 +131,11 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
    if (!buffer_backed && samples <= 1) {
       glTextureParameteri(result.handle, GL_TEXTURE_MIN_FILTER, min_filter);
       glTextureParameteri(result.handle, GL_TEXTURE_MAG_FILTER, mag_filter);
-      glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-      glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+      // TODO: When loading certain models each texture has WRAP mode for u and v we need to make sure we set that shit correctly
+      // HACK: Set to REAPEAT as we know most models prefer that (Symmetry seems to play a role on that)
+      glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S, GL_REPEAT); // Before was this GL_CLAMP_TO_EDGE but didn't work with Alleya.fbx model.
+      glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
       #if defined(RENDERER_USING_BINDLESS)
          result.bindless_handle = glGetTextureHandleARB(result.handle);
@@ -244,10 +248,15 @@ void update_texture(Texture* tex, int new_width, int new_height, const void* new
 }
 
 void bind_texture(const Texture texture, usz binding) {
+   if (!is_valid_texture(texture)) {
+      trace_warn("Trying to bind invalid texture handle = %lld, path %s", texture.handle, texture.path);
+      return;
+   }
+
    // Access like this: ``layout(binding = binding) uniform sampler2D texturename;``
    glBindTextureUnit(binding, texture.handle);
-   auto error_code = glGetError();
 
+   auto error_code = glGetError();
    if (error_code != GL_NO_ERROR) {
       trace_error( "OpenGL Error (%d) in %s!\n", error_code, __func__);
       debug_break();

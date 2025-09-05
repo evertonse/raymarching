@@ -201,11 +201,11 @@ static void conditionally_change_windows_title(f64 dt) {
 
 int main() {
    init_window();
-   init_renderer();
    init_time();
    init_fps();
-   init_gui();
+   init_renderer();
    init_manager();
+   init_gui();
 
 
    Countdown window_title_countdown = create_countdown(0.15, true);
@@ -253,6 +253,7 @@ int main() {
 
          {
             /* setup global state */
+            glDisable(GL_FRAMEBUFFER_SRGB);
             glEnable(GL_BLEND);
             // glBlendEquation(GL_FUNC_ADD);
             // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

@@ -1046,12 +1046,14 @@ bool shader_needs_reload(Shader shader) {
    usz  count = 0;
    bool result = false;
    usz checkpoint = tsave();
+
    // We always save and .time files based on first_path
    ZString* resolved_paths = (ZString*)talloc(paths_count * size_of(ZString));
    ZString first_path = meta.items[0].path;
    for (int i = 0; i < paths_count; i += 1) {
       resolved_paths[i] = meta.items[i].path;
    }
+
    TString time_path = tprintf("%s.time", path_stem(first_path));
 
    if (needs_rebuild_from_paths(time_path, resolved_paths, paths_count)) {
@@ -1087,6 +1089,7 @@ Shader reload_shader(Shader shader) {
       glDeleteProgram(shader.handle);
    }
 
+   trace_okay("Successfully reloaded `%s` shader", shader.path);
    return new_shader;
 }
 
