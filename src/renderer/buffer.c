@@ -180,7 +180,7 @@ Buffer create_buffer(Buffer_Usage usage, const void *data, isz size) {
 }
 
 
-void *map_buffer(Buffer *buffer) {
+void volatile *map_buffer(Buffer *buffer) {
    assert(buffer && is_valid_buffer(*buffer));
 
    // Return existing mapping if already mapped
@@ -585,7 +585,7 @@ Texture_Buffer create_texture_buffer(
         0, 0, nullptr,
         format,
         TEXTURE_TYPE_BUFFER,
-        1
+        0
     );
 
     // Associate the buffer with the texture

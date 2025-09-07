@@ -111,6 +111,7 @@ Vertex_Array create_vertex_array(const Vertex *vertices, usz vertex_count, const
    return va;
 }
 
+
 Vertex_Array create_vertex_array_from_arrays(Vector3 *positions, Vector3 *normals, Vector2* uvs, isz count, u32* indices, isz indices_count) {
    Vertex_Array va = {0};
    // Calculate sizes
@@ -135,7 +136,7 @@ Vertex_Array create_vertex_array_from_arrays(Vector3 *positions, Vector3 *normal
    isz uvs_offset       = positions_size + normals_size;
 
    if (is_continuous_buffer) {
-      trace_okay("Detected continuous buffer in vertex array creation from mesh. Optimization: no update calls will be needed.");
+      trace_debug("Detected continuous buffer in vertex array creation from mesh. Optimization: no update calls will be needed.");
       va.vb = create_vertex_buffer(positions, total_size + size_of(f32), count);
    } else {
       va.vb = create_vertex_buffer(nullptr, total_size + size_of(f32), count);
@@ -276,6 +277,92 @@ void bind_vertex_array(const Vertex_Array va) {
 
 #include "framebuffer.c"
 
+void update_renderer(void) {
+   // TODO: Check is window_height/width correspond to actual framebuffer
+   auto samples = default_framebuffer_samples();
+
+   bool inform_change = false;
+   if (samples != default_framebuffer.color.samples) {
+      inform_change = true;
+   }
+   default_framebuffer = (Framebuffer){
+      .handle = 0,
+      .color = {
+         .width  = get_window_width(),
+         .height = get_window_height(),
+         .samples = samples,
+      },
+      .depth = {
+         .width  = get_window_width(),
+         .height = get_window_height(),
+         .samples = samples,
+      },
+      .is_default_framebuffer = true,
+   };
+
+   if (inform_change) {
+      trace_okay("Here's some fucking news about the default framebuffer:");
+      trace_struct(default_framebuffer);
+   }
+
+}
+
+void print_default_framebuffer_info(void) {
+   GLint viewport[4]; // Need array for 4 values: x, y, width, height
+
+   // Bind the default framebuffer (0)
+   glBindFramebuffer(GL_FRAMEBUFFER, 0);
+   printf("=== Default Framebuffer Info ===\n");
+
+   // Resolution (viewport size, not FBO size)
+   glGetIntegerv(GL_VIEWPORT, viewport);
+   printf("Viewport: %d x %d (x = %d, y = %d)\n", viewport[2], viewport[3], viewport[0], viewport[1]); // width, height, x, y
+
+   // Samples (MSAA)
+   GLint samples;
+   glGetIntegerv(GL_SAMPLES, &samples);
+   printf("Samples: %d\n", samples);
+
+   // Color attachment - check both front and back buffers
+   GLint red, green, blue, alpha;
+
+   printf("Back buffer format:\n");
+   glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_BACK_LEFT, GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE, &red);
+   glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_BACK_LEFT, GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE, &green);
+   glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_BACK_LEFT, GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE, &blue);
+   glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_BACK_LEFT, GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &alpha);
+   printf("  Color format: R%d G%d B%d A%d\n", red, green, blue, alpha);
+
+   // Check if we have a front buffer (only in double-buffered contexts)
+   GLint doublebuf = 0;
+   glGetIntegerv(GL_DOUBLEBUFFER, &doublebuf);
+   printf("Double-buffered: %s\n", doublebuf ? "yes" : "no");
+
+   if (doublebuf) {
+      printf("Front buffer format:\n");
+      glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_FRONT_LEFT, GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE, &red);
+      glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_FRONT_LEFT, GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE, &green);
+      glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_FRONT_LEFT, GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE, &blue);
+      glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_FRONT_LEFT, GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &alpha);
+      printf("  Color format: R%d G%d B%d A%d\n", red, green, blue, alpha);
+   }
+
+   // Depth buffer
+   GLint depth_size = 0;
+   glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_DEPTH, GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE, &depth_size);
+   printf("Depth bits: %d\n", depth_size);
+
+   // Stencil buffer
+   GLint stencil_size = 0;
+   glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_STENCIL, GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE, &stencil_size);
+   printf("Stencil bits: %d\n", stencil_size);
+
+   // Check for errors
+   GLenum error = glGetError();
+   if (error != GL_NO_ERROR) {
+      printf("OpenGL error occurred: 0x%X\n", error);
+   }
+}
 
 void print_opengl_resource_limits(void) {
    GLint value;
@@ -455,6 +542,7 @@ void init_renderer(void) {
    enable_error_report();
 
    print_opengl_resource_limits();
+   print_default_framebuffer_info();
 
    { // Some expected settings
       glEnable(GL_BLEND);
@@ -468,6 +556,27 @@ void init_renderer(void) {
       glDisable(GL_CULL_FACE);
       // glCullFace(GL_BACK);          // Cull back faces
       glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
+   }
+
+   {
+      /* setup global state */
+      glDisable(GL_FRAMEBUFFER_SRGB);
+      // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE).
+      glEnable(GL_BLEND);
+      // glBlendEquation(GL_FUNC_ADD);
+      // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+      glEnable(GL_CULL_FACE);
+      glEnable(GL_DEPTH_TEST);
+      glDisable(GL_SCISSOR_TEST);
+      glEnable(GL_STENCIL_TEST);
+
+
+      // https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMinSampleShading.xhtml
+      glEnable(GL_MULTISAMPLE);
+      // Enable Supersampling with GL_SAMPLE_SHADING and glMinSampleShading set to 1
+      // glEnable(GL_SAMPLE_SHADING);
+      // glMinSampleShading(1.0):
    }
 
    __state.renderer.initialized  = true;

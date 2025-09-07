@@ -61,7 +61,7 @@ typedef struct {
 
       struct {
          Vector3 position; f32 pad0;
-         f32 theta, phi, pad1, pad2; // Spherical Coordinates
+         f32 theta, phi, aspect, pad2; // Spherical Coordinates
       } camera;
 
       f32 elapsed_time, delta_time;
@@ -178,74 +178,6 @@ static void init_model_and_its_gpu_data(typeof(((Projection_Application *)0)->bo
    bundle->transform.translation = (Vector3){30., 16., 20.};
 }
 
-static void update_and_draw_model_and_its_gpu_data(typeof(((Projection_Application *)0)->boy) *bundle, Projection_Application *app) {
-   if (!is_valid_shader(app->shader)) {
-      return;
-   }
-   auto animation = &bundle->model.animations.items[0];
-   animation->time_current += time_delta();
-   // TODO: Check why a frame before the animation ends, we fuck up somehow making the model disappear;
-   animation->time_end = 17.0;
-   animation->time_current = min(animation->time_current, animation->time_end);
-   // animation->time_curent += 0.025; // for debugging do not relyu on actual passing time because time it's warped in debug space;
-   if (animation->time_current >= animation->time_end) {
-      trace_info("Animation about to restart curr %f begin %f end %f", animation->time_current, animation->time_begin, animation->time_end);
-      animation->time_current = animation->time_begin;
-   }
-   auto list = joint_matrices(&bundle->model, animation->time_current);
-   isz  list_data_size = (size_of(list.matrices[0])*list.count);
-
-   bool valid = is_valid_buffer(app->geometry_to_world_matrices);
-   bool needs_resize = valid && app->geometry_to_world_matrices.size < list_data_size;
-   bool needs_allocation = !valid || needs_resize;
-
-   if (needs_resize) {
-      destroy_buffer(&app->geometry_to_world_matrices);
-   }
-   if (needs_allocation) {
-      app->geometry_to_world_matrices = create_buffer(BUFFER_USAGE_SUBDATA, nullptr, list_data_size);
-   }
-
-   update_buffer(&app->geometry_to_world_matrices, list.matrices, 0, list_data_size);
-   bind_buffer(&app->geometry_to_world_matrices, BUFFER_TYPE_STORAGE, 12);
-   bind_buffer(&bundle->animation.vertex_joints, BUFFER_TYPE_STORAGE, 9);
-
-   upload_uniform_bool(app->shader, "is_light", false);
-
-   upload_uniform_int(app->shader, "has_animation", -69);
-
-   {
-      isz bundle_va_index = 0;
-      for (isz mesh_index = 0; mesh_index < bundle->model.meshes.count; mesh_index += 1) {
-         Mesh *mesh = &bundle->model.meshes.items[mesh_index];
-         for (isz surface_index = 0; surface_index < mesh->surfaces.count; surface_index += 1) {
-            auto surface = mesh->surfaces.items[surface_index];
-            if (surface.material_index > -1) {
-               upload_uniform_bool(app->shader, "has_emissive", false);
-               upload_uniform_bool(app->shader, "has_specular", false);
-               auto texture = bundle->textures.items[surface.material_index];
-               if (is_valid_texture(texture.diffuse)) {
-                  bind_texture(texture.diffuse, 3);
-               }
-
-               if (is_valid_texture(texture.specular)) {
-                  bind_texture(texture.specular, 4);
-                  upload_uniform_bool(app->shader, "has_specular", true);
-               }
-
-               if (is_valid_texture(texture.emissive)) {
-                  bind_texture(texture.emissive, 5);
-                  upload_uniform_bool(app->shader, "has_emissive", true);
-               }
-            }
-            draw_va(app, &bundle->vas.items[bundle_va_index++], bundle->transform.translation, bundle->transform.scale, bundle->transform.rotation);
-         }
-      }
-   }
-
-   upload_uniform_int(app->shader, "has_animation", -1);
-}
-
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -272,21 +204,29 @@ void projection_init(Projection_Application *app) {
 
    app->shader_countdown_to_reload = create_countdown(0.19, true);
 
-   // app->fb = create_framebuffer(1600, 800);
-   // app->fb = create_framebuffer_multisample(1600, 800, 16);
-   app->fb = create_framebuffer_multisample_with_renderbuffers(1600, 800, 16);
+   // const struct {isz width, height;} resolution = {2560, 1080};
+   // const struct {isz width, height;} resolution = {1152, 486};
+   const struct {isz width, height;} resolution = {800, 675};
 
+   const isz samples = 16;
+   // create_framebuffer_multisample,create_framebuffer
+   app->fb = create_framebuffer_multisample_with_renderbuffers(resolution.width, resolution.height, samples);
+
+   // const f64 rectangle_shrink_factor = 0.45;
+   const f64 rectangle_shrink_factor = 1.0;
    app->destination = (Rectanglei32) {
       .x = 100/4.,
       .y = 100/4.,
-      .width  = app->fb.color.width/2.,
-      .height = app->fb.color.height/2.
+      // .x = 0,
+      // .y = 0,
+      .width = 1152, .height = 486,
+      // .width  = app->fb.color.width  * rectangle_shrink_factor,
+      // .height = app->fb.color.height * rectangle_shrink_factor,
    };
 
    isz ub_binding = 2;
    app->per_frame_buffer = create_uniform_buffer(size_of(app->per_frame), ub_binding + 2);
    free(app->per_frame_buffer.cpu_mem);
-   app->buffer = create_buffer(BUFFER_USAGE_MAP_PERSISTENT_READ_WRITE, nullptr, size_of(app->per_frame));
 
    app->diffuse_texture           = create_texture_from_filepath(chosen_texture_path);
    app->wood_box.specular         = create_texture_from_filepath("res/textures/specular_container2.png");
@@ -294,33 +234,6 @@ void projection_init(Projection_Application *app) {
    app->wood_box.diffuse          = create_texture_from_filepath("res/textures/diffuse_container2.png");
    app->wood_box.emissive         = create_texture_from_filepath("res/textures/matrix_emissive.jpg");
    app->cube_texture              = create_texture_from_filepath("res/textures/ocean6.png");
-   trace_info("va.handle = %d\n", app->chosen_mesh_va.handle);
-
-
-   // ZString scene_filepath = "res/models/medieval-sword-pack-10-low-poly-game-ready/source/Medieval Sword pack 1_0 (Oakeshott Classification) .fbx";
-   // ZString scene_filepath = "res/models/survival-guitar-backpack/source/Survival_BackPack_2.fbx";
-   // ZString scene_filepath = "res/models/akm-free-lowpoly/source/AK.fbx";
-   // ZString scene_filepath = "res/models/Fantasy_gradient_sword/Fantasy_gradient_sword.fbx";
-   // ZString scene_filepath = "res/models/backpack/backpack.obj"; // Works
-   // ZString scene_filepath = "res/models/Fantasy-blender-retextured/Sword.fbx"; // Works
-
-   if (false) {
-      ZString model_filepath = "res/models/backpack/backpack.obj";
-      init_model_and_its_gpu_data(&app->backpack, model_filepath);
-   }
-
-   {
-      // ZString animation_filepath = "res/models/boy/boy_animation_textured.fbx";
-      ZString model_filepath = "res/models/mari/source/Mari.fbx";
-
-      // ZString model_filepath = "res/models/trees/TreeLareg0.fbx";
-      init_model_and_its_gpu_data(&app->boy, model_filepath);
-   }
-
-   if (false) {
-      ZString model_filepath = "res/models/mari/source/Mari.fbx";
-      init_model_and_its_gpu_data(&app->girl, model_filepath);
-   }
 
    assert_msg(
          is_valid_framebuffer_and_its_textures(app->fb)
@@ -330,7 +243,6 @@ void projection_init(Projection_Application *app) {
       && is_valid_texture                     (app->diffuse_texture)
       && is_valid_texture                     (app->cube_texture)
       && is_valid_uniform_buffer              (app->per_frame_buffer)
-      && is_valid_buffer                      (app->buffer)
       ,"Something wanst valid upon creation"
    );
 }
@@ -389,7 +301,6 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
 
          update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
 
-         *(Vector4*)app->buffer.mapped_ptr = (Vector4){68.0, 70., 71., 72.};
          bind_buffer(&app->per_frame_buffer.buffer, BUFFER_TYPE_UNIFORM, 4);
 
          glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
@@ -459,7 +370,6 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
          draw_va(app, &learnopengl_cube, (Vector3){50., 36., 30.}, (Vector3){10, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * 0.1});
       }
 
-      update_and_draw_model_and_its_gpu_data(&app->boy, app);
 
       draw_text("Fuck your mother");
    }
@@ -474,7 +384,7 @@ void projection_update(Projection_Application *app, f64 dt) {
       return;
    }
 
-   const  bool   please_sync = true;
+   const  bool   please_sync = false;
    static GLsync sync = nullptr;
    if (please_sync) {
 
@@ -515,6 +425,7 @@ void projection_update(Projection_Application *app, f64 dt) {
             .position = camera.position,
             .theta    = camera.rotation.x,
             .phi      = camera.rotation.y,
+            .aspect   = (float)app->fb.color.width/app->fb.color.height
          },
          .elapsed_time    = time_elapsed(),
          .delta_time      = time_delta()
@@ -524,7 +435,6 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       update_buffer(&app->per_frame_buffer.buffer, &app->per_frame, 0, size_of(app->per_frame));
       bind_buffer(&app->per_frame_buffer.buffer, BUFFER_TYPE_UNIFORM, 4);
-      *(Vector4*)app->buffer.mapped_ptr = (Vector4){69.0, 70., 71., 72.};
    }
 
 
@@ -600,7 +510,7 @@ void projection_update(Projection_Application *app, f64 dt) {
       }
 
       {
-         GLint loc = glGetUniformLocation(shader.handle, "perspective");
+        GLint loc = glGetUniformLocation(shader.handle, "perspective");
          Matrix perspective = MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0);
          // perspective.m11 *= -1; // Force to be "left-handed" just like the NDC
          // Matrix perspective = MatrixFrustum(-5., 5.,  -5., 5.,  -5., 5.);
@@ -609,17 +519,24 @@ void projection_update(Projection_Application *app, f64 dt) {
    }
 
 
-   static Scene_Node scene_nodes[10] = {0};
+   static Scene_Node scene_nodes[10] = {-1};
+   static Scene_Node sophias[3] = {-1};
    static bool scene_loaded = false;
    static Scene_Node alleyana = {0};
-   unused(alleyana);
 
    if (!scene_loaded) {
       scene_loaded = true;
       ZString model_filepath = "";
 
-      Model boy_model = create_model("res/models/boy/boy_animation_textured.fbx");
+      Model boy_model    = create_model("res/models/boy/boy_animation_textured.fbx");
       Model luster_model = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
+
+      Model box_model    = create_model("res/models/box/box.fbx");
+      assert(1 == box_model.materials.count);
+      box_model.materials.items[0].diffuse = "res/textures/brickwall.jpg";
+      box_model.materials.items[0].normal  = "res/textures/brickwall_normal.jpg";
+
+
       static Model alleyana_model = {0};
 
       alleyana_model = create_model("res/models/alleyana/source/Alleyana.fbx");
@@ -630,6 +547,15 @@ void projection_update(Projection_Application *app, f64 dt) {
       alleyana_transform.scale = mul(alleyana_transform.scale, 20.);
       alleyana_transform.translation = add(alleyana_transform.translation, ((Vector3){-20., 0, 0}));
       alleyana = create_scene_node(&alleyana_model, alleyana_transform);
+
+
+      Transform box_transform = alleyana_transform;
+      box_transform.scale = (Vector3){200., 200., 5.};
+      box_transform.translation = add(box_transform.translation, ((Vector3){-120., 1., 0}));
+      Scene_Node box_node = create_scene_node(&box_model, box_transform);
+
+      Model sophia_model     = create_model("res/models/sophia-doll-victory-dance/source/sophia doll victory dance.fbx");
+      Model sophia_big_model = create_model("res/models/sophia-doll-victory-dance/source/Sophia Doll VictoryDance.Fbx");
 
       model_filepath = "res/models/mari/source/Mari.fbx";
       // model_filepath = "res/models/boy/boy_animation_textured.fbx";
@@ -642,12 +568,14 @@ void projection_update(Projection_Application *app, f64 dt) {
          play_animation(scene_nodes[0]);
 
          transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         transform.scale  = mul(transform.scale, 0.5);
          scene_nodes[2] = create_scene_node(&boy_model, transform);
          transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
          scene_nodes[4] = create_scene_node(scene_nodes[2], transform);
          set_animation_time (scene_nodes[4], 0.65);
          set_animation_speed(scene_nodes[4], 1.65);
 
+         transform.scale  = mul(transform.scale, 2.0);
          transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
          scene_nodes[3] = create_scene_node_new_cmd(scene_nodes[0], transform);
          set_animation_time(scene_nodes[3], 0.25);
@@ -657,17 +585,31 @@ void projection_update(Projection_Application *app, f64 dt) {
       end_profile(model_filepath);
 
 
-
       model_filepath = "res/models/backpack/backpack.obj";
       begin_profile();
       if (true) {
          Model m  = create_model(model_filepath);
          Transform transform = transform_identity;
-         transform.scale = mul(transform.scale, 5.);
+         transform.scale = mul(transform.scale, 1.5);
          transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
          transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
          scene_nodes[5] = create_scene_node(&m, transform);
          play_animation(scene_nodes[5]);
+
+         transform.scale = mul(((Vector3){1., 1., 1.}), 1.5);
+         transform.translation = add(transform.translation, ((Vector3){45., 5., 0}));
+         sophias[0] = create_scene_node(&sophia_model, transform);
+         set_animation_time_percentage(sophias[0], 0.0);
+         set_animation_speed(sophias[0], 0.3);
+
+         transform.translation = add(transform.translation, ((Vector3){25., 5., 0}));
+         sophias[1] = create_scene_node(&sophia_big_model, transform);
+         set_animation_time_percentage(sophias[1], 0.5);
+
+         transform.translation = add(transform.translation, ((Vector3){25., 5., 0}));
+         sophias[2] = create_scene_node(sophias[0], transform);
+         set_animation_time_percentage(sophias[2], 0.9);
+
       }
       end_profile(model_filepath);
 
@@ -705,6 +647,10 @@ void projection_update(Projection_Application *app, f64 dt) {
       play_animation(scene_nodes[4]);
       play_animation(scene_nodes[8]);
 
+      play_animation(sophias[0]);
+      play_animation(sophias[1]);
+      play_animation(sophias[2]);
+
 
 
       if (is_button_pressed(BUTTON_B)) {
@@ -736,12 +682,23 @@ void projection_update(Projection_Application *app, f64 dt) {
    if (!is_window_minimized()) {
       Framebuffer final_fb = app->fb;
       if (app->fb.color.samples > 1) {
-         // compiler says possible undeifned is not use temp
          // Framebuffer fb_resolved = resolve_multisample_framebuffer_old(&fb);
          final_fb = resolve_multisample_framebuffer(app->fb);
-         // blit_framebuffer_to_swapchain(fb_resolved);
       }
-      blit_framebuffer_to_swapchain_rect(final_fb, app->destination);
+
+      blit_framebuffer(default_framebuffer, final_fb,
+         // 0, 0, 800, 675,
+         // 0, 0, 800, 675
+         0, 0, final_fb.color.width, final_fb.color.height,
+         0, 0, final_fb.color.width, final_fb.color.height
+      );
+      // glBlitNamedFramebuffer(
+      //       final_fb.handle, 0,
+      //       0, 0, 800, 675,
+      //       0, 0, 800, 675,
+      //       GL_COLOR_BUFFER_BIT,
+      //       GL_NEAREST
+      // );
    }
 }
 

@@ -47,7 +47,7 @@ void mainImage(out vec4 O,vec2 C) {
     // Base glow color varies with distance from center
     , p = 1. + cos(.7 * U + 5. * q.z)
   )
-    // Accumulate glow — brighter and sharper if not mirrored (above axis)
+    // Accumulate glow brighter and sharper if not mirrored (above axis)
     o += (s > 0. ? 1. : .1) * p.w * p / max(s > 0. ? d : d*d*d, 5E-4)
     ;
 

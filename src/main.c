@@ -29,6 +29,7 @@
 
 
 
+
 // NOTE: If not defined, nuklear will try to define itself BUT is crashes when freeing a null which is wrong since stb relys on that behaviour it seems.
 #define STBTT_malloc(x,u)  ((void)(u),malloc(x))
 #define STBTT_free(x,u)    ((void)(u),free(x))
@@ -61,7 +62,35 @@
         (da)->items[(da)->count++] = (typeof((da)->items[0])) __VA_ARGS__;                 \
     } while (0)
 
-// (da)->items[(da)->count++] =  __VA_ARGS__;
+
+#if defined(PLATFORM_WINDOWS)
+
+bool is_debugging() {
+   return IsDebuggerPresent();
+}
+
+#elif defined(PLATFORM_LINUX)
+
+bool is_debugging() {
+   FILE *file = fopen("/proc/self/status", "r");
+   if (file) {
+      char line[256];
+      while (fgets(line, sizeof(line), file)) {
+         if (strncmp(line, "TracerPid:", 10) == 0) {
+            int tracer_pid = atoi(line + 10);
+            if (tracer_pid != 0) {
+               return true;
+            }
+            break;
+         }
+      }
+      fclose(file);
+   } else {
+      trace_warn("could not open /proc/self/status.\n");
+   }
+   return false;
+}
+#endif
 
 const char* cye_human_readable_size(i64 bytes) {
     static char output[32];
@@ -83,9 +112,6 @@ const char* cye_human_readable_size(i64 bytes) {
 
 #include "./state.c"
 #include "./timing.c"
-
-#include "renderer/renderer.c"
-
 typedef struct {
    struct {
       const char *base;
@@ -108,6 +134,7 @@ static Window_Title title = {
 };
 
 #include "./window.c"
+#include "./renderer/renderer.c"
 #include "./camera.c"
 #include "./gui.c"
 
@@ -222,25 +249,18 @@ int main() {
       Application *app = apps[idx];
       app->init(app);
    }
+   if (is_debugging()) {
+      minimize_window();
+   }
 
    while (!should_close_window()) {
       update_window();
+      update_renderer();
       update_time();
       update_fps();
       // update_gui();
 
       camera = move_camera(camera); // Update Camera
-      Framebuffer default_framebuffer = {
-         .handle = 0,
-         .color = {
-            .width  = get_window_width(),
-            .height = get_window_height()
-         },
-         .depth = {
-            .width  = get_window_width(),
-            .height = get_window_height()
-         },
-      };
       screen_width  = 1600;
       screen_height = 800;
 
@@ -251,17 +271,6 @@ int main() {
       for (isz idx = 0; idx < count_of(apps); idx++) {
          Application* app = apps[idx];
 
-         {
-            /* setup global state */
-            glDisable(GL_FRAMEBUFFER_SRGB);
-            glEnable(GL_BLEND);
-            // glBlendEquation(GL_FUNC_ADD);
-            // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glEnable(GL_CULL_FACE);
-            glEnable(GL_DEPTH_TEST);
-            glDisable(GL_SCISSOR_TEST);
-            glEnable(GL_STENCIL_TEST);
-         }
 
          app->camera = camera;
          app->update(app, time_delta());

@@ -53,7 +53,6 @@ vec3 pull_position(int id) {
 vec3 pull_normal(int id) {
    const int num_vertices = vertex_buffer.length() / 8;  // Total vertices
    const int normal_offset = num_vertices * 3;           // Offset to normals section
-   // return normal;
    return vec3(
       vertex_buffer[id*3 + 0 + normal_offset],
       vertex_buffer[id*3 + 1 + normal_offset],
@@ -71,12 +70,18 @@ vec2 pull_uv(int id) {
 }
 #endif
 
-const float aspect = 1600./800.;
+// const float aspect = 1600./800.;
+// const float aspect = 2560./1080.;
+float aspect = 1152./ 486.;
+
+
 const float fov    = PI/3.;
-// const float fov    = PI/4;
+const float near_plane = 0.005;
+const float far_plane = 256.000000;
 
 void main() {
    material_index = -1;
+   aspect = per_frame.camera.aspect;
 
 #ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
@@ -88,7 +93,7 @@ void main() {
    vec4 position = vec4(position.xyz,  1.0);
 #endif
 
-   mat4 gpu_perspective = perspective_from_fov(fov, aspect, 0.1, 100.);
+   mat4 gpu_perspective = perspective_from_fov(fov, per_frame.camera.aspect, 0.1, 100.);
    mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
 
    if (draw_command.has_joints == 1) {
@@ -119,14 +124,13 @@ void main() {
 
    position = model * position;
 
-   { // Send to next shader
+   {  // Send to next shader
       // Everything is sent in World Space
       Position = position.xyz;
       // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
       if (true) {
          // Apply mat3 to "drop" the translation portion
          Normal = mat3(transpose(inverse(model))) * normal;
-         // Normal = ((transpose(inverse(per_frame.model)) * vec4(normal, 0.)).xyz);
       } else {
          Normal = normal.xyz;
       }
@@ -147,7 +151,7 @@ void main() {
 
 
    { // Camera to Clip
-      gl_Position = perspective_from_fov(position.xyz, fov, aspect, 0.01, 100.); // Appears to be infinite in depth
+      gl_Position = perspective_from_fov(position.xyz, fov, aspect, near_plane, far_plane); // Appears to be infinite in depth
    }
    // gl_Position = per_frame.perspective * vec4(position.xy, position.z*-1., position.w);
    // gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
@@ -232,6 +236,33 @@ vec3 apply_contrast(vec3 colour, float contrast) {
    return (colour - 0.5) * contrast + 0.5;
 }
 
+vec3 tonemap_filmic_backend(vec3 x) {
+   // Constants from Hable's "Filmic Tonemapping Operators" talk
+   // https://www.slideshare.net/slideshow/hable-john-uncharted2-hdr-lighting/3602588
+   // const float A = 0.15;
+   // const float B = 0.50;
+   // const float C = 0.10;
+   // const float D = 0.20;
+   // const float E = 0.02;
+   // const float F = 0.30;
+
+   const float A = 0.22; // Shoulder Strength
+   const float B = 0.30; // Linear Strength
+   const float C = 0.10; // Linear Angle
+   const float D = 0.20; // Toe Strength
+   const float E = 0.01; // Toe Numberator
+   const float F = 0.30; // Toe Denominator
+   return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+}
+
+vec3 tonemap_filmic(vec3 color, float exposure) {
+   // Exposure bias tweak
+   color = tonemap_filmic_backend(color * exposure);
+   // white point (11.2 the default value)
+   float white_scale = 1.0 / tonemap_filmic_backend(vec3(7.2)).r;
+   return color * white_scale;
+}
+
 vec3 tonemap_aces(const vec3 x) { // Narkowicz 2015, "ACES Filmic Tone Mapping Curve"
    const float a = 2.51;
    const float b = 0.03;
@@ -245,6 +276,69 @@ vec3 tonemap_reinhard(const vec3 x) {
    // reinhard tone mapping
    return x / (x + vec3(1.0));
 }
+
+vec3 tonemap_reinhard(const vec3 hdr_color, float exposure) {
+   vec3 mapped = vec3(1.0) - exp(-hdr_color * exposure);
+   return mapped;
+}
+
+// ------------------------------------------------------------
+// Uncharted 2 Filmic Tonemap
+// ------------------------------------------------------------
+vec3 tonemap_uncharted(vec3 x) {
+   float A = 0.15;
+   float B = 0.50;
+   float C = 0.10;
+   float D = 0.20;
+   float E = 0.02;
+   float F = 0.30;
+   float W = 11.2; // white scale
+
+   x = ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+   float white_scale = ((W * (A * W + C * B) + D * E) / (W * (A * W + B) + D * F)) - E / F;
+   return x / white_scale;
+}
+
+// ------------------------------------------------------------
+// ACES Tonemap (Unity style)
+// ------------------------------------------------------------
+vec3 tonemap_aces_unity(vec3 x) {
+   const mat3 aces_input_matrix = mat3(
+      0.59719, 0.35458, 0.04823,
+      0.07600, 0.90834, 0.01566,
+      0.02840, 0.13383, 0.83777
+   );
+
+   const mat3 aces_output_matrix = mat3(
+      1.60475, -0.53108, -0.07367,
+      -0.10208,  1.10813, -0.00605,
+      -0.00327, -0.07276,  1.07602
+   );
+
+   x = aces_input_matrix * x;
+
+   x = (x * (x + 0.0245786) - 0.000090537) /
+       (x * (0.983729 * x + 0.4329510) + 0.238081);
+
+   x = aces_output_matrix * x;
+   return clamp(x, 0.0, 1.0);
+}
+
+// ------------------------------------------------------------
+// ACES Tonemap (Unreal Engine style)
+// ------------------------------------------------------------
+vec3 tonemap_aces_unreal(vec3 x) {
+   // Source: Unreal Engine 4 ACES implementation
+   x *= 0.6; // exposure bias
+   const float a = 2.51;
+   const float b = 0.03;
+   const float c = 2.43;
+   const float d = 0.59;
+   const float e = 0.14;
+
+   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
 
 #ifdef FIX
 vec3 spot_light_smooth(vec3 frag_to_light_direction) {
@@ -309,68 +403,6 @@ float spot_light(
    // float intensity = smoothstep(0.0, 1.0, (theta - outer_cutoff) / epsilon);
    return intensity;
 
-}
-
-vec3 spot_light_hard() {
-   vec3 position = Position;
-   vec3 normal   = normalize(Normal);
-   // Flashlight means the light position starts at the camera position
-   vec3 light_position  = per_frame.camera.position;
-   // light_position.y += 3.;
-
-   vec3 pointing_direction = camera_forward(spherical);
-   // vec3 light_direction    = normalize(light_position - position);
-   vec3 light_direction    = pointing_direction;
-
-   // Spotlight cone checking
-   // float cutoff = cos(radians(12.5));
-   float cutoff = cos(radians(12.5));
-   vec3 light_to_frag = normalize(position - light_position);
-   float theta = dot(pointing_direction, light_to_frag);
-   // float theta = dot(normalize(-pointing_direction), normalize(light_position - position));
-
-   vec3 diffuse_color  = texture(diffuse_texture, TextureCoordinate).xyz;
-   // Remember that we're working with cosines of angles so '<' is used instead of more intuitive '>'
-   if (theta < cutoff) {
-      return 0.1 * per_frame.light.ambient * diffuse_color;
-   } else {
-      return 1.1 * per_frame.light.ambient * diffuse_color;
-   }
-
-   vec3 view_direction  = normalize(per_frame.camera.position - position);
-   vec3 specular_color = vec3(0.8) + 0.2*diffuse_color;
-
-   vec3 light_diffuse_color  = per_frame.light.diffuse;
-   vec3 light_ambient_color  = per_frame.light.ambient;
-   vec3 light_specular_color = per_frame.light.specular;
-
-   if (has_specular) {
-      light_specular_color = vec3(1.0);
-      specular_color  = 1.4*texture(specular_texture, TextureCoordinate).xyz;
-   }
-
-   float attenuation = point_light_light_attenuation(light_position, position);
-   vec3 color = attenuation * brdf_blinn_phong(
-      light_direction, view_direction,
-      normal,
-      diffuse_color, specular_color,
-      light_diffuse_color, light_ambient_color, light_specular_color,
-      64.
-   );
-
-   if (has_emissive && has_specular) {
-      // color += (attenuation_distance * texture(emissive_texture, TextureCoordinate).xyz);
-      if ((specular_color.z + specular_color.y + specular_color.x) > 0.1) {
-         const float time_factor = sin(per_frame.elapsed_time * 2.9)/2. + 0.5;
-         // color += specular_color + time_factor * texture(emissive_texture, TextureCoordinate).xyz;
-         const vec3 emissive_color = texture(emissive_texture, TextureCoordinate).xyz;
-         color += specular_color * (emissive_color.y + emissive_color.x + emissive_color.z);
-      }
-   }
-   if (is_light) {
-      return light_ambient_color;
-   }
-   return color;
 }
 
 float point_light(vec3 light_position, vec3 fragment_positon) {
@@ -443,6 +475,7 @@ vec3 calculate_color(
    return color;
 }
 
+#define return_white FragColor.xyzw = vec4(1.); return
 
 void main() {
    // vec3 color = vec3(gl_FragCoord.z);
@@ -453,14 +486,21 @@ void main() {
    vec3 emissive_color = vec3(0.);
    float alpha_channel = 1.0;
 
+   // return_white;
+
 
    Material material = materials[material_index];
    if (material.diffuse_handle != uvec2(0)) {
       // TODO: Mode gamma_correction to after sbti loading
       vec4 dtexture = vec4(1.);
-      dtexture = texture(sampler2D(material.diffuse_handle), TextureCoordinate);
-      diffuse_color = dtexture.xyz;
+      if (material.normal_handle != uvec2(0)) {
+         dtexture = texture(sampler2D(material.normal_handle), TextureCoordinate*2.);
+      } else {
+         dtexture = texture(sampler2D(material.diffuse_handle), TextureCoordinate);
+      }
+
       // dtexture = texture(diffuse_texture, TextureCoordinate);
+      diffuse_color = dtexture.xyz;
       diffuse_color = gamma_correct_texture(diffuse_color);
       alpha_channel = dtexture.w;
 
@@ -470,14 +510,11 @@ void main() {
       discard;
    }
 
-
-
    if (material.specular_handle != uvec2(0)) {
-      vec4 texture   = texture(sampler2D(material.specular_handle), TextureCoordinate);
-      specular_color = texture.xyz;
+      vec4 stexture   = texture(sampler2D(material.specular_handle), TextureCoordinate);
+      specular_color = stexture.xyz;
       has_specular = true;
    }
-
 
 
    Fragment fragment;
@@ -556,8 +593,16 @@ void main() {
    FragColor = vec4(color, attenuation_alpha);
 
    // Gamma correction should come later?
-   FragColor.xyz = tonemap_aces(FragColor.xyz);
+   // FragColor.xyz = tonemap_aces(FragColor.xyz);
+   // FragColor.xyz = tonemap_aces_unity(FragColor.xyz);
+   FragColor.xyz = tonemap_aces_unreal(FragColor.xyz);
+
+
+   // FragColor.xyz = tonemap_filmic(FragColor.xyz, 1.0);
    // FragColor.xyz = tonemap_reinhard(FragColor.xyz);
+   // const float exposure = 0.8;
+   // FragColor.xyz = tonemap_reinhard(FragColor.xyz, exposure);
+
    FragColor.xyz = gamma_correct(FragColor.xyz);
    // FragColor.xyz = apply_contrast(FragColor.xyz, 1.079);
    FragColor.w *= max(alpha_channel, 0.1);

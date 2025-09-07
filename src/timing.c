@@ -33,21 +33,21 @@ inline f64 time_now() {
 }
 
  // Total time since start
-inline f64 time_elapsed() {
+f64 inline time_elapsed() {
    return (time_now() - __state.time.start);
 }
 
-inline f64 time_delta() {
+f64 inline time_delta() {
    return __state.time.delta;
 }
 
 
-inline void init_time() {
+void inline init_time() {
    __state.time.start    = time_now();
    __state.time.previous = __state.time.start;
 }
 
-inline void update_time(void) {
+void inline update_time(void) {
    f64 current_time = time_now();
    __state.time.delta = current_time - __state.time.previous; // Time since last frame
    __state.time.previous = current_time;
@@ -118,7 +118,7 @@ char* get_fps_string() {
       consistency = 100.0;
    }
 
-   snprintf(str, 256, "fps: %.1f | framtime: %.7fms | min: %.1f | max: %.1f | frames: %d | consistency: %.1f%%",
+   snprintf(str, 256, "fps: %.1f | frametime: %.7fms | min: %.1f | max: %.1f | frames: %d | consistency: %.1f%%",
       __state.fps.avg_fps, __state.fps.frame_times[__state.fps.sample_count-1], __state.fps.min_fps == 999999.0 ? 0.0 : __state.fps.min_fps, __state.fps.max_fps, __state.fps.total_frames, consistency
    );
 

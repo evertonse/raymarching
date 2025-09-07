@@ -18,6 +18,7 @@ struct Draw_Command {
    uint pad2, pad3;
 };
 
+
 // TODO: Migrate to material_index for instance instead of the full draw command
 struct Instance {
    mat4 model_matrix;

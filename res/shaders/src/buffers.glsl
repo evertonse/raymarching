@@ -31,7 +31,7 @@ struct Light {
 
 struct Camera {
     vec3  position; float pad0;
-    float theta, phi, pad1, pad2;
+    float theta, phi, aspect, pad2;
 };
 
 

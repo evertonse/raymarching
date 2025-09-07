@@ -1,14 +1,48 @@
 
 typedef struct {
    GLuint handle;
-   Texture color, depth;
+   union {
+      Texture color;
+      Texture colors[8];
+   };
+   Texture depth;
+   bool is_default_framebuffer; // hacky
 } Framebuffer;
 
+// Get's updated in renderer
+Framebuffer default_framebuffer = {
+   .is_default_framebuffer = true,
+};
 
 
-inline bool is_valid_framebuffer(Framebuffer fb) {
+bool inline is_valid_framebuffer(Framebuffer fb) {
+   if (fb.is_default_framebuffer) {
+      return true;
+   }
    if (fb.handle == 0) {
-       return false;
+      return false;
+   }
+
+   // Ensure color attachments (if valid) have consistent sample counts
+   int expected_samples = -1;
+
+   for (int i = 0; i < 8; i++) {
+      if (is_valid_texture(fb.colors[i])) {
+         if (expected_samples < 0) {
+            expected_samples = fb.colors[i].samples;
+         } else if (expected_samples != fb.colors[i].samples) {
+            return false; // mismatch
+         }
+      }
+   }
+
+   // Depth attachment must match samples
+   if (is_valid_texture(fb.depth)) {
+      if (expected_samples < 0) {
+         expected_samples = fb.depth.samples;
+      } else if (expected_samples != fb.depth.samples) {
+         return false; // mismatch
+      }
    }
 
 #if defined(RENDERER_DEBUG)
@@ -19,12 +53,47 @@ inline bool is_valid_framebuffer(Framebuffer fb) {
    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
    glBindFramebuffer(GL_FRAMEBUFFER, current_fb);
 
-   return status == GL_FRAMEBUFFER_COMPLETE;
-#else
-   return true;
+   if (status != GL_FRAMEBUFFER_COMPLETE) {
+      return false;
+   }
 #endif
+
+   return true;
 }
 
+bool inline is_blit_compatible(
+   Framebuffer src, Framebuffer dst,
+   int src_width, int src_height,
+   int dst_width, int dst_height
+) {
+   if (!is_valid_framebuffer(src) || !is_valid_framebuffer(dst)) {
+      return false;
+   }
+
+   int src_samples = src.color.samples;
+   int dst_samples = dst.color.samples;
+
+   // Multisample compatibility
+   // Allowed if:
+   //   Equal sample counts
+   //   One is 0 (single-sample) and the other > 0
+   bool allowed =
+         (src_samples == dst_samples)
+      || ((src_samples == 0) && (dst_samples > 0))
+      || ((src_samples > 0) && (dst_samples == 0));
+
+   if (!allowed) {
+      return false;
+   }
+
+   // If one is multisampled, no resizing allowed
+   if ((src_samples > 0 || dst_samples > 0) &&
+       (src_width != dst_width || src_height != dst_height)) {
+      return false;
+   }
+
+   return true;
+}
 
 // This call is probably sorta expensive
 inline bool is_framebuffer_missing_attachment(Framebuffer fb) {
@@ -65,6 +134,7 @@ inline bool is_valid_framebuffer_and_its_textures(Framebuffer fb) {
    return true;
 }
 
+// TODO: Change this name, something more descriptive
 inline bool validate_framebuffer(Framebuffer fb) {
    const bool verbose = true;
    if (fb.handle == 0) {
@@ -234,6 +304,7 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
       }
    }
 
+   // TODO: Assert that all attachments have the same amount of samples; also check that on is_valid_framebuffer
    glNamedFramebufferTexture(framebuffer->handle, attachment, texture.handle, 0);
 
    if (glCheckNamedFramebufferStatus(framebuffer->handle, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -286,8 +357,8 @@ Framebuffer create_framebuffer_from_textures(Texture color, Texture depth) {
 }
 
 Framebuffer create_framebuffer(int width, int height) {
-    Texture color = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 1);
-    Texture depth = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 1);
+    Texture color = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 0);
+    Texture depth = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 0);
     return create_framebuffer_from_textures(color, depth);
 }
 
@@ -418,93 +489,109 @@ i32 current_framebuffer_handle(void) {
    return fb_handle;
 }
 
-// See for common errors: https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBlitFramebuffer.xhtml
+int inline default_framebuffer_samples(void) {
+   // Query swapchain (default framebuffer) sample count
+   static GLint swapchain_samples = -1;
+   if (-1 == swapchain_samples) {
+      glGetIntegerv(GL_SAMPLES, &swapchain_samples);
+   }
+   return swapchain_samples;
+}
+
+
+// Blit from one framebuffer to another (dst <- src)
+// NOTE: See for common errors: https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBlitFramebuffer.xhtml
 // Error if either read or draw buffers is multisampled the dimensions of the source and destination rectangles is not identical
 // Error if data type (unsigned, fixed, float, signed) of read or draw buffers does not match
-inline void blit_framebuffer_to_swapchain_src_and_dst(
-    const Framebuffer framebuffer,
-    int src_x0, int src_y0, int src_x1, int src_y1,
-    int dst_x0, int dst_y0, int dst_x1, int dst_y1,
-    GLbitfield mask,
-    GLenum filter
+void inline blit_framebuffer(
+   const Framebuffer dst_fb,
+   const Framebuffer src_fb,
+   int src_x0, int src_y0, int src_x1, int src_y1,
+   int dst_x0, int dst_y0, int dst_x1, int dst_y1
 ) {
-   assert_msg(is_valid_framebuffer(framebuffer), tprintf("Invalid framebuffer: format=%d, samples=%d\n", framebuffer.color.format, framebuffer.color.samples));
-   if (framebuffer.color.samples > 1) {
-      int src_width  = src_x1 - src_x0;
-      int src_height = src_y1 - src_y0;
+   // Validate framebuffers
+   assert_msg(is_valid_framebuffer(src_fb), tprintf("Invalid source framebuffer: format=%d, samples=%d\n", src_fb.color.format, src_fb.color.samples));
+   assert_msg(is_valid_framebuffer(dst_fb), tprintf("Invalid destination framebuffer: format=%d, samples=%d\n", dst_fb.color.format, dst_fb.color.samples));
 
-      int dst_width  = dst_x1 - dst_x0;
-      int dst_height = dst_y1 - dst_y0;
+   int src_width  = src_x1 - src_x0;
+   int src_height = src_y1 - src_y0;
+   int dst_width  = dst_x1 - dst_x0;
+   int dst_height = dst_y1 - dst_y0;
 
-      if (src_width != dst_width || src_height != dst_height) {
-         trace_error("[Error] Blitting MSAA framebuffer with mismatched dimensions (%dx%d vs %dx%d).\n", src_width, src_height, dst_width, dst_height);
+   int src_samples = src_fb.color.samples;
+   int dst_samples = dst_fb.color.samples;
+
+   // Handle MSAA rules
+   if (src_samples > 0 || dst_samples > 0) {
+
+      // Allowed if equal, or one is single-sample and the other multisample
+      bool allowed =
+            (src_samples == dst_samples)
+         || ((src_samples == 0) && dst_samples > 0)
+         || ((src_samples > 0) && dst_samples == 0)
+      ;
+      if (!allowed) {
+         trace_error(
+            "Blitting MSAA framebuffer invalid samples: dst %d vs src %d\n",
+            dst_samples, src_samples
+         );
          return;
       }
-      if (filter != GL_NEAREST) {
-         trace_error("[Warning] Attempting to blit multisampled framebuffer with GL_LINEAR — only GL_NEAREST is allowed for MSAA blits.\n");
-      }
 
-      if (mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) {
-         trace_error("[Warning] Attempting to blit depth/stencil from multisampled framebuffer — this is not allowed between different sample counts.\n");
+      //
+      // NOTE: I think it should be possible to have different sizes when the samples match.
+      //       But I can't make this work. I get "Source and destination dimensions must be identical with the current filtering modes."
+      //       Idk what that's about. Read a bunch and could find a case where the user would like to draw a smaller fb into the bigger default fb considering
+      //       they're both multisampled and with matching sample count
+      //
+      // If one of them is Multisample then it can't resize at the same time
+      // from: https://www.khronos.org/opengl/wiki/Framebuffer#:~:text=cannot%20do%20multisampled%20blits%20and%20rescaling%20at%20the%20same%20time.
+      //
+      if (src_width != dst_width || src_height != dst_height) {
+         trace_error(
+            "Blitting MSAA framebuffer with mismatched dimensions: "
+            "src %dx%d (%d samples) vs dst %dx%d (%d samples)\n",
+            src_width, src_height, src_samples,
+            dst_width, dst_height, dst_samples
+         );
+         return;
       }
-
    }
 
+   // NOTE: exntesion will probably be needed
+   const bool want_depth = false;
+   if (want_depth) {
+      trace_error("Blitting depth/stencil not supported in this function");
+      return;
+   }
+
+   // Yes, it is legal to blit from floating-point fb to a u32 fb and vice versa.
+   // So, no need to check this
+   // See: https://www.khronos.org/opengl/wiki/Framebuffer#:~:text=Thus%2C%20it%20is%20legal%20to%20blit%20from%20an%20GL_RGBA8%20buffer%20to%20a%20GL_RGBA32F%20and%20vice%20versa
    glBlitNamedFramebuffer(
-       framebuffer.handle,               // src framebuffer
-       0,                                // dst framebuffer (swapchain)
-       src_x0, src_y0, src_x1, src_y1,   // source rectangle
-       dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
-       mask,                             // GL_COLOR_BUFFER_BIT, etc.
-       filter                            // GL_NEAREST or GL_LINEAR
+       src_fb.handle,                   // source
+       dst_fb.handle,                   // destination
+       src_x0, src_y0, src_x1, src_y1,  // source rectangle
+       dst_x0, dst_y0, dst_x1, dst_y1,  // destination rectangle
+       GL_COLOR_BUFFER_BIT,             // mask
+       GL_NEAREST                       // filter
    );
 }
 
 
-
-inline void blit_framebuffer_to_swapchain_rect_src_and_dst(
-    const Framebuffer framebuffer,
-    const Rectanglei32 src,
-    const Rectanglei32 dst,
-    GLbitfield mask,
-    GLenum filter
-) {
-   int src_x0 = (GLint)src.x, src_y0 = (GLint)src.y, src_x1 = (GLint)(src.x + src.width), src_y1 = (GLint)(src.y + src.height);
-   int dst_x0 = (GLint)dst.x, dst_y0 = (GLint)dst.y, dst_x1 = (GLint)(dst.x + dst.width), dst_y1 = (GLint)(dst.y + dst.height);
-   blit_framebuffer_to_swapchain_src_and_dst(
-       framebuffer,
-       src_x0, src_y0, src_x1, src_y1,   // source rectangle
-       dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
-       mask,                             // e.g. GL_COLOR_BUFFER_BIT
-       filter                            // e.g. GL_NEAREST or GL_LINEAR
-   );
-}
-
-inline void blit_framebuffer_to_swapchain(const Framebuffer framebuffer) {
-   blit_framebuffer_to_swapchain_src_and_dst(
+void inline blit_framebuffer_to_swapchain(const Framebuffer framebuffer) {
+   blit_framebuffer(
+      default_framebuffer,
       framebuffer,
       0, 0, framebuffer.color.width, framebuffer.color.height, // source rect
-      0, 0, framebuffer.color.width, framebuffer.color.height, // destination rect
-      GL_COLOR_BUFFER_BIT, GL_NEAREST
-   );
-}
-
-inline void blit_framebuffer_to_swapchain_rect(
-    const Framebuffer framebuffer, const Rectanglei32 dst
-) {
-   int dst_x0 = (GLint)dst.x, dst_y0 = (GLint)dst.y, dst_x1 = (GLint)(dst.x + dst.width), dst_y1 = (GLint)(dst.y + dst.height);
-   blit_framebuffer_to_swapchain_src_and_dst(
-      framebuffer,
-      0, 0, framebuffer.color.width, framebuffer.color.height, // source rect
-      dst_x0, dst_y0, dst_x1, dst_y1,   // destination rectangle
-      GL_COLOR_BUFFER_BIT, GL_NEAREST
+      0, 0, framebuffer.color.width, framebuffer.color.height // destination rect
    );
 }
 
 Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
    static Framebuffer static_resolve_fb = {0};
    if (!is_valid_framebuffer(msaa_fb)) {
-      trace_error("resolve_multisample_framebuffer: input framebuffer is not valid.\n");
+      trace_error("%s: input framebuffer is not valid.\n", __func__);
       return (Framebuffer){0};
    }
 
@@ -516,7 +603,10 @@ Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
    }
 
    // Create (or recreate) the static resolve framebuffer if needed
-   bool recreate = !is_valid_framebuffer(static_resolve_fb)
+   bool valid = is_valid_framebuffer(static_resolve_fb);
+
+   // Why all need to match ! See: https://www.khronos.org/opengl/wiki/Multisampling#:~:text=Note%20that%20such%20a%20resolve%20blit%20operation%20cannot%20also%20rescale%20the%20image%20or%20change%20its%20format.
+   bool recreate = !valid
       || static_resolve_fb.color.width  != src->width
       || static_resolve_fb.color.height != src->height
       || static_resolve_fb.color.format != src->format
@@ -529,13 +619,14 @@ Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
    );
 
    if (recreate) {
-      if (is_valid_framebuffer(static_resolve_fb)) {
+      if (valid) {
          destroy_framebuffer(&static_resolve_fb);
       }
 
       Texture resolved_color = create_texture_extended(
-            src->width, src->height, nullptr, src->format,
-            TEXTURE_TYPE_2D, 1 // single-sample resolve target
+            src->width, src->height, nullptr,
+            src->format,
+            TEXTURE_TYPE_2D, 0 // single-sample resolve target
       );
 
       static_resolve_fb = create_framebuffer_from_texture(resolved_color);
@@ -548,8 +639,13 @@ Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
 
    assert_msg(is_valid_framebuffer(static_resolve_fb) && is_valid_framebuffer(msaa_fb), "Getting here all must be valid");
 
-   // Blit color only — no depth
-   glBlitNamedFramebuffer(msaa_fb.handle, static_resolve_fb.handle, 0, 0, src->width, src->height, 0, 0, src->width, src->height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+   // Blit color only, no depth.
+   glBlitNamedFramebuffer(msaa_fb.handle, static_resolve_fb.handle,
+         0, 0, src->width, src->height,
+         0, 0, src->width, src->height,
+         GL_COLOR_BUFFER_BIT,
+         GL_NEAREST
+   );
 
    GLenum err = glGetError();
    if (err != GL_NO_ERROR) {
@@ -588,13 +684,13 @@ Framebuffer resolve_multisample_framebuffer_old(const Framebuffer msaa_fb) {
       Texture resolved_color = create_texture_extended(
          src->width, src->height,
          nullptr, src->format,
-         TEXTURE_TYPE_2D, 1
+         TEXTURE_TYPE_2D, 0
       );
 
       Texture resolved_depth = create_texture_extended(
          src->width, src->height,
          nullptr, TEXTURE_FORMAT_DEPTH24,
-         TEXTURE_TYPE_2D, 1
+         TEXTURE_TYPE_2D, 0
       );
 
       static_resolve_fb = create_framebuffer_from_textures(resolved_color, resolved_depth);
@@ -611,8 +707,11 @@ Framebuffer resolve_multisample_framebuffer_old(const Framebuffer msaa_fb) {
       static_resolve_fb.handle,
       0, 0, src->width, src->height,
       0, 0, src->width, src->height,
-      GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT,
-      GL_NEAREST
+      // TODO: Only blit color
+      // GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT,
+      GL_COLOR_BUFFER_BIT,
+      // GL_NEAREST
+      GL_LINEAR
    );
 
    GLenum err = glGetError();
@@ -635,8 +734,8 @@ void blend_framebuffers(const Framebuffer *a, const Framebuffer *b, Framebuffer 
    // Lazy init output framebuffer if `out` is nullptr
    if (!out) {
       if (!is_valid_framebuffer(blend_fb)) {
-         Texture out_color = create_texture_extended(a->color.width, a->color.height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 1);
-         Texture out_depth = create_texture_extended(a->color.width, a->color.height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 1);
+         Texture out_color = create_texture_extended(a->color.width, a->color.height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 0);
+         Texture out_depth = create_texture_extended(a->color.width, a->color.height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 0);
          blend_fb = create_framebuffer_from_textures(out_color, out_depth);
       }
       out = &blend_fb;

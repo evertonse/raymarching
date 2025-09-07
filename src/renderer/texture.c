@@ -67,6 +67,10 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
       .samples = samples
    };
 
+   if (1 == samples) {
+      trace_warn("Are you sure you wanna create a multisample texture with %d sample? Why, I'm interested", samples);
+   }
+
    GLenum data_type       = GL_UNSIGNED_BYTE;
    GLenum internal_format = 0,         gl_format    = 0;
    GLenum compare_mode    = 0,         compare_func = 0;
@@ -97,16 +101,30 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
    // Create handle
    if (buffer_backed) {
       glCreateTextures(GL_TEXTURE_BUFFER, 1, &result.handle);
-   } else if (samples > 1) {
+   } else if (samples >= 1) {
       glCreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &result.handle);
    } else {
       glCreateTextures(GL_TEXTURE_2D, 1, &result.handle);
    }
 
+   GLenum error = glGetError();
+   if (error != GL_NO_ERROR) {
+      const char *errorMessage;
+      switch (error) {
+         case GL_INVALID_ENUM:      errorMessage = "Invalid enum value."; break;
+         case GL_INVALID_VALUE:     errorMessage = "Invalid value.     "; break;
+         case GL_INVALID_OPERATION: errorMessage = "Invalid operation. "; break;
+         case GL_OUT_OF_MEMORY:     errorMessage = "Out of memory.     "; break;
+         default:                   errorMessage = "Unknown error.";      break;
+      }
+      trace_error("Error creating texture: %s\n", errorMessage);
+      return (Texture){0};
+   }
+
    // Allocate storage
    if (buffer_backed) {
       // This kinda of Texture has its storage associated via glTextureBuffer at some other point in the code
-   } else if (samples > 1) {
+   } else if (samples >= 1) {
       glTextureStorage2DMultisample(result.handle, samples, internal_format, width, height, GL_TRUE);
    } else {
       assert(0 != result.handle);
@@ -128,7 +146,7 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
       glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_FUNC, compare_func);
    }
 
-   if (!buffer_backed && samples <= 1) {
+   if (!buffer_backed && samples < 1) {
       glTextureParameteri(result.handle, GL_TEXTURE_MIN_FILTER, min_filter);
       glTextureParameteri(result.handle, GL_TEXTURE_MAG_FILTER, mag_filter);
 
@@ -149,7 +167,7 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
 
 
 inline Texture create_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 1);
+    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 0);
 }
 
 inline Texture create_texture_multisample(int width, int height, int samples) {
@@ -157,7 +175,7 @@ inline Texture create_texture_multisample(int width, int height, int samples) {
 }
 
 inline Texture create_depth_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 1);
+    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 0);
 }
 
 inline Texture create_depth_texture_multisample(int width, int height, int samples) {
@@ -165,10 +183,20 @@ inline Texture create_depth_texture_multisample(int width, int height, int sampl
 }
 
 inline Texture create_shadow_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_SHADOW, TEXTURE_TYPE_2D, 1);
+    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_SHADOW, TEXTURE_TYPE_2D, 0);
 }
 
 Texture create_texture_from_filepath(const char *filepath) {
+   if (!filepath) {
+      trace_error("Trying to create texture from null path");
+      return (Texture){0};
+   }
+
+   if(!file_exists(filepath)) {
+      trace_error("Trying to create texture from `%s` inexistent path", filepath);
+      return (Texture){0};
+   }
+
    int width, height, channels;
    stbi_set_flip_vertically_on_load(true);
    unsigned char *data = stbi_load(filepath, &width, &height, &channels, 0);
@@ -189,7 +217,7 @@ Texture create_texture_from_filepath(const char *filepath) {
       break;
    }
 
-   Texture result = create_texture_extended(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, 1);
+   Texture result = create_texture_extended(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, 0);
    // NOTE: I'm usure if the texture should hold this memory or not. A lota of times an externable memory is already alocatted idk.
    result.path = filepath;
 

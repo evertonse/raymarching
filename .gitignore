@@ -26,3 +26,4 @@ CMakeUserPresets.json
 .vim/
 ignore/
 src/shaders/output/
+res/models/sophia-doll-victory-dance/source/Sophia\ Doll\ VictoryDance.Fbx

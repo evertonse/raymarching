@@ -20,9 +20,14 @@ typedef struct {
    isz index;
 } Scene_Node;
 
+constexpr int MAX_TEXTURE_PER_MATERIAL = 4;
 
 static_assert(size_of(Draw_Command) % 16 == 0);
 
+// constexpr auto instances_buffer_usage =  BUFFER_USAGE_MAP_PERSISTENT_WRITE;
+// constexpr auto geometry_to_world_matrices_buffer_usage = BUFFER_USAGE_MAP_PERSISTENT_WRITE;
+constexpr auto instances_buffer_usage                  = BUFFER_USAGE_SUBDATA;
+constexpr auto geometry_to_world_matrices_buffer_usage = BUFFER_USAGE_SUBDATA;
 
 // Global buffer system with separate attribute buffers
 // Unalignment goes crazy with all these dirty flags @Flag
@@ -69,9 +74,15 @@ typedef struct {
    // Material management
    struct {
       struct {
-         Texture diffuse;
-         Texture specular;
-         Texture emissive;
+         union{
+            Texture textures[MAX_TEXTURE_PER_MATERIAL];
+            struct {
+               Texture diffuse;
+               Texture specular;
+               Texture emissive;
+               Texture normal;
+            };
+         };
          bool    loaded; // Instead of that just is_valid or check the path
       } *items;
       u32    count;
@@ -388,7 +399,7 @@ void update_manager_gpu_resources() {
 
          // TODO: Change to capacity
          if (!is_valid_buffer(manager.scene.instances_buffer)) {
-            manager.scene.instances_buffer = create_buffer(BUFFER_USAGE_MAP_PERSISTENT_WRITE, gpu_instances, required_instances_buffer_capacity_in_bytes);
+            manager.scene.instances_buffer = create_buffer(instances_buffer_usage, gpu_instances, required_instances_buffer_capacity_in_bytes);
          } else {
             resize_buffer_if_needed(&manager.scene.instances_buffer, required_instances_buffer_capacity_in_bytes);
             update_buffer(&manager.scene.instances_buffer, gpu_instances, 0, required_instances_buffer_capacity_in_bytes);
@@ -417,7 +428,7 @@ void update_manager_gpu_resources() {
 
          if (!is_valid_buffer(manager.scene.geometry_to_world_matrices_buffer)) {
             manager.scene.geometry_to_world_matrices_buffer
-               = create_buffer(BUFFER_USAGE_MAP_PERSISTENT_WRITE, gpu_matrices, require_size);
+               = create_buffer(geometry_to_world_matrices_buffer_usage, gpu_matrices, require_size);
          } else {
             resize_buffer_if_needed(&manager.scene.geometry_to_world_matrices_buffer, require_size);
             update_buffer(&manager.scene.geometry_to_world_matrices_buffer, gpu_matrices, 0, require_size);
@@ -462,7 +473,6 @@ void update_manager_gpu_resources() {
    }
 
 
-
    if (manager.materials.dirty) {
       static Material materials_handles[2048];
       assert_msg(manager.materials.count <= count_of(materials_handles),
@@ -483,25 +493,20 @@ void update_manager_gpu_resources() {
          this_many_needed_loaded += 1;
 
          // TODO: Set a default texture for each of these
-         if (material->diffuse.path) {
-            material->diffuse = create_texture_from_filepath(material->diffuse.path);
-            this_many_textures += 1;
+         for (isz material_texture_index = 0; material_texture_index < MAX_TEXTURE_PER_MATERIAL; material_texture_index += 1) {
+            auto texture = &material->textures[material_texture_index];
+            if (texture->path) {
+               *texture = create_texture_from_filepath(texture->path);
+               this_many_textures += 1;
+            }
          }
-         if (material->specular.path) {
-            material->specular = create_texture_from_filepath(material->specular.path);
-            this_many_textures += 1;
-         }
-         if (material->emissive.path) {
-            material->emissive = create_texture_from_filepath(material->emissive.path);
-            this_many_textures += 1;
-         }
-         material->loaded = true;
 
+         material->loaded = true;
          materials_handles[material_index] = (Material) {
             .diffuse_handle  = material->diffuse.bindless_handle,
             .specular_handle = material->specular.bindless_handle,
             .emissive_handle = material->emissive.bindless_handle,
-            .normal_handle   = 69
+            .normal_handle   = material->normal.bindless_handle,
          };
       }
 
@@ -707,7 +712,7 @@ void grow_materials_if_needed(u32 required_materials) {
 }
 
 // Add a material to the manager and return its index
-u32 push_material_to_manager(const char* diffuse_path, const char* specular_path, const char* emissive_path) {
+u32 push_material_to_manager(const char* diffuse_path, const char* specular_path, const char* emissive_path, const char* normal_path) {
    grow_materials_if_needed(1);
 
    u32 material_index = manager.materials.count;
@@ -722,6 +727,7 @@ u32 push_material_to_manager(const char* diffuse_path, const char* specular_path
    material->diffuse.path  = diffuse_path  ? strdup(diffuse_path)  : nullptr;
    material->specular.path = specular_path ? strdup(specular_path) : nullptr;
    material->emissive.path = emissive_path ? strdup(emissive_path) : nullptr;
+   material->normal.path   = normal_path   ? strdup(normal_path)   : nullptr;
    material->loaded = false;
 
 
@@ -809,8 +815,8 @@ Draw_Index push_model_to_manager(const Model *model, isz *animation_index) {
    u32 material_index_base = manager.materials.count;
    for (isz material_index = 0; material_index < model->materials.count; material_index += 1) {
       auto material = model->materials.items[material_index];
-
-      push_material_to_manager(material.diffuse, material.specular, material.emissive);
+      // (void)(material.normal && (debug_break(), 1));
+      push_material_to_manager(material.diffuse, material.specular, material.emissive, material.normal);
    }
 
    Draw_Index result_draw_index = {0};
@@ -834,42 +840,6 @@ Draw_Index push_model_to_manager(const Model *model, isz *animation_index) {
    }
 
    return result_draw_index;
-}
-
-void play_animation(Scene_Node node) {
-
-   // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it.
-   // For now we use instaces_dirty to update geometry_to_world_matrices_buffer after this
-   manager.scene.instances_dirty = true;
-
-   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
-   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
-   auto renderable = &manager.scene.renderables.items[renderable_index];
-
-   if (renderable->animation_index < 0) {
-      trace_warn("Trying to play animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
-      return;
-   }
-
-   auto animation = &manager.animations.items[renderable->animation_index];
-   auto instance  = &renderable->instances.items[instance_index];
-   f64 *curr_time = &instance->animation_current_time;
-   const f64 animation_speed = instance->animation_speed;
-   *curr_time += time_delta() * animation_speed;
-   // *curr_time += 0.0001;
-   // *curr_time = min(*curr_time, animation->time_end);
-   if (*curr_time >= animation->time_end) {
-      *curr_time = animation->time_begin;
-   }
-   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, *curr_time);
-   isz list_data_size = size_of(list.matrices[0]) * list.count;
-   if (instance->geometry_to_world_matrices.count <= 0 && nullptr == instance->geometry_to_world_matrices.items) {
-      assert_msg(renderable->joint_list.count == list.count, "Joint list and the Joint matrices should have the same count, because it's a bijection to the bones count");
-      instance->geometry_to_world_matrices.items = malloc(list_data_size);
-      instance->geometry_to_world_matrices.count = list.count;
-   }
-   memcpy(instance->geometry_to_world_matrices.items, list.items, list_data_size);
-   return;
 }
 
 // T Pose
@@ -901,6 +871,96 @@ void play_animation_identity(Scene_Node node) {
    // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it
    return;
 }
+
+void play_animation(Scene_Node node) {
+   // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it.
+   // For now we use instaces_dirty to update geometry_to_world_matrices_buffer after this
+   manager.scene.instances_dirty = true;
+
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+
+   if (renderable->animation_index < 0) {
+      trace_warn("Trying to play animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
+      return;
+   }
+
+   auto animation = &manager.animations.items[renderable->animation_index];
+   auto instance  = &renderable->instances.items[instance_index];
+   f64 *curr_time = &instance->animation_current_time;
+   const f64 animation_speed = instance->animation_speed;
+
+   //
+   // TODO: We should actually skip frames instead because of unstable delta times.
+   //       The problem is that 2 of the same animation that start at different
+   //       times start syncing as if they both had the same start.
+   //
+   // That was a hacky solution before, now we're clampting dt which isn't a clever ideal solution
+   // As user's might expected an animation to take exactly a certain amount of time and sunddenly it couldnt 
+   // finish in time because we advanced the animation by a clamped dt
+   //
+   #if 0
+      static double skip_calls = 0;
+      if (skip_calls < 200) {
+         skip_calls += 1;
+         return;
+      }
+   #endif
+
+   {  // Timing Operations
+      static enum {smooth_delta, clamp_delta, bad_raw_delta, enum_count} strategy = smooth_delta;
+      if (is_button_pressed(BUTTON_R)) {
+         strategy++;
+         strategy = (strategy % enum_count);
+         trace_info("Changed the animation stategy to %s",
+            strategy  == smooth_delta  ? "smooth_delta"
+            :strategy == clamp_delta   ? "clamp_delta"
+            :strategy == bad_raw_delta ? "bad_raw_delta"
+            :"unknown"
+         );
+      }
+
+
+      static double dt = 0.016;
+      if (strategy == clamp_delta) {
+         dt = time_delta();
+         // clamp to 100ms max
+         dt = clamp(dt, 0, 0.1);
+      } else if (strategy == smooth_delta) {
+         // Smoothing delta time
+         double raw_dt = time_delta();
+         dt = 0.9 * dt + 0.1 * raw_dt;
+      } else if (strategy == bad_raw_delta) {
+         dt = time_delta();
+      }
+
+      if (is_debugging()) {
+         dt = 0.1; // Delta timing while debugging is always huge because of pauses.
+      }
+
+      *curr_time += dt * animation_speed;
+
+      const bool loop_animation = true; // TODO: Get this from instance
+      if (loop_animation && (*curr_time >= animation->time_end)) {
+         *curr_time = animation->time_begin;
+      }
+
+      // We make sure before getting the matrices we're within the expected times by keyframes
+      *curr_time = min(*curr_time, animation->time_end);
+   }
+
+   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, *curr_time);
+   isz list_data_size = size_of(list.matrices[0]) * list.count;
+   if (instance->geometry_to_world_matrices.count <= 0 && nullptr == instance->geometry_to_world_matrices.items) {
+      assert_msg(renderable->joint_list.count == list.count, "Joint list and the Joint matrices should have the same count, because it's a bijection to the bones count");
+      instance->geometry_to_world_matrices.items = malloc(list_data_size);
+      instance->geometry_to_world_matrices.count = list.count;
+   }
+   memcpy(instance->geometry_to_world_matrices.items, list.items, list_data_size);
+   return;
+}
+
 
 
 // NOTE: 2025-09-04 Every Instace is created here renderable is created elsewhere
@@ -991,6 +1051,21 @@ void set_animation_time(Scene_Node node, f64 time) {
    instance->animation_current_time = clamp(time, animation->time_begin, animation->time_end);
 }
 
+// From 0 to 1.0
+void set_animation_time_percentage(Scene_Node node, f64 percentage) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto animation  = &manager.animations.items[renderable->animation_index];
+   auto instance   = &renderable->instances.items[instance_index];
+   if (percentage > 1.0 || percentage < 0 ) {
+      trace_warn("Trying to play animation at %.2f%% percentage on node=%d. Range should be [0 - 1] inclusive.", percentage*100, node.index);
+   }
+   f64 time = percentage * (animation->time_end - animation->time_begin);
+   instance->animation_current_time = clamp(time, animation->time_begin, animation->time_end);
+}
+
 void set_animation_speed(Scene_Node node, f64 speed) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
@@ -1044,15 +1119,14 @@ void init_manager() {
    manager.draw_commands.capacity = initial_draw_command_capacity;
 
    // Allocate CPU staging arrays
-   manager.vertices.positions  = malloc(initial_vertex_capacity * size_of(manager.vertices.positions[0]));
-   manager.vertices.normals    = malloc(initial_vertex_capacity * size_of(manager.vertices.normals[0]));
-   manager.vertices.uvs        = malloc(initial_vertex_capacity * size_of(manager.vertices.uvs[0]));
-   manager.indices.items       = malloc(initial_index_capacity  * size_of(manager.indices.items[0]));
-   manager.joints.items        = malloc(initial_vertex_capacity * size_of(manager.joints.items[0]));
-   // Allocate materials and draw_commands arrays
-   manager.draw_commands.items = malloc(initial_draw_command_capacity * size_of(manager.draw_commands.items[0]));
+   manager.vertices.positions  = calloc(initial_vertex_capacity,       size_of(manager.vertices.positions[0]));
+   manager.vertices.normals    = calloc(initial_vertex_capacity,       size_of(manager.vertices.normals[0]));
+   manager.vertices.uvs        = calloc(initial_vertex_capacity,       size_of(manager.vertices.uvs[0]));
+   manager.indices.items       = calloc(initial_index_capacity,        size_of(manager.indices.items[0]));
+   manager.joints.items        = calloc(initial_vertex_capacity,       size_of(manager.joints.items[0]));
+   manager.draw_commands.items = calloc(initial_draw_command_capacity, size_of(manager.draw_commands.items[0]));
+   manager.materials.items     = calloc(initial_material_capacity,     size_of(manager.materials.items[0]));
 
-   manager.materials.items     = malloc(initial_material_capacity * size_of(manager.materials.items[0]));
 
    auto buffer_flag = BUFFER_USAGE_SUBDATA;
    // auto buffer_flag = BUFFER_USAGE_ORPHANABLE;
