@@ -26,7 +26,7 @@
 #define type_as_string(d)   __builtin_type_as_string(&d, &tprintf)
 
 #define private __attribute__((visibility("hidden")))
-
+#define zero_of(x) ((typeof(x)) {0})
 
 
 
@@ -137,6 +137,7 @@ static Window_Title title = {
 #include "./renderer/renderer.c"
 #include "./camera.c"
 #include "./gui.c"
+
 
 static Camera camera = {0};
 

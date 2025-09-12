@@ -70,18 +70,14 @@ vec2 pull_uv(int id) {
 }
 #endif
 
-// const float aspect = 1600./800.;
-// const float aspect = 2560./1080.;
-float aspect = 1152./ 486.;
-
 
 const float fov    = PI/3.;
+// const float fov    = PI/2.8;
 const float near_plane = 0.005;
 const float far_plane = 256.000000;
 
 void main() {
    material_index = -1;
-   aspect = per_frame.camera.aspect;
 
 #ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
@@ -93,15 +89,14 @@ void main() {
    vec4 position = vec4(position.xyz,  1.0);
 #endif
 
-   mat4 gpu_perspective = perspective_from_fov(fov, per_frame.camera.aspect, 0.1, 100.);
-   mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
+   highp mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
 
    if (draw_command.has_joints == 1) {
       uint geometry_to_model_offset = instances[gl_BaseInstance + gl_InstanceID].geometry_to_model_offset;
 
       ivec4 joint_indices = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_indices;
       vec4  joint_weights = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_weights;
-      if (false) {
+      if (true) {
          position =
               joint_weights[0] * (geometry_to_model[geometry_to_model_offset + joint_indices[0]] * position)
             + joint_weights[1] * (geometry_to_model[geometry_to_model_offset + joint_indices[1]] * position)
@@ -109,7 +104,7 @@ void main() {
             + joint_weights[3] * (geometry_to_model[geometry_to_model_offset + joint_indices[3]] * position)
          ;
       } else {
-         mat4 joint_transform =
+         highp mat4 joint_transform =
               joint_weights[0] * geometry_to_model[geometry_to_model_offset + joint_indices[0]]
             + joint_weights[1] * geometry_to_model[geometry_to_model_offset + joint_indices[1]]
             + joint_weights[2] * geometry_to_model[geometry_to_model_offset + joint_indices[2]]
@@ -117,9 +112,6 @@ void main() {
          ;
          model = model * joint_transform;
       }
-
-
-
    }
 
    position = model * position;
@@ -130,7 +122,11 @@ void main() {
       // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
       if (true) {
          // Apply mat3 to "drop" the translation portion
-         Normal = mat3(transpose(inverse(model))) * normal;
+         if (true) {
+            Normal = normalize(mat3(transpose(inverse(model))) * normalize(normal));
+         } else {
+            Normal = mat3(transpose(inverse(model))) * normal;
+         }
       } else {
          Normal = normal.xyz;
       }
@@ -151,12 +147,13 @@ void main() {
 
 
    { // Camera to Clip
-      gl_Position = perspective_from_fov(position.xyz, fov, aspect, near_plane, far_plane); // Appears to be infinite in depth
+      // gl_Position = per_frame.perspective * vec4(position.xy, position.z*-1., position.w);
+      // gl_Position = perspective_from_frustum(position.xyz, fov, aspect, near_plane, far_plane);
+      // gl_Position = perspective_from_fov(fov, per_frame.camera.aspect, near_plane, far_plane) * vec4(position.xy, position.z*-1., position.w);
+
+      // This one has infinite draw distance
+      gl_Position = perspective_from_fov(position.xyz, fov, per_frame.camera.aspect, near_plane, far_plane); // Appears to be infinite in depth
    }
-   // gl_Position = per_frame.perspective * vec4(position.xy, position.z*-1., position.w);
-   // gl_Position = gpu_perspective * vec4(position.xy, position.z*-1., position.w);
-   // WARNING: This function is mostly the same except for some z-fighting shenanigans
-   // gl_Position = perspective_from_frustum(position.xyz, fov, aspect);
 }
 
 
@@ -170,12 +167,6 @@ void main() {
 #version 460 core
 #extension GL_ARB_bindless_texture : enable
 
-// Beware that Early-Z is disabled if your fragment shader does any of:
-// discard / alpha test behavior
-// alpha blending enabled
-// writes gl_FragDepth
-// side effects (imageStore/atomics in FS)
-// In that case, instancing multiplies your fragment cost N times.
 
 // TODO: Match these by location as well
 layout (location = 0) in Varying {
@@ -187,6 +178,7 @@ layout (location = 0) in Varying {
 layout (location = 4) in Flat {
    flat uint material_index;
 };
+
 
 layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
 layout(binding  = 3) uniform sampler2D diffuse_texture;
@@ -345,6 +337,7 @@ vec3 spot_light_smooth(vec3 frag_to_light_direction) {
    vec3 position = Position;
    vec3 normal = normalize(Normal);
 
+
    // Flashlight properties
    vec3 light_position = per_frame.camera.position;
    vec3 light_direction = camera_forward(spherical); // Direction flashlight is pointing
@@ -450,7 +443,8 @@ vec3 calculate_color(
          light_direction, view_direction, normal,
          fragment_diffuse_color, fragment_specular_color,
          light_diffuse_color, light_ambient_color, light_specular_color,
-         64.0
+         // 64.0
+         32.0
    );
 
 
@@ -476,6 +470,175 @@ vec3 calculate_color(
 }
 
 #define return_white FragColor.xyzw = vec4(1.); return
+#define return_color(x) FragColor.xyz = vec3(x.xyz); return
+
+struct Tangent_Frame {
+   vec3 T;
+   vec3 B;
+   vec3 N;
+};
+
+mat3 compute_tbn5sda(vec3 position, vec3 normal, vec2 uv) {
+    vec3 dpdx = dFdx(position);
+    vec3 dpdy = dFdy(position);
+    vec2 dUVdx = dFdx(uv);
+    vec2 dUVdy = dFdy(uv);
+
+    float det = dUVdx.x * dUVdy.y - dUVdx.y * dUVdy.x;
+    // float sign_det = (det < 0.0) ? -1.0 : 1.0;
+    float sign_det = -1.0;
+
+    // Tangent
+    vec3 tangent = normalize(dUVdy.y * dpdx - dUVdx.y * dpdy);
+
+    // Bitangent with correction for mirrored UVs
+    vec3 bitangent = sign_det * cross(normal, tangent);
+
+    // Fix for backfaces
+    float facing = gl_FrontFacing ? 1.0 : -1.0;
+    bitangent *= facing;
+
+    return mat3(normalize(tangent), normalize(bitangent), normalize(normal));
+}
+
+mat3 compute_tbn5(vec3 position, vec3 normal, vec2 uv)
+{
+    vec3 dpdx = dFdx(position);
+    vec3 dpdy = dFdy(position);
+    vec2 dUVdx = dFdx(uv);
+    vec2 dUVdy = dFdy(uv);
+
+    float det = dUVdx.x * dUVdy.y - dUVdx.y * dUVdy.x;
+    float sign_det = (det < 0.0) ? -1.0 : 1.0;
+
+    vec3 T = sign_det * normalize(dUVdy.y * dpdx - dUVdx.y * dpdy);
+    vec3 B = sign_det * normalize(cross(normal, T));
+    vec3 N = normalize(normal);
+
+    return mat3(T, B, N);
+}
+
+Tangent_Frame compute_tbn2(vec3 position, vec3 normal, vec2 uv) {
+   const vec3 p = position;
+   const vec3 n = normal;
+   // Position gradients
+   vec3 dpdx = dFdx(p);
+   vec3 dpdy = dFdy(p);
+
+   // Project onto tangent plane
+   dpdx -= n * dot(dpdx, n);
+   dpdy -= n * dot(dpdy, n);
+
+   // UV gradients
+   vec2 duvdx = dFdx(uv);
+   vec2 duvdy = dFdy(uv);
+
+   // Jacobian sign (to handle mirroring in UVs)
+   float jacobian = duvdx.x * duvdy.y - duvdx.y * duvdy.x;
+   float signJ = (jacobian < 0.0) ? -1.0 : 1.0;
+   // float signJ = -1.0;
+
+   // Tangent
+   vec3 T = signJ * normalize(duvdy.y * dpdx - duvdx.y * dpdy);
+   // Bitangent
+   vec3 B = signJ * cross(n, T);
+
+   Tangent_Frame frame;
+   frame.T = T;
+   frame.B = B;
+   frame.N = n;
+
+   return frame;
+}
+
+// Apply normal map using surface gradient bump mapping
+vec3 apply_normal_map(Tangent_Frame frame, vec2 uv, vec3 normal_texel) {
+   // Sample normal map and remap [0,1] -> [-1,1]
+   vec3 m = normal_texel.xyz * 2.0 - 1.0;
+
+   // Avoid divide by zero
+   float invZ = 1.0 / max(m.z, 1e-6);
+
+   // Surface gradient
+   vec3 grad = -(m.x * frame.T + m.y * frame.B) * invZ;
+
+   // Perturbed normal
+   return normalize(frame.N - grad);
+}
+
+
+mat3 compute_tbn4(vec3 position, vec3 normal, vec2 uv)
+{
+   // Screen-space derivatives
+   vec3 dpdx = dFdx(position);
+   vec3 dpdy = dFdy(position);
+   vec2 dUVdx = dFdx(uv);
+   vec2 dUVdy = dFdy(uv);
+
+   // Solve tangent & bitangent from derivative equations
+   float det = dUVdx.x * dUVdy.y - dUVdx.y * dUVdy.x;
+   float inv_det = (det != 0.0) ? 1.0 / det : 0.0;
+
+   vec3 tangent = normalize((dUVdy.y * dpdx - dUVdx.y * dpdy) * inv_det);
+   vec3 bitangent = normalize((-dUVdy.x * dpdx + dUVdx.x * dpdy) * inv_det);
+
+   // Orthonormalize with normal
+   tangent = normalize(tangent - normal * dot(normal, tangent));
+   bitangent = cross(normal, tangent);
+
+   // Backface fix (flip orientation)
+   float facing = gl_FrontFacing ? 1.0 : -1.0;
+   bitangent *= facing;
+
+   return mat3(tangent, bitangent, normal);
+}
+
+
+mat3 compute_tbn3(vec3 position, vec3 normal, vec2 uv)
+{
+   // Derivatives of position and UV
+   vec3 dpdx = dFdx(position);
+   vec3 dpdy = dFdy(position);
+   vec2 dUVdx = dFdx(uv);
+   vec2 dUVdy = dFdy(uv);
+
+   // Compute tangent using UV gradient
+   float det = dUVdx.x * dUVdy.y - dUVdx.y * dUVdy.x;
+   float sign_det = (det < 0.0) ? -1.0 : 1.0;
+
+   // Build tangent
+   vec3 tangent = dUVdy.y * dpdx - dUVdx.y * dpdy;
+   tangent = normalize(tangent);
+
+   // Bitangent with sign correction (backface fix)
+   vec3 bitangent = sign_det * cross(normal, tangent);
+
+   // If flipped (back-facing), invert bitangent
+   float facing = gl_FrontFacing ? 1.0 : -1.0;
+   bitangent *= facing;
+
+   return mat3(tangent, bitangent, normalize(normal));
+}
+
+
+mat3 compute_tbn(vec3 pos, vec3 normal, vec2 uv) {
+   // Partial derivatives of position and uv
+   vec3 dp1  = dFdx(pos);
+   vec3 dp2  = dFdy(pos);
+   vec2 duv1 = dFdx(uv);
+   vec2 duv2 = dFdy(uv);
+
+   // Solve linear system
+   float r = 1.0 / (duv1.x * duv2.y - duv1.y * duv2.x);
+   vec3 tangent = normalize((dp1 * duv2.y - dp2 * duv1.y) * r);
+   vec3 bitangent = normalize((dp2 * duv1.x - dp1 * duv2.x) * r);
+
+   // Ensure tangent, bitangent, and normal are orthogonal
+   tangent = normalize(tangent - normal * dot(normal, tangent));
+   bitangent = cross(normal, tangent);
+
+   return mat3(tangent, bitangent, normal);
+}
 
 void main() {
    // vec3 color = vec3(gl_FragCoord.z);
@@ -485,28 +648,36 @@ void main() {
    vec3 specular_color = vec3(0.);
    vec3 emissive_color = vec3(0.);
    float alpha_channel = 1.0;
+   vec3  normal = Normal;
+   FragColor.w = 1.0;
 
-   // return_white;
-
+   if (true && !gl_FrontFacing) {
+      // NOTE: Shading rn is strange on Alleya model because we get back facing triangles poping up due to animation 
+      // return_color(vec3(1.));
+      normal = -normal; // flip normals on backfaces
+   }
 
    Material material = materials[material_index];
    if (material.diffuse_handle != uvec2(0)) {
       // TODO: Mode gamma_correction to after sbti loading
       vec4 dtexture = vec4(1.);
-      if (material.normal_handle != uvec2(0)) {
-         dtexture = texture(sampler2D(material.normal_handle), TextureCoordinate*2.);
-      } else {
-         dtexture = texture(sampler2D(material.diffuse_handle), TextureCoordinate);
-      }
-
-      // dtexture = texture(diffuse_texture, TextureCoordinate);
+      dtexture = texture(sampler2D(material.diffuse_handle), TextureCoordinate);
       diffuse_color = dtexture.xyz;
       diffuse_color = gamma_correct_texture(diffuse_color);
       alpha_channel = dtexture.w;
-
    }
 
-   if (alpha_channel < 0.0) {
+   // return_color(normalize(normal.rgb));
+   // return_color(normalize(diffuse_color.rgb));
+
+   if (alpha_channel < 0.1) {
+      // Beware that Early-Z is disabled if your fragment shader does any of:
+      // discard / alpha test behavior
+      // alpha blending enabled
+      // writes gl_FragDepth
+      // side effects (imageStore/atomics in FS)
+      // In that case, instancing multiplies in fragment cost N times.
+      // That means that this is slowing down every single geometry even if there's no transparency on it
       discard;
    }
 
@@ -517,15 +688,52 @@ void main() {
    }
 
 
+   if (material.normal_handle != uvec2(0)) {
+      const float uv_factor = 1.;
+      // const float uv_factor = 5.;
+      // const float uv_factor = 7.;
+
+      const vec2 uv = TextureCoordinate*uv_factor;
+      {
+         // vec4 dtexture = texture(sampler2D(material.diffuse_handle), uv);
+         // diffuse_color = dtexture.xyz;
+         // diffuse_color = gamma_correct_texture(diffuse_color);
+         // diffuse_color = vec3(1.);
+      }
+      vec4 normal_texel = texture(sampler2D(material.normal_handle), uv);
+      const float oscilator_speed = 0.7;
+      // const float oscilator = ((sin(per_frame.elapsed_time*2.)*2.5 -1.))         // const float oscilator = mod(per_frame.elapsed_time * oscilator_speed, 1.);
+      const float oscilator = abs(mod(per_frame.elapsed_time * oscilator_speed, 2.0) - 1.0);
+      if (true && gl_FragCoord.x > oscilator*1600) {
+
+
+         if (true) {
+            // if (true || gl_FragCoord.x > oscilator*1600) {
+            if (false) {
+               // const mat3 TBN = compute_tbn(Position, normalize(normal), uv);
+               const mat3 TBN = compute_tbn5(Position, normalize(normal), uv);
+               normal = normalize(TBN * (normal_texel.rgb * 2.0 - 1.0));
+            } else {
+               Tangent_Frame tbn_frame = compute_tbn2(Position, normalize(normal), uv);
+               normal = apply_normal_map(tbn_frame, uv, normal_texel.rgb);
+            }
+         }
+         // normal = normal_texel.rgb;
+         specular_color = vec3(0.2);
+         // diffuse_color = normal_texel.rgb;
+         // diffuse_color = vec3(normal_texel.g + normal_texel.r + normal_texel.b)/3.;
+         // return_color(normal.rgb);
+      }
+   }
+
    Fragment fragment;
    fragment.position = Position;
-   fragment.normal   = Normal;
+   fragment.normal   = normalize(normal);
    fragment.diffuse_color  = diffuse_color;
    fragment.specular_color = specular_color;
    fragment.emissive_color = emissive_color;
+   FragColor.xyzw = vec4(color, alpha_channel);
 
-   FragColor.xyzw = vec4(color, 1.0);
-   FragColor.xyz = fragment.diffuse_color;
 
 
    vec3 position = Position;
@@ -542,7 +750,7 @@ void main() {
 
 
    {
-      Light point_lights[3];
+      Light point_lights[5];
       // Initialize the struct members
       point_lights[0] = per_frame.light;
       point_lights[0].diffuse = vec3(2.);
@@ -571,6 +779,16 @@ void main() {
       point_lights[2].diffuse  = vec3(2.0, 0.89, 1.0)/dim_factor;
       point_lights[2].specular = vec3(2.0, 0.89, 1.0)/dim_factor;
 
+
+      point_lights[3].position = vec3(100. -(100. + 600.)*((sin(per_frame.elapsed_time) +1.)/2.), 50., 0.);
+      point_lights[3].ambient  = vec3(1.0);
+      point_lights[3].diffuse  = vec3(2.0);
+      point_lights[3].specular = vec3(1.4);
+
+      point_lights[4].position = -vec3(1.);
+      point_lights[4].ambient  = vec3(1.0);
+      point_lights[4].diffuse  = vec3(1.0);
+      point_lights[4].specular = vec3(1.4);
       for (int idx = 0; idx < point_lights.length(); idx += 1) {
          Light light = point_lights[idx];
          float attenuation = point_light(light.position, position);
@@ -580,11 +798,15 @@ void main() {
             attenuation *= intensity;
          } else if (idx == 1) {
             light_direction = vec3(1.);
+         } else if (idx == 3) {
+            light_direction = vec3(1.);
+         } else if (idx == 4) {
+            light_direction = normalize(point_lights[4].position);
+            attenuation = 1.0;
          }
 
-         // color += attenuation * calculate_color(light, light_direction, fragment, camera_position, Normal);
          color += attenuation * calculate_color(light, light_direction, fragment, Normal);
-         // color += calculate_color(light, light_direction, position, camera_position, Normal);
+
       }
    }
 
@@ -605,6 +827,8 @@ void main() {
 
    FragColor.xyz = gamma_correct(FragColor.xyz);
    // FragColor.xyz = apply_contrast(FragColor.xyz, 1.079);
-   FragColor.w *= max(alpha_channel, 0.1);
+   // FragColor.w = alpha_channel;
+   FragColor.w = max(pow(alpha_channel, 1/2.2), 0.9);
+   // FragColor.w = 1.0;
 
 }

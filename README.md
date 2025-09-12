@@ -21,6 +21,8 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 - [Useful not as common single header libraries](https://github.com/r-lyeh/single_file_libs)
 - [Normal map from albedo](https://github.com/Sir-Irk/si_normalmap)
 - [Normal and Specular map from Siffuse](https://xo3d.co.uk/tools/normal-map-creator/)
+- [Surface Gradient for bump/normal mapping](https://github.com/mmikk/surfgrad-bump-standalone-demo.git)
+- [Bullet Continuous Collision Detection and Physics Library](http://bulletphysics.org)
 
 
 

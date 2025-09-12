@@ -24,10 +24,15 @@ constexpr int MAX_TEXTURE_PER_MATERIAL = 4;
 
 static_assert(size_of(Draw_Command) % 16 == 0);
 
-// constexpr auto instances_buffer_usage =  BUFFER_USAGE_MAP_PERSISTENT_WRITE;
-// constexpr auto geometry_to_world_matrices_buffer_usage = BUFFER_USAGE_MAP_PERSISTENT_WRITE;
-constexpr auto instances_buffer_usage                  = BUFFER_USAGE_SUBDATA;
-constexpr auto geometry_to_world_matrices_buffer_usage = BUFFER_USAGE_SUBDATA;
+// #define WE_ARE_DOING_SYNC_OURSELVES
+
+#ifdef WE_ARE_DOING_SYNC_OURSELVES
+   constexpr auto instances_buffer_usage                  = BUFFER_USAGE_MAP_PERSISTENT_WRITE;
+   constexpr auto geometry_to_world_matrices_buffer_usage = BUFFER_USAGE_MAP_PERSISTENT_WRITE;
+#else
+   constexpr auto instances_buffer_usage                  = BUFFER_USAGE_SUBDATA;
+   constexpr auto geometry_to_world_matrices_buffer_usage = BUFFER_USAGE_SUBDATA;
+#endif
 
 // Global buffer system with separate attribute buffers
 // Unalignment goes crazy with all these dirty flags @Flag
@@ -114,6 +119,7 @@ typedef struct {
                struct {
                   f64 animation_current_time;
                   f64 animation_speed;
+                  // isz animation_last_keyframe_index; // Read animation.c comment to get some insight of what we might need to do to speed up finding keypair
                   Transform transform;
                   Geometry_To_World_List geometry_to_world_matrices;
                   struct { // TODO: make it possible to have instances with differentes materials considering surfaces in a mesh
@@ -138,18 +144,6 @@ typedef struct {
       Buffer geometry_to_world_matrices_buffer;
       bool  instances_dirty;
    } scene;
-
-
-
-
-   // struct {
-   //    Matrix transform;
-   //
-   //    u32    count;
-   //    u32    capacity;
-   //    Buffer buffers[3];
-   //    bool   dirty;
-   // } instances;
 
    GLuint vao; // TODO: Remove, the renderer should simply have one vertex array for everything and bind just the index buffer when needed
 } Manager;
@@ -675,8 +669,9 @@ void draw_indirect(Texture diffuse, Shader shader) {
       }
    }
 #endif
-   assert(is_valid_texture(diffuse));
-   bind_texture(diffuse, 3);
+
+   // assert(is_valid_texture(diffuse));
+   // bind_texture(diffuse, 3);
 
    glMultiDrawElementsIndirect(
        GL_TRIANGLES, GL_UNSIGNED_INT,
@@ -842,6 +837,7 @@ Draw_Index push_model_to_manager(const Model *model, isz *animation_index) {
    return result_draw_index;
 }
 
+
 // T Pose
 void play_animation_identity(Scene_Node node) {
    // Needs to update geometry_to_world_matrices_buffer after this
@@ -897,7 +893,7 @@ void play_animation(Scene_Node node) {
    //       times start syncing as if they both had the same start.
    //
    // That was a hacky solution before, now we're clampting dt which isn't a clever ideal solution
-   // As user's might expected an animation to take exactly a certain amount of time and sunddenly it couldnt 
+   // As user's might expected an animation to take exactly a certain amount of time and sunddenly it couldnt
    // finish in time because we advanced the animation by a clamped dt
    //
    #if 0
@@ -911,7 +907,7 @@ void play_animation(Scene_Node node) {
    {  // Timing Operations
       static enum {smooth_delta, clamp_delta, bad_raw_delta, enum_count} strategy = smooth_delta;
       if (is_button_pressed(BUTTON_R)) {
-         strategy++;
+         strategy += 1;
          strategy = (strategy % enum_count);
          trace_info("Changed the animation stategy to %s",
             strategy  == smooth_delta  ? "smooth_delta"
@@ -936,28 +932,45 @@ void play_animation(Scene_Node node) {
       }
 
       if (is_debugging()) {
-         dt = 0.1; // Delta timing while debugging is always huge because of pauses.
+         // dt = 0.1; // Delta timing while debugging is always huge because of pauses.
       }
 
-      *curr_time += dt * animation_speed;
 
+      *curr_time += dt * animation_speed;
       const bool loop_animation = true; // TODO: Get this from instance
-      if (loop_animation && (*curr_time >= animation->time_end)) {
-         *curr_time = animation->time_begin;
+
+      if (loop_animation) {
+         if (*curr_time >= animation->time_end) {
+            *curr_time = animation->time_begin;
+         }
+
+         if (*curr_time < animation->time_begin) {
+            *curr_time = animation->time_end;
+         }
       }
 
       // We make sure before getting the matrices we're within the expected times by keyframes
-      *curr_time = min(*curr_time, animation->time_end);
+      *curr_time = clamp(*curr_time, animation->time_begin, animation->time_end);
+   }
+   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, *curr_time);
+
+   if (is_button_pressed(BUTTON_F2)) {
+      auto old_count = list.count;
+      list = joint_matrices_using_scene(&renderable->joint_list, animation, *curr_time);
+      assert_msg(old_count == list.count, "count does not match for %s", animation->scene->metadata.original_file_path);
+      trace_info("Using roubadinha animation");
    }
 
-   auto list = joint_matrices_from_animation(&renderable->joint_list, animation, *curr_time);
+
    isz list_data_size = size_of(list.matrices[0]) * list.count;
    if (instance->geometry_to_world_matrices.count <= 0 && nullptr == instance->geometry_to_world_matrices.items) {
       assert_msg(renderable->joint_list.count == list.count, "Joint list and the Joint matrices should have the same count, because it's a bijection to the bones count");
       instance->geometry_to_world_matrices.items = malloc(list_data_size);
       instance->geometry_to_world_matrices.count = list.count;
    }
+
    memcpy(instance->geometry_to_world_matrices.items, list.items, list_data_size);
+
    return;
 }
 
@@ -1041,6 +1054,42 @@ Scene_Node overload create_scene_node(Scene_Node node, const Transform transform
    return create_scene_node_from_renderable(renderable_index, transform);
 }
 
+
+//
+// TODO: Updating the whole instaces transform every time seems to be a bit slow
+//       Maybe just update in place with persistent mapped instead of going through the cpu buffer staging system
+//
+void update_transform(Scene_Node node, Transform transform) {
+   manager.scene.instances_dirty = true;
+
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto instance  = &renderable->instances.items[instance_index];
+   instance->transform = transform;
+   return;
+}
+
+void overload update_transform(Scene_Node node, Quaternion rotation) {
+   manager.scene.instances_dirty = true;
+
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto instance  = &renderable->instances.items[instance_index];
+   instance->transform.rotation = rotation;
+   return;
+}
+
+
+Transform get_transform(Scene_Node node) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable      = &manager.scene.renderables.items[renderable_index];
+   auto instance        = &renderable->instances.items[instance_index];
+   return instance->transform;
+}
+
 void set_animation_time(Scene_Node node, f64 time) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
@@ -1073,7 +1122,7 @@ void set_animation_speed(Scene_Node node, f64 speed) {
    auto renderable = &manager.scene.renderables.items[renderable_index];
    auto animation  = &manager.animations.items[renderable->animation_index];
    auto instance   = &renderable->instances.items[instance_index];
-   instance->animation_speed = clamp(speed, 0, F64_MAX);
+   instance->animation_speed = clamp(speed, -F64_MAX, F64_MAX);
 }
 
 

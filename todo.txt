@@ -1,53 +1,137 @@
 
 # Raymarch Compute Pipeline
-- [ ] Shader from single buffer by having #pragma Vertex in it
-- [x] Render triangles with raymarching xD
-- [ ] Render triangles from a model
-- [x] Derive cube sdf
-- [ ] Antialiasing
-- [ ] All common operations plus smoothing
-- [ ] Mirroring
-- [ ] Focus and defocus
-- [ ] Twisting
-- [ ] Domain repetition unbounded
-- [ ] Domain repetition bounded
-- [ ] Actually understand soft shadows
-- [x] Understand camera as origin and ray to canvas
-- [ ] Understand camera as origin rectangle to canvas
-- [ ] Understand ray direction distortion
-- [ ] Understand camera distortion
-- [ ] Understand camera as a basis vector in the context of raymarching
-- [ ] Understand scaling and rotation of distance fields
-- [ ] Call back error from opengl howw to setup
+
+[ ] Shader from single buffer by having #pragma Vertex in it
+[x] Render triangles with raymarching xD
+[ ] Render triangles from a model
+[x] Derive cube sdf
+[ ] Antialiasing
+[ ] All common operations plus smoothing
+[ ] Mirroring
+[ ] Focus and defocus
+[ ] Twisting
+[ ] Domain repetition unbounded
+[ ] Domain repetition bounded
+[ ] Actually understand soft shadows
+[x] Understand camera as origin and ray to canvas
+[ ] Understand camera as origin rectangle to canvas
+[ ] Understand ray direction distortion
+[ ] Understand camera distortion
+[ ] Understand camera as a basis vector in the context of raymarching
+[ ] Understand scaling and rotation of distance fields
+[ ] Call back error from opengl howw to setup
 
 
 # Projection Pipeline
 
-- [ ] Normal Mapping.
-- [ ] PBR Shading
+[ ] Why do many applications flip normals based on facing data
+// From blender used in workbench_prepass_frag.glsl
+float2 workbench_normal_encode(bool front_face, float3 n)
+{
+  n = normalize(front_face ? n : -n);
+  float p = sqrt(n.z * 8.0f + 8.0f);
+  n.xy = clamp(n.xy / p + 0.5f, 0.0f, 1.0f);
+  return n.xy;
+}
+// Blender in eevee_surf_lib.glsl
+#ifdef GPU_FRAGMENT_SHADER
+  g_data.N = (FrontFacing) ? g_data.N : -g_data.N;
+  g_data.Ni = (FrontFacing) ? g_data.Ni : -g_data.Ni;
+  g_data.Ng = safe_normalize(cross(gpu_dfdx(g_data.P), gpu_dfdy(g_data.P)));
+#endif
 
-- [ ] Investigate animation problem 17.99s (mari.fbx)
-- [ ] Investigate screen flashing (probably related to animation). It's some time to time and it seems regular.
+//  Blender, but is for shading, maybe thats part of why backfacing look weird on blin shading but not on pbr pipelines.
+// from gpu_shader_material_layer_weight.glsl
+    fresnel = fresnel_dielectric(V, N, (FrontFacing) ? 1.0f / eta : eta);
 
-- [ ] Alpha textures what should we do with it ? {
+// Blender eevee_surf_capture_frag.glsl
+surfel_buf[surfel_id].normal = gl_FrontFacing ? g_data.Ng : -g_data.Ng;
+
+// Godot scene.glsl scene_forward_mobile.glsl and in forward_clustered/scene_forward_clustered.glsl
+	vec3 normal = normal_interp;
+#if defined(DO_SIDE_CHECK)
+	if (!gl_FrontFacing) {
+		normal = -normal;
+	}
+#endif // DO_SIDE_CHECK
+// Godot 
+   vec3 normal_highp = normal_interp;
+#if defined(DO_SIDE_CHECK)
+	if (!gl_FrontFacing) {
+		normal_highp = -normal_highp;
+	}
+#endif // DO_SIDE_CHECK
+
+
+// they set this define in material_storage.cpp
+actions.render_mode_defines["cull_front"] = "#define DO_SIDE_CHECK\n";
+actions.render_mode_defines["cull_disabled"] = "#define DO_SIDE_CHECK\n";
+
+
+
+
+[ ] Investigate Alexya model continuity, coloring is creating some pure black and some pure white spots, also normal mapping is flickering
+[ ] Respect the model's texture's wrapping characteristic (repeat, clamp, sRBG vs Linear)
+
+[ ] Alpha textures what should we do with it ? {
    Investigate Sophia Model textures. Which ones are not being passed along
 }
+[ ] Texture manager. {
+   Good for caching some data for repeated paths for the same shadow.
+   If the manager is asked for a texture from path we can linearly check if there's one already.
+   Copy using texture_copy if the new texture has wraping and other stuff differently as we're doing MDI,
+   we would need both textures at the same time with both wrapping modes available for different draw commands, I dont think we can skip the copy.
+}
 
-- [ ] Environment Model that entities can walk on
+*[ ] Normal Mapping.
 
+[ ] PBR Shading
 
-- [ ] Model Animation Blending: support blending animation into another one smoothly. Example: from walk to idle
+[x] Investigate animation problem 17.99s (mari.fbx)
 
-- [ ] Bloom
+[ ] *Investigate screen flashing (probably related to animation). It's some time to time and it seems regular. {
+   [x] Maybe you can debug using the evaluate scene from ufbx
+   [x] Maybe is the find keyframe interval function, make it linear
+   [x] Make it able to loop from beginning animation to end
 
-- [ ] Cascading Shadows
+   [ ] Take a look at godot animation system
+   [ ] Maybe is the storing of matrices
+   [ ] Maybe is the joint indices, make sure it's always >= 0 and < joint_list.count
+
+   [x] If only 1 keyframe than it's that for the whole animation
+       if 0 then should be identity
+       if more than two then fine, we ball the two pairs only
+}
+
 
 
 
 
 ---
+[ ] view dependent specular and roughness though
 
-- [ ] Multisample window back buffer. Can we give that information without being tied to a specific api backend? {
+[ ] Environment Model that entities can walk on
+
+[ ] Animation - Seamless Looping - exactly when the animation is about to loop to make it seemless we should have a transitional period to go from the last keyframes interpolated with the first keyframes per joint
+
+[ ] Animation - Button to change to NLerp rotation (and others)
+
+[ ] Make a instance be able to be invisible (scene node).
+
+[ ] Make a scene be able to be loaded and undeloaded both from cpu and gpu.
+
+[ ] Scene Manager (play_animation and operations on scene) needs to me separated from the Gpu Buffer Manager
+      Right now they're connected through the ideiad of a renderable and instance
+
+
+[ ] Model Animation Blending: support blending animation into another one smoothly. Example: from walk to idle
+
+[ ] Bloom
+
+[ ] Cascading Shadows
+
+
+[ ] Multisample window back buffer. Can we give that information without being tied to a specific api backend? {
 
    window_get_samples(). Also with this we would have to change error cheking in blitting functions
 
@@ -55,153 +139,145 @@
 
 }
 
-- [ ] Texture manager. {
-   Good for caching some data for repeated paths for the same shadow.
-   If the manager is asked for a texture from path we can linearly check if there's one already.
-   Copy using texture_copy if the new texture has wraping and other stuff differently as we're doing MDI,
-   we would need both textures at the same time with both wrapping modes available for different draw commands, I dont think we can skip the copy.
-}
+[ ] Raytraced Shadows (no vulkan raytrace api, do it raw compute shader)
 
-- [ ] Raytraced Shadows (no vulkan raytrace api, do it raw compute shader)
-
-- [ ] Streamline Light addition. {
+[ ] Streamline Light addition. {
    Maybe add a json/custom file to add or remove at run time.
 }
 
-- [ ] Map creation either like paladins/valorant, simple walls and floors at different heights to stand on.
+[ ] Map creation either like paladins/valorant, simple walls and floors at different heights to stand on.
 
-- [ ] Terrain creation. Simple peaks and valleys similiar to summoner rift map (not procedural terrain).
+[ ] Terrain creation. Simple peaks and valleys similiar to summoner rift map (not procedural terrain).
 
-- [ ] Procedural animation. Does it have a place on our ideia for the first demo?
+[ ] Procedural animation. Does it have a place on our ideia for the first demo?
 
-- [ ] Light Probes
+[ ] Light Probes
 
-- [ ] GPU Compute Skinning what is it used for. When animation starts lagging check that.
+[ ] GPU Compute Skinning what is it used for. When animation starts lagging check that.
 
-- [x] *Model Animation: various models with varying complexity {
+[x] Model Animation: various models with varying complexity {
    Fix 508 bones Model loading problem when not all bones have a instance
    edit: Decided to load empty bones and leave them zero initialized
 }
 
-- [x] Hdr, tonemap and gamma
+[x] Hdr, tonemap and gamma
 
-- [ ] Fix Shader Compilation problem when type is compute
-
-
-- [ ] Compute shader post-processing instead of for eveyfragment in our forward redererer
-
-- [ ] Respect the model's texture's wrapping characteristic (repeat, clamp, sRBG vs Linear)
-
-- [x] Animation Normal inverse transforming
-
-- [ ] Bluring Emissive Objects (After pbr). In fact I believe we're only ever gonna streamline the light creation when we get around pbr.
-
-- [ ] Parallax Corrected Reflections using cube box of the scene to get reflection in a pbr pipeline. The cube box must rendered from multiple angles I suppose then sampled in the final shader, I also wanna do this in forward redering.
-
-- [ ] Specular reflections
+[ ] Fix Shader Compilation problem when type is compute
 
 
-- [ ] Raycast from camera to closest triangle to scale down moving forward to avoid going through geometry, as you get close the slower you zoom
-- [x] (edit: chose scene node) Model GpuData: What is the best way to setup the gpu data for a model and pass a lighter structure around? Figure it out. For now  we're using some anonymous structure as a "bundle".
-
-- [x] Make an easy way to draw instance from Cpu side, like ``draw_another(Draw_Index index, Instance data_for_instance)`` instance should have the model_matrix.
-
-- [ ] Make an easy way to set a new material for the renderables including setting material per instance even if the mashes has multiple surfaces each with a different texture.
-
-- [ ] Clean up default texture access to sample only once on the whole fragment shader
-- [ ] (edit: Scrap that, make default textures). Instead of passing has_animation, has_diffuse, pass a clamping value or intensity value that inquires a math operation instead of an if.
-
-- [x] Abstract every renderable into cpu data and gpu data counterpart. (edit: The abstraction is Draw_Command that includes extra data)
-- [x] Refactor Buffer to just have buffer with additional specific data, rather than multiple types.
+[ ] Compute shader post-processing instead of for eveyfragment in our forward redererer
 
 
-- [x] Make shared binary compatible types that gets included by both c and glsl
-- [x] Make Defines for bindings used by both c and glsl
+[x] Animation Normal inverse transforming
 
-- [x] (edit: That was harder than I thought, plus we need to test more, but it's done for now) Shader remap error to correct line in folder
-- [ ] Raytraced Shadows
+[ ] Bluring Emissive Objects (After pbr). In fact I believe we're only ever gonna streamline the light creation when we get around pbr.
 
-- [ ] PBR checkouts Disney App with various BRDFs
+[ ] Parallax Corrected Reflections using cube box of the scene to get reflection in a pbr pipeline. The cube box must rendered from multiple angles I suppose then sampled in the final shader, I also wanna do this in forward redering.
 
-- [x] Renderbuffer, SSBO, Uniform buffer objects create and use
+[ ] Specular reflections
 
 
-- [x] Vertex Pulling positions
-- [x] Vertex Pulling with normal and uvs
+[ ] Raycast from camera to closest triangle to scale down moving forward to avoid going through geometry, as you get close the slower you zoom
+[x] (edit: chose scene node) Model GpuData: What is the best way to setup the gpu data for a model and pass a lighter structure around? Figure it out. For now  we're using some anonymous structure as a "bundle".
 
-- [x] Accumulated commands and then do one draw_multi_indexed_instanced_indirect, you might be reading a lot of meshes and accumulating, then you much all those vertices into from all meshes accumulated into a single Vertex Buffer and the same for other buffers always remembering and associating the mesh id to int offset into all those buffers to then do pulling from the shader side to decide the correct values (positions, uvs, texture units samples form texure arrays) for the current instance mesh.
-- [x] DrawIndirect
+[x] Make an easy way to draw instance from Cpu side, like ``draw_another(Draw_Index index, Instance data_for_instance)`` instance should have the model_matrix.
 
-- [ ] Use Persistent Buffer for uniforms
-- [ ] Lear about synchronization
+[ ] Make an easy way to set a new material for the renderables including setting material per instance even if the mashes has multiple surfaces each with a different texture.
 
-- [x] All DSA
+[ ] Clean up default texture access to sample only once on the whole fragment shader
+[ ] (edit: Scrap that, make default textures). Instead of passing has_animation, has_diffuse, pass a clamping value or intensity value that inquires a math operation instead of an if.
 
-- [ ] Light Shader showing a ball as the light position
-- [ ] Make Shader error find the included files for fixing error easier.
-- [x] Make Shader reloadable even if its from memory (using its handle to create a file to mark time of creation)
-- [ ] Instancing with uniform and without it
-- [ ] Texture sampling from ssbo is possible?
-- [ ] Infinite drawing no distant shit being culled
+[x] Abstract every renderable into cpu data and gpu data counterpart. (edit: The abstraction is Draw_Command that includes extra data)
+[x] Refactor Buffer to just have buffer with additional specific data, rather than multiple types.
 
-- [ ] AZDO {
+
+[x] Make shared binary compatible types that gets included by both c and glsl
+[x] Make Defines for bindings used by both c and glsl
+
+[x] (edit: That was harder than I thought, plus we need to test more, but it's done for now) Shader remap error to correct line in folder
+[ ] Raytraced Shadows
+
+[ ] PBR checkouts Disney App with various BRDFs
+
+[x] Renderbuffer, SSBO, Uniform buffer objects create and use
+
+
+[x] Vertex Pulling positions
+[x] Vertex Pulling with normal and uvs
+
+[x] Accumulated commands and then do one draw_multi_indexed_instanced_indirect, you might be reading a lot of meshes and accumulating, then you much all those vertices into from all meshes accumulated into a single Vertex Buffer and the same for other buffers always remembering and associating the mesh id to int offset into all those buffers to then do pulling from the shader side to decide the correct values (positions, uvs, texture units samples form texure arrays) for the current instance mesh.
+[x] DrawIndirect
+
+[ ] Use Persistent Buffer for uniforms
+[ ] Lear about synchronization
+
+[x] All DSA
+
+[ ] Light Shader showing a ball as the light position
+[ ] Make Shader error find the included files for fixing error easier.
+[x] Make Shader reloadable even if its from memory (using its handle to create a file to mark time of creation)
+[ ] Instancing with uniform and without it
+[ ] Texture sampling from ssbo is possible?
+[ ] Infinite drawing no distant shit being culled
+
+[ ] AZDO {
    Write now it's missing tripple buffers for everything in order to not pay the sync price and in flight frames.
 }
 
-- [x] Bindless textures
-- [ ] MSAA manually
+[x] Bindless textures
+[ ] MSAA manually
 
-- [x] Big Buffers for all rendering data by a manager abstraction.
-- [x] Manager bind vb and ib, you forgot
+[x] Big Buffers for all rendering data by a manager abstraction.
+[x] Manager bind vb and ib, you forgot
 
-- [x] Model Skeleton:  simple model
-- [x] Model Animation: Simplify updating animation
-- [ ] Camera make the camera follow the carachter prolly by having a certing offsset from a certain view direction (the character's)
+[x] Model Skeleton:  simple model
+[x] Model Animation: Simplify updating animation
+[ ] Camera make the camera follow the carachter prolly by having a certing offsset from a certain view direction (the character's)
 
 
-- [ ] Simple manager add/remove light function
-- [ ] Streamline camera access
-- [x] Model Animation support multiply animation.
-- [x] Model Animation suport multiple meshes with different geomtry_to_node matrices (inverse bind matrices).
-- [x] GPU matrices and joint with MDI
-- [x] Instance struct as buffer
-- [x] Material struct as buffer
-- [x] Uniform buffers for most thing, model matrices shall be send Storage Buffer
+[ ] Simple manager add/remove light function
+[ ] Streamline camera access
+[x] Model Animation support multiply animation.
+[x] Model Animation suport multiple meshes with different geomtry_to_node matrices (inverse bind matrices).
+[x] GPU matrices and joint with MDI
+[x] Instance struct as buffer
+[x] Material struct as buffer
+[x] Uniform buffers for most thing, model matrices shall be send Storage Buffer
 
-- [x] (nuklear has been chosen) Now setup gui.c. RayGui with no raylib or some other immediate mode
+[x] (nuklear has been chosen) Now setup gui.c. RayGui with no raylib or some other immediate mode
 
-- [x] Map any texture for usage as image2D
+[x] Map any texture for usage as image2D
 
-- [x] init, update, input architecture
+[x] init, update, input architecture
 
-- [x] Load Model fbx and stuff
-- [ ] Cubemap Skybox support
+[x] Load Model fbx and stuff
+[ ] Cubemap Skybox support
 
-- [x] MSAA with multisampled textures
-- [x] MSAA framebuffer resolving
-- [x] MSAA framebuffer blitting checks
-- [ ] Copy texture into another taking alpha into account
-- [x] Update Vertex_Array to use the Buffer api
+[x] MSAA with multisampled textures
+[x] MSAA framebuffer resolving
+[x] MSAA framebuffer blitting checks
+[ ] Copy texture into another taking alpha into account
+[x] Update Vertex_Array to use the Buffer api
 
-- [x] Fix Shader reaload lag
-- [ ] Expand Shader to allow "#pragma once"
-- [x] Mix what you wrote in raymath.c with handmade_math to get the best of both (has to fix naming conv)
+[x] Fix Shader reaload lag
+[ ] Expand Shader to allow "#pragma once"
+[x] Mix what you wrote in raymath.c with handmade_math to get the best of both (has to fix naming conv)
 
-- [ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
-- [ ] Bindings of types of buffers should be cached
-- [ ] Blend, Cull and other setting should be cached makiing sure nobody changes that that mean making sure no dependencies touch the context
+[ ] ``upload_matrix4(string, data_ptr);`` - Shader should cache by using std_ds string hash map;
+[ ] Bindings of types of buffers should be cached
+[ ] Blend, Cull and other setting should be cached makiing sure nobody changes that that mean making sure no dependencies touch the context
 
-- [ ] Sparse (Virtual) Texture Arrays
-- [ ] SFX in games. How can it be done ? I'm interested to know to create those fire effect and other things that is streamlined to add these sfx wherever it need be in the scene.
+[ ] Sparse (Virtual) Texture Arrays
+[ ] SFX in games. How can it be done ? I'm interested to know to create those fire effect and other things that is streamlined to add these sfx wherever it need be in the scene.
 
-- [ ] Inverted z-buffer trick for z-fighting. What is this about, is there a small paper about it?
+[ ] Inverted z-buffer trick for z-fighting. What is this about, is there a small paper about it?
    GL 4.5 or ARB_clip_control seems to play a role on that
    https://outerra.blogspot.com/2012/11/maximizing-depth-buffer-range-and.html
 
 ## Model Loading
-- [x] Retrive .mtl file from .obj when it tried to load it
-- [x] Tender .obj with .mtl files, diffuse and specular
-- [ ] Try .glb file with it
-- [ ] Model loading with cgtlf
-- [x] Sword.fbx with wrong absolute path, deal with it by taking the base_name and search relatively to the .fbx file passed
+[x] Retrive .mtl file from .obj when it tried to load it
+[x] Tender .obj with .mtl files, diffuse and specular
+[ ] Try .glb file with it
+[ ] Model loading with cgtlf
+[x] Sword.fbx with wrong absolute path, deal with it by taking the base_name and search relatively to the .fbx file passed
 

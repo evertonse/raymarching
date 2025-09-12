@@ -1,4 +1,5 @@
 #include "assets/all_obj.h"
+#include "raymath.h"
 // void *data;
 // bool is_from_single_data_buffer;
 typedef struct {
@@ -70,6 +71,49 @@ static Mesh cube_mesh = {
    }
 };
 
+void recalc_mesh_normals(Mesh *mesh) {
+   if (!mesh || mesh->vertices.count == 0 || mesh->indices.count == 0) return;
+
+   // zero out normals
+   memset(mesh->vertices.normals, 0, mesh->vertices.count * sizeof(Vector3));
+
+   for (u32 i = 0; i + 2 < mesh->indices.count; i += 3) {
+      u32 i0 = mesh->indices.items[i+0];
+      u32 i1 = mesh->indices.items[i+1];
+      u32 i2 = mesh->indices.items[i+2];
+
+      if (i0 >= mesh->vertices.count || i1 >= mesh->vertices.count || i2 >= mesh->vertices.count)
+         continue; // safety
+
+      Vector3 p0 = mesh->vertices.positions[i0];
+      Vector3 p1 = mesh->vertices.positions[i1];
+      Vector3 p2 = mesh->vertices.positions[i2];
+
+      Vector3 e1 = sub(p1, p0);
+      Vector3 e2 = sub(p2, p0);
+
+      Vector3 fn = cross(e1, e2);
+
+      // accumulate face normal to each vertex
+      mesh->vertices.normals[i0].x += fn.x;
+      mesh->vertices.normals[i0].y += fn.y;
+      mesh->vertices.normals[i0].z += fn.z;
+
+      mesh->vertices.normals[i1].x += fn.x;
+      mesh->vertices.normals[i1].y += fn.y;
+      mesh->vertices.normals[i1].z += fn.z;
+
+      mesh->vertices.normals[i2].x += fn.x;
+      mesh->vertices.normals[i2].y += fn.y;
+      mesh->vertices.normals[i2].z += fn.z;
+   }
+
+   // normalize all normals
+   for (u32 v = 0; v < mesh->vertices.count; v++) {
+      mesh->vertices.normals[v] = Vector3Normalize(mesh->vertices.normals[v]);
+   }
+}
+
 Mesh generate_sphere_mesh(float radius, int rings, int slices) {
    Mesh mesh = {0};
 
@@ -78,8 +122,9 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
 
    size_t vertex_array_size = vertex_count * (size_of(Vector3) + size_of(Vector3) + size_of(Vector2));
    size_t index_array_size = index_count * size_of(unsigned int);
+   size_t surfaces_size = 1 * size_of(mesh.surfaces.items[0]);
 
-   void *memory = malloc(vertex_array_size + index_array_size);
+   void *memory = malloc(vertex_array_size + index_array_size + surfaces_size);
    unsigned char *ptr = (unsigned char *)memory;
 
    mesh.vertices.positions = (Vector3 *)ptr;
@@ -89,9 +134,12 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
    mesh.vertices.uvs = (Vector2 *)ptr;
    ptr += vertex_count * size_of(Vector2);
    mesh.indices.items = (unsigned int *)ptr;
+   ptr += index_array_size;
+   mesh.surfaces.items = (void*)ptr;
 
    mesh.vertices.count = vertex_count;
    mesh.indices.count  = index_count;
+   mesh.surfaces.count = 1;
 
    int v = 0;
    for (int i = 0; i <= rings; i += 1) {
@@ -128,6 +176,19 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
       }
    }
 
+   struct {
+      struct {
+         isz indices_offset;
+         isz indices_count;
+         isz material_index;
+      } *items;
+      u32 count;
+   } surfaces;
+
+   mesh.surfaces.count = 1;
+   mesh.surfaces.items[0].indices_offset = 0;
+   mesh.surfaces.items[0].indices_count  = index_count;
+   mesh.surfaces.items[0].material_index = -1;
    return mesh;
 }
 
@@ -138,12 +199,13 @@ Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
    const usz floats_per_vertex = 8;
    const usz vertex_count = count / floats_per_vertex;
 
-   usz vertex_data_size = vertex_count * size_of(Vector3);
-   usz normal_data_size = vertex_count * size_of(Vector3);
-   usz uv_data_size     = vertex_count * size_of(Vector2);
-   usz index_data_size  = vertex_count * size_of(u32);
+   usz vertex_data_size   = vertex_count * size_of(Vector3);
+   usz normal_data_size   = vertex_count * size_of(Vector3);
+   usz uv_data_size       = vertex_count * size_of(Vector2);
+   usz index_data_size    = vertex_count * size_of(u32);
+   usz surfaces_data_size = 1 * size_of(mesh.surfaces.items[0]);
 
-   usz total_size = vertex_data_size + normal_data_size + uv_data_size + index_data_size;
+   usz total_size = vertex_data_size + normal_data_size + uv_data_size + index_data_size + surfaces_data_size;
    void *block = malloc(total_size);
 
    // Assign pointers within the block
@@ -151,18 +213,25 @@ Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
    mesh.vertices.normals   = (Vector3 *)((char *)block + vertex_data_size);
    mesh.vertices.uvs       = (Vector2 *)((char *)block + vertex_data_size + normal_data_size);
    mesh.indices.items      = (u32 *)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size);
+   mesh.surfaces.items     = (void*)    ((char *)block + vertex_data_size + normal_data_size + uv_data_size + index_data_size);
 
    // At last, fill in the data
    for (usz i = 0; i < vertex_count; i += 1) {
-       const float *v = &interleaved[i * floats_per_vertex];
-       mesh.vertices.positions[i] = (Vector3){v[0], v[1], v[2]};
-       mesh.vertices.normals  [i] = (Vector3){v[3], v[4], v[5]};
-       mesh.vertices.uvs      [i] = (Vector2){v[6], v[7]};
-       mesh.indices.items     [i] = (u32)i;
+      const float *v = &interleaved[i * floats_per_vertex];
+      mesh.vertices.positions[i] = (Vector3){v[0], v[1], v[2]};
+      mesh.vertices.normals  [i] = (Vector3){v[3], v[4], v[5]};
+      mesh.vertices.uvs      [i] = (Vector2){v[6], v[7]};
+      mesh.indices.items     [i] = (u32)i;
    }
+
+   mesh.surfaces.items[0].material_index = -1;
+   mesh.surfaces.items[0].indices_offset = 0;
+   mesh.surfaces.items[0].indices_count  = vertex_count;
+
 
    mesh.vertices.count = vertex_count;
    mesh.indices.count  = vertex_count;
+   mesh.surfaces.count = 1;
    return mesh;
 }
 

@@ -506,12 +506,12 @@ int inline default_framebuffer_samples(void) {
 void inline blit_framebuffer(
    const Framebuffer dst_fb,
    const Framebuffer src_fb,
-   int src_x0, int src_y0, int src_x1, int src_y1,
-   int dst_x0, int dst_y0, int dst_x1, int dst_y1
+   int dst_x0, int dst_y0, int dst_x1, int dst_y1,
+   int src_x0, int src_y0, int src_x1, int src_y1
 ) {
    // Validate framebuffers
-   assert_msg(is_valid_framebuffer(src_fb), tprintf("Invalid source framebuffer: format=%d, samples=%d\n", src_fb.color.format, src_fb.color.samples));
-   assert_msg(is_valid_framebuffer(dst_fb), tprintf("Invalid destination framebuffer: format=%d, samples=%d\n", dst_fb.color.format, dst_fb.color.samples));
+   assert_msg(is_valid_framebuffer(src_fb), "Invalid source framebuffer: format=%d, samples=%d\n",      src_fb.color.format, src_fb.color.samples);
+   assert_msg(is_valid_framebuffer(dst_fb), "Invalid destination framebuffer: format=%d, samples=%d\n", dst_fb.color.format, dst_fb.color.samples);
 
    int src_width  = src_x1 - src_x0;
    int src_height = src_y1 - src_y0;
@@ -575,6 +575,20 @@ void inline blit_framebuffer(
        dst_x0, dst_y0, dst_x1, dst_y1,  // destination rectangle
        GL_COLOR_BUFFER_BIT,             // mask
        GL_NEAREST                       // filter
+   );
+}
+
+void inline overload blit_framebuffer(
+   const Framebuffer dst_fb,
+   const Framebuffer src_fb,
+   Rectangle_I32 src_rectangle,
+   Rectangle_I32 dst_rectangle
+) {
+   int dst_x0 = dst_rectangle.x, dst_y0 = dst_rectangle.y, dst_x1 = dst_rectangle.x + dst_rectangle.width, dst_y1 = dst_rectangle.y + dst_rectangle.height;
+   int src_x0 = src_rectangle.x, src_y0 = src_rectangle.y, src_x1 = src_rectangle.x + src_rectangle.width, src_y1 = src_rectangle.y + src_rectangle.height;
+   blit_framebuffer(dst_fb, src_fb,
+      dst_x0, dst_y0, dst_x1, dst_y1,
+      src_x0, src_y0, src_x1, src_y1
    );
 }
 

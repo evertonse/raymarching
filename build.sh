@@ -171,7 +171,7 @@ build() {
     case "$1" in
         release)
             echo "Configuring for release"
-            flags="-static -pipe -static -O3 -ffast-math -fno-exceptions -finline-functions"
+            flags="-DRELEASE -static -pipe -static -O3 -ffast-math -fno-exceptions -finline-functions"
             ;;
         debug)
             echo "Configuring for debug"
@@ -235,7 +235,7 @@ create_zip() {
     fi
 
     local zip_file="$1"
-    zip -r "$zip_file" src/shaders/* main.exe
+    zip -r "$zip_file" res/ src/renderer/shared/ src/shaders/* main.exe
 
     if [ $? -eq 0 ]; then
         echo "Successfully created $zip_file"
@@ -302,6 +302,7 @@ main() {
             ;;
         release)
             build "release"
+            create_zip release
             ./"$bin"
             ;;
         zip)

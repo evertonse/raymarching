@@ -57,15 +57,16 @@ void init_window(void) {
       glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
       glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-      glfwWindowHint(GLFW_SAMPLES, 32);
-
-      // Request a floating-point backbuffer
-      glfwWindowHint(GLFW_RED_BITS, 32);   // 32 bits for red channel
-      glfwWindowHint(GLFW_GREEN_BITS, 32); // 32 bits for green channel
-      glfwWindowHint(GLFW_BLUE_BITS, 32);  // 32 bits for blue channel
-      glfwWindowHint(GLFW_ALPHA_BITS, 32); // 32 bits for alpha channel
-      glfwWindowHint(GLFW_DEPTH_BITS, 24);
-      glfwWindowHint(GLFW_STENCIL_BITS, 8);
+      const bool back_buffer_multisample = false;
+      if (back_buffer_multisample) {
+         glfwWindowHint(GLFW_SAMPLES, 32);
+         glfwWindowHint(GLFW_RED_BITS, 32);
+         glfwWindowHint(GLFW_GREEN_BITS, 32);
+         glfwWindowHint(GLFW_BLUE_BITS, 32);
+         glfwWindowHint(GLFW_ALPHA_BITS, 32);
+         glfwWindowHint(GLFW_DEPTH_BITS, 24);
+         glfwWindowHint(GLFW_STENCIL_BITS, 8);
+      }
    }
 
    glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
@@ -85,6 +86,7 @@ void init_window(void) {
    __state.window.handle = glfwCreateWindow(window_width, window_height, title.base, NULL, NULL);
    if (!__state.window.handle) {
       glfwTerminate();
+      trace_error("Failed to even create a window, that's the saddest thing. Hope you the best.");
       exit(EXIT_FAILURE);
    }
    auto window = __state.window.handle;
@@ -104,7 +106,6 @@ void init_window(void) {
    const bool cap_frame_rate = false;
    glfwSwapInterval(cap_frame_rate);
    __state.window.initialized = true;
-
 }
 
 

@@ -72,7 +72,7 @@ struct Joint_Vertex {
 #define SHARED_TYPES_HEADER
 
 #endif // SHARED_TYPES_HEADER
-#ifdef COCK
+#ifdef COMMENTS
 #include "res/shaders/src/comments.glsl"
 #endif
 // types.glsl end

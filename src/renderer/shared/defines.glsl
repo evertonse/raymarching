@@ -2,7 +2,12 @@
 #define SHARED_DEFINES_HEADER
 
 #define RENDERER_USING_BINDLESS 1
-#define RENDERER_DEBUG 1
+
+#ifdef RELEASE
+// Define nothing
+#else
+#   define RENDERER_DEBUG  1
+#endif
 
 #define BINDING_INSTANCE_BUFFER    6
 #define BINDING_INDICES_BUFFER     5
@@ -25,6 +30,12 @@
 #   define PI 3.14159265358979323846
 #endif
 
+// Smallest such that 1.0 + FLT_EPSILON != 1.0.
+#ifndef FLT_EPSILON
+#   define FLT_EPSILON 1.192092896e-07F
+#endif
+
+
 #ifndef TAU
 #   define TAU PI * 2.
 #endif
@@ -43,4 +54,3 @@
 
 #endif // SHARED_DEFINES_HEADER
 // defines.glsl end
-

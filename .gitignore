@@ -19,6 +19,7 @@ CMakeUserPresets.json
 *.bin
 *.out
 *.obj
+*.zip
 *.o
 *.pdb
 *.sln

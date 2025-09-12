@@ -3,9 +3,7 @@ vec4 perspective_simplest(vec3 position) {
    return vec4(position.xy, position.z*position.z, position.z);
 }
 
-vec4 perspective_from_frustum(vec3 position, float fov_y_rad, float aspect) {
-   float z_near = 0.1, z_far = 100.0;
-
+vec4 perspective_from_frustum(vec3 position, float fov_y_rad, float aspect, float z_near, float z_far) {
    float f = tan(fov_y_rad * 0.5);
    float y_near = z_near * f;
    float y_far = z_far * f;

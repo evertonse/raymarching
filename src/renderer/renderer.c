@@ -11,6 +11,7 @@
 #include "./shader.c"
 #include "./mesh.c"
 #include "./texture.c"
+#include "./animation.c"
 #include "./model.c"
 #include "./buffer.c"
 #include "./nuklear.c"
@@ -47,7 +48,7 @@ typedef struct {
     i32 y;                // Rectangle top-left corner position y
     i32 width;            // Rectangle width
     i32 height;           // Rectangle height
-} Rectanglei32;
+} Rectangle_I32;
 
 
 
@@ -77,8 +78,8 @@ inline bool is_valid_vertex_array(Vertex_Array va) {
 }
 
 
-// Rectanglei32
-inline bool is_valid_rectangle(Rectanglei32 r) {
+// Rectangle_I32
+inline bool is_valid_rectangle(Rectangle_I32 r) {
     return r.width > 0 && r.height > 0;
 }
 
@@ -111,6 +112,19 @@ Vertex_Array create_vertex_array(const Vertex *vertices, usz vertex_count, const
    return va;
 }
 
+typedef enum {
+   RENDERER_MODE_FILL,
+   RENDERER_MODE_WIREFRAME,
+} Renderer_Mode;
+
+void set_redererer_mode(Renderer_Mode mode) {
+   if (RENDERER_MODE_WIREFRAME == mode) {
+      glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+   }
+   else {
+      glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+   }
+}
 
 Vertex_Array create_vertex_array_from_arrays(Vector3 *positions, Vector3 *normals, Vector2* uvs, isz count, u32* indices, isz indices_count) {
    Vertex_Array va = {0};
@@ -281,8 +295,10 @@ void update_renderer(void) {
    // TODO: Check is window_height/width correspond to actual framebuffer
    auto samples = default_framebuffer_samples();
 
+   static bool first_time = false;
    bool inform_change = false;
-   if (samples != default_framebuffer.color.samples) {
+   if (first_time || samples != default_framebuffer.color.samples) {
+      first_time = true;
       inform_change = true;
    }
    default_framebuffer = (Framebuffer){
@@ -534,16 +550,7 @@ void enable_error_report() {
    // glDebugMessageCallback(0, nullptr);
 }
 
-
-void init_renderer(void) {
-   assert_msg(__state.renderer.initialized == false, "Renderer initialized twice?");
-   int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
-   assert(flags & GL_CONTEXT_FLAG_DEBUG_BIT);
-   enable_error_report();
-
-   print_opengl_resource_limits();
-   print_default_framebuffer_info();
-
+void initialize_opengl_opts() {
    { // Some expected settings
       glEnable(GL_BLEND);
 
@@ -579,34 +586,74 @@ void init_renderer(void) {
       // glMinSampleShading(1.0):
    }
 
+}
+
+void init_renderer(void) {
+   assert_msg(__state.renderer.initialized == false, "Renderer initialized twice?");
+   int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
+   assert(flags & GL_CONTEXT_FLAG_DEBUG_BIT);
+   enable_error_report();
+
+   print_opengl_resource_limits();
+   print_default_framebuffer_info();
+   initialize_opengl_opts();
+   if (false){ // Some expected settings
+      glEnable(GL_BLEND);
+      // glBlendEquation(GL_FUNC_ADD);
+
+      // NOTE: Enabling GL_MULTISAMPLE might break raymarching because you can't bind a texture as image with multisample
+      // https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMinSampleShading.xhtml
+      glEnable(GL_MULTISAMPLE);
+      // Enable Supersampling with GL_SAMPLE_SHADING and glMinSampleShading set to 1
+      // glEnable(GL_SAMPLE_SHADING);
+      // glMinSampleShading(1.0):
+      // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+
+      glEnable(GL_DEPTH_TEST);
+      glDisable(GL_CULL_FACE);
+      // glCullFace(GL_BACK);          // Cull back faces
+      // glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
+   }
+
+   if (false) {
+      /* setup global state */
+      glDisable(GL_FRAMEBUFFER_SRGB);
+
+      // glEnable(GL_CULL_FACE);
+      glEnable(GL_DEPTH_TEST);
+      glDisable(GL_SCISSOR_TEST);
+      glEnable(GL_STENCIL_TEST);
+   }
+
    __state.renderer.initialized  = true;
 }
 
+
 void debug_depth_testing() {
-  printf("=== Depth Testing Debug ===\n");
+   printf("=== Depth Testing Debug ===\n");
 
-  // Check depth state
-  GLboolean depth_test;
-  glGetBooleanv(GL_DEPTH_TEST, &depth_test);
-  printf("Depth test enabled: %s\n", depth_test ? "yes" : "no");
+   // Check depth state
+   GLboolean depth_test;
+   glGetBooleanv(GL_DEPTH_TEST, &depth_test);
+   printf("Depth test enabled: %s\n", depth_test ? "yes" : "no");
 
-  GLint depth_func;
-  glGetIntegerv(GL_DEPTH_FUNC, &depth_func);
-  printf("Depth function: 0x%04X\n", depth_func);
+   GLint depth_func;
+   glGetIntegerv(GL_DEPTH_FUNC, &depth_func);
+   printf("Depth function: 0x%04X\n", depth_func);
 
-  GLboolean depth_mask;
-  glGetBooleanv(GL_DEPTH_WRITEMASK, &depth_mask);
-  printf("Depth writes enabled: %s\n", depth_mask ? "yes" : "no");
+   GLboolean depth_mask;
+   glGetBooleanv(GL_DEPTH_WRITEMASK, &depth_mask);
+   printf("Depth writes enabled: %s\n", depth_mask ? "yes" : "no");
 
-  GLfloat depth_clear;
-  glGetFloatv(GL_DEPTH_CLEAR_VALUE, &depth_clear);
-  printf("Depth clear value: %f\n", depth_clear);
+   GLfloat depth_clear;
+   glGetFloatv(GL_DEPTH_CLEAR_VALUE, &depth_clear);
+   printf("Depth clear value: %f\n", depth_clear);
 
-  GLdouble depth_range[2];
-  glGetDoublev(GL_DEPTH_RANGE, depth_range);
-  printf("Depth range: near=%f, far=%f\n", depth_range[0], depth_range[1]);
+   GLdouble depth_range[2];
+   glGetDoublev(GL_DEPTH_RANGE, depth_range);
+   printf("Depth range: near=%f, far=%f\n", depth_range[0], depth_range[1]);
 
-  printf("==========================\n");
+   printf("==========================\n");
 }
 
 void debug_culling_state() {

@@ -273,3 +273,7 @@ Matrix FloatsToMatrix(float floats[16]) {
    mat.m15 = floats[15];
    return mat;
 }
+
+Vector3 overload vector3(float v) { return (Vector3){v, v, v}; }
+Vector3 overload vector3(float x, float y, float z) { return (Vector3){x, y, z}; }
+

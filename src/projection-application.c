@@ -25,7 +25,7 @@ typedef struct {
 
    Framebuffer    fb;
 
-   Rectanglei32   destination;
+   Rectangle_I32   destination;
    Camera         camera;
    Mesh           sphere_mesh;
 
@@ -206,23 +206,13 @@ void projection_init(Projection_Application *app) {
 
    // const struct {isz width, height;} resolution = {2560, 1080};
    // const struct {isz width, height;} resolution = {1152, 486};
-   const struct {isz width, height;} resolution = {800, 675};
+   const struct {isz width, height;} resolution = {1600, 900};
 
    const isz samples = 16;
    // create_framebuffer_multisample,create_framebuffer
    app->fb = create_framebuffer_multisample_with_renderbuffers(resolution.width, resolution.height, samples);
 
    // const f64 rectangle_shrink_factor = 0.45;
-   const f64 rectangle_shrink_factor = 1.0;
-   app->destination = (Rectanglei32) {
-      .x = 100/4.,
-      .y = 100/4.,
-      // .x = 0,
-      // .y = 0,
-      .width = 1152, .height = 486,
-      // .width  = app->fb.color.width  * rectangle_shrink_factor,
-      // .height = app->fb.color.height * rectangle_shrink_factor,
-   };
 
    isz ub_binding = 2;
    app->per_frame_buffer = create_uniform_buffer(size_of(app->per_frame), ub_binding + 2);
@@ -376,6 +366,357 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
 }
 
 
+void draw_scene(Projection_Application *app) {
+   static Scene_Node scene_nodes[10] = {-1};
+   static Scene_Node sophias[3] = {-1};
+   static bool scene_loaded = false;
+   static Scene_Node alleyana = {0};
+
+   static Scene_Node box_node  = {-1};
+   static Scene_Node sphere_node = {-1};
+
+   if (!scene_loaded) {
+      scene_loaded = true;
+      ZString model_filepath = "";
+
+      Model boy_model    = create_model("res/models/boy/boy_animation_textured.fbx");
+      Model luster_model = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
+
+      // Model box_model = create_model("res/models/box/box.fbx");
+      Model box_model = create_cube_model(nullptr, nullptr, nullptr, nullptr);
+      assert(1 == box_model.materials.count);
+      box_model.materials.items[0].diffuse = "res/textures/brickwall.jpg";
+      box_model.materials.items[0].normal  = "res/textures/brickwall_normal.jpg";
+
+      Model sphere_model = create_sphere_model(1.0, 2*32, 2*32,
+            nullptr, nullptr, nullptr, "res/textures/tileable/Cone_Map_1k_normals.png"
+      );
+
+      static Model alleyana_model = {0};
+
+      alleyana_model = create_model("res/models/alleyana/source/Alleyana.fbx");
+      // alleyana_model = create_model("res/models/alleyana-no-content/source/untitled.obj");
+      // alleyana_model = create_model("res/models/alleyana-no-content/source/Alleyana.fbx");
+
+      Transform alleyana_transform = transform_identity;
+      alleyana_transform.scale = mul(alleyana_transform.scale, 20.);
+      alleyana_transform.translation = add(alleyana_transform.translation, ((Vector3){-20., 0, 0}));
+      alleyana = create_scene_node(&alleyana_model, alleyana_transform);
+
+
+      Transform box_transform   = alleyana_transform;
+      box_transform.scale       = (Vector3){200., 200., 5.};
+      box_transform.translation = add(box_transform.translation, ((Vector3){-120., -10., 120.}));
+      box_transform.rotation = QuaternionFromAxisAngle(vector3(1.), PI/2.);
+      box_node = create_scene_node(&box_model, box_transform);
+
+      auto box_padding = 100;
+      auto box_scale   = 70;
+      box_transform.scale       = (Vector3){box_scale, box_scale, box_scale};
+      box_model.materials.items[0].normal  = "res/textures/tileable/Cone_Map_1k_normals.png";
+      box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      create_scene_node(&box_model, box_transform);
+
+      box_model.materials.items[0].normal  = "res/textures/tileable/sofa.png";
+      box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      create_scene_node(&box_model, box_transform);
+
+      box_model.materials.items[0].normal  = "res/textures/tileable/face.jpg";
+      box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      create_scene_node(&box_model, box_transform);
+
+      box_model.materials.items[0].normal  = "res/textures/tileable/base_height_conv_to_nmap.png";
+      box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      create_scene_node(&box_model, box_transform);
+
+      box_model.materials.items[0].normal  = "res/textures/Rock/Cliff_Mossy_B_Normal.png";
+      box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      create_scene_node(&box_model, box_transform);
+
+
+
+      Transform sphere_transform = box_transform ;
+      sphere_transform.scale       = (Vector3){18., 18., 18.};
+      sphere_transform.translation = add(sphere_transform.translation, ((Vector3){-150., 10, 0}));
+      sphere_node = create_scene_node(&sphere_model, sphere_transform);
+
+
+      Model sophia_model     = create_model("res/models/sophia-doll-victory-dance/source/sophia doll victory dance.fbx");
+      Model sophia_big_model = create_model("res/models/sophia-doll-victory-dance/source/Sophia Doll VictoryDance.Fbx");
+
+      model_filepath = "res/models/mari/source/Mari.fbx";
+      // model_filepath = "res/models/boy/boy_animation_textured.fbx";
+      begin_profile();
+      {
+         Model m  = create_model(model_filepath);
+         Transform transform = transform_identity;
+         scene_nodes[0] = create_scene_node(&m, transform);
+         set_animation_time(scene_nodes[0], 0.0);
+         play_animation(scene_nodes[0]);
+
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         transform.scale  = mul(transform.scale, 0.5);
+         scene_nodes[2] = create_scene_node(&boy_model, transform);
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         scene_nodes[4] = create_scene_node(scene_nodes[2], transform);
+         set_animation_time (scene_nodes[4], 0.65);
+         set_animation_speed(scene_nodes[4], 1.65);
+
+         transform.scale  = mul(transform.scale, 2.0);
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         scene_nodes[3] = create_scene_node_new_cmd(scene_nodes[0], transform);
+         set_animation_time(scene_nodes[3], 0.25);
+         set_animation_speed(scene_nodes[3], 0.1);
+         play_animation(scene_nodes[3]);
+      }
+      end_profile(model_filepath);
+
+
+      model_filepath = "res/models/backpack/backpack.obj";
+      begin_profile();
+      if (true) {
+         Model m  = create_model(model_filepath);
+         Transform transform = transform_identity;
+         transform.scale = mul(transform.scale, 1.5);
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
+         scene_nodes[5] = create_scene_node(&m, transform);
+         play_animation(scene_nodes[5]);
+
+         transform.scale = mul(((Vector3){1., 1., 1.}), 1.5);
+         transform.translation = add(transform.translation, ((Vector3){45., 5., 0}));
+         sophias[0] = create_scene_node(&sophia_model, transform);
+         set_animation_time_percentage(sophias[0], 0.0);
+         set_animation_speed(sophias[0], 0.3);
+
+         transform.translation = add(transform.translation, ((Vector3){25., 5., 0}));
+         sophias[1] = create_scene_node(&sophia_big_model, transform);
+         set_animation_time_percentage(sophias[1], 0.5);
+
+         transform.translation = add(transform.translation, ((Vector3){25., 5., 0}));
+         sophias[2] = create_scene_node(sophias[0], transform);
+         set_animation_time_percentage(sophias[2], 0.9);
+
+      }
+      end_profile(model_filepath);
+
+
+      {
+         Transform transform = transform_identity;
+         transform.scale = mul(transform.scale, 0.25);
+         transform.translation = add(transform.translation, ((Vector3){-45., 5., 0}));
+         scene_nodes[8] = create_scene_node(&luster_model, transform);
+      }
+
+
+
+
+      // TODO: Create a destroy function
+      // destroy_model(&m);
+
+   }
+
+   const bool draw_with_manager = true;
+   if (draw_with_manager) {
+
+      // update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
+
+      auto box_rotation = QuaternionFromAxisAngle(vector3(1.), time_elapsed());
+      update_transform(box_node,    box_rotation);
+      update_transform(sphere_node, box_rotation);
+
+      // TODO: make sure scene_node with 0 index is invalid
+      play_animation(scene_nodes[3]);
+      play_animation(scene_nodes[0]);
+      play_animation(scene_nodes[2]);
+      play_animation(scene_nodes[4]);
+      play_animation(scene_nodes[8]);
+
+      play_animation(sophias[0]);
+      play_animation(sophias[1]);
+      play_animation(sophias[2]);
+
+      // set_global_animation_speed(1.65); // TODO: make this into reality
+
+
+      if (is_button_pressed(BUTTON_B)) {
+         set_animation_speed(scene_nodes[4], 0.65);
+         set_animation_speed(scene_nodes[8], 0.65);
+         play_animation_identity(alleyana);
+      } else if (is_button_pressed(BUTTON_N)) {
+         set_animation_speed(scene_nodes[4], 1.65);
+         set_animation_speed(scene_nodes[8], 1.65);
+      }
+      play_animation(alleyana);
+
+      static Texture tex = {0};
+      if (!is_valid_texture(tex)) {
+         tex = create_texture_from_filepath("res/models/alleyana/textures/mn_vonr_00_body_d.png");
+      }
+
+      bind_texture(tex, 3);
+   }
+}
+
+void draw_scene_few(Projection_Application *app) {
+   static Scene_Node alleyana = {-1};
+   static bool scene_loaded = false;
+
+   if (!scene_loaded) {
+      scene_loaded = true;
+      // Model alleyana_model = create_model("res/models/alleyana/source/Alleyana.fbx");
+      // Model luster_model      = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
+      // Model luster_model      = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
+      Model sophia_model  = create_model("res/models/sophia-doll-victory-dance/source/sophia doll victory dance.fbx");
+      Model alleyana_model    = sophia_model;
+
+      // Model alleyana_model   = create_model("res/models/alleyana/source/Alleyana-No-Textures.fbx");
+      // Model alleyana_model   = create_model("res/models/alleyana-no-content/source/Alleyana.fbx");
+
+      // alleyana_model.meshes.items[0].surfaces.items[0].indices_count = 26916;
+      // alleyana_model.meshes.items[0].surfaces.items[1].indices_count = 35166;
+      // alleyana_model.joints.count = 105;
+      // recalc_mesh_normals(&alleyana_model.meshes.items[0]);
+      trace_model(&alleyana_model);
+
+
+      Transform base_transform = transform_identity;
+      base_transform.translation = add(base_transform.translation, ((Vector3){-20., 0, -60}));
+      // base_transform.scale = vector3(20.);
+      base_transform.scale = vector3(0.8);
+
+      base_transform.translation = add(base_transform.translation, ((Vector3){-20., 0, 0}));
+      alleyana = create_scene_node(&alleyana_model, base_transform);
+
+      play_animation(alleyana);
+   }
+
+   bool const draw_with_manager = true;
+   bool play = true;
+   double speed = 1.0;
+
+   {
+      speed = 0.0;
+      if (is_button_pressed(BUTTON_RIGHT)) {
+         speed = 0.15;
+      } else if (is_button_pressed(BUTTON_LEFT)) {
+         speed = -0.15;
+      }
+
+      if (is_button_pressed(BUTTON_SHIFT)) {
+         speed *= 10.0 * 3;
+      }
+   }
+
+   {
+      if (is_button_pressed(BUTTON_UP)) {
+         set_animation_time_percentage(alleyana, 0.0);
+      }
+      if (is_button_pressed(BUTTON_DOWN)) {
+         set_animation_time_percentage(alleyana, 0.999);
+      }
+
+   }
+
+   set_animation_speed(alleyana, speed);
+
+
+
+   if (play) {
+      play_animation(alleyana);
+   }
+
+   if (draw_with_manager) {
+   }
+}
+
+void draw_scene_few2(Projection_Application *app) {
+   static Scene_Node sophia = {-1};
+   static Scene_Node mari = {-1};
+   static Scene_Node alleyana = {-1};
+   static Scene_Node lust = {-1};
+   static bool scene_loaded = false;
+
+   if (!scene_loaded) {
+      scene_loaded = true;
+      Model alleyana_model   = create_model("res/models/alleyana/source/Alleyana.fbx");
+      // Model sophia_model  = create_model("res/models/sophia-doll-victory-dance/source/sophia doll victory dance.fbx");
+      Model sophia_big_model = create_model("res/models/sophia-doll-victory-dance/source/Sophia Doll VictoryDance.Fbx");
+      Model mari_model       = create_model("res/models/mari/source/Mari.fbx");
+      Model lust_model       = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
+      const float spacing = 29.;
+
+      Transform base_transform = transform_identity;
+      base_transform.translation = add(base_transform.translation, ((Vector3){-spacing, 0, -60}));
+      base_transform.scale = vector3(20.);
+
+      base_transform.translation = add(base_transform.translation, ((Vector3){-spacing, 0, 0}));
+      alleyana = create_scene_node(&alleyana_model, base_transform);
+
+      base_transform.translation = add(base_transform.translation, ((Vector3){-spacing, 0, 0}));
+      base_transform.scale = vector3(2.);
+      sophia = create_scene_node(&sophia_big_model, base_transform);
+
+      base_transform.translation = add(base_transform.translation, ((Vector3){-spacing, 0, 0}));
+      base_transform.scale = vector3(1.);
+      mari = create_scene_node(&mari_model, base_transform);
+
+      base_transform.translation = add(base_transform.translation, ((Vector3){-spacing, 0, 0}));
+      base_transform.scale = vector3(0.22);
+      lust = create_scene_node(&lust_model, base_transform);
+
+      play_animation(sophia);
+      play_animation(mari);
+      play_animation(alleyana);
+      play_animation(lust);
+   }
+
+   bool const draw_with_manager = true;
+   bool play = true;
+   double speed = 1.0;
+
+   {
+      speed = 0.0;
+      if (is_button_pressed(BUTTON_RIGHT)) {
+         speed = 0.15;
+      } else if (is_button_pressed(BUTTON_LEFT)) {
+         speed = -0.15;
+      }
+
+      if (is_button_pressed(BUTTON_SHIFT)) {
+         speed *= 10.0 * 3;
+      }
+   }
+
+   {
+      if (is_button_pressed(BUTTON_UP)) {
+         set_animation_time_percentage(sophia,   0.0);
+         set_animation_time_percentage(mari,     0.0);
+         set_animation_time_percentage(alleyana, 0.0);
+         set_animation_time_percentage(lust, 0.0);
+      }
+      if (is_button_pressed(BUTTON_DOWN)) {
+         set_animation_time_percentage(sophia,   0.999);
+         set_animation_time_percentage(mari,     0.999);
+         set_animation_time_percentage(alleyana, 0.999);
+         set_animation_time_percentage(lust, 0.999);
+      }
+
+   }
+
+   if (play) {
+      set_animation_speed(sophia,   speed);
+      set_animation_speed(mari,     speed);
+      set_animation_speed(alleyana, speed);
+      set_animation_speed(lust, speed);
+      play_animation(sophia);
+      play_animation(mari);
+      play_animation(alleyana);
+      play_animation(lust);
+   }
+
+}
+
 
 void projection_update(Projection_Application *app, f64 dt) {
 
@@ -455,31 +796,44 @@ void projection_update(Projection_Application *app, f64 dt) {
       //
 
       // NOTE: This are the usual culprits of weird, missing or outta order triangle redering.
-      {
-         glDisable   (GL_CULL_FACE);
-         // glEnable   (GL_CULL_FACE);
-         glCullFace  (GL_FRONT);  // Instead of GL_BACK
-         glFrontFace (GL_CW);    // Instead of GL_CCW
-         glEnable    (GL_DEPTH_TEST);
+
+
+      glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+      if (false) { // Testing somethings
+         // glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
+         glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+         glDepthMask(GL_TRUE);
+         glDepthFunc(GL_LESS);
+      }
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glBlendEquation(GL_FUNC_ADD);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+      glEnable(GL_DEPTH_TEST);
+
+      glDisable(GL_CULL_FACE);
+      glFrontFace (GL_CW);     // Instead of GL_CCW
+      glCullFace  (GL_BACK);   // Instead of GL_BACK
+
+      if (false) {
          glDepthFunc (GL_LESS);
          glDepthMask (GL_TRUE);
+         glCullFace  (GL_FRONT);  // Instead of GL_BACK
+         glFrontFace (GL_CCW);     // Instead of GL_CCW
          glClearDepth(1.0);
          glDepthRange(0.0, 1.0);
       }
 
       // Enable polygon offset to mitigate z-fighting
       glEnable(GL_POLYGON_OFFSET_FILL);
-      glPolygonOffset(1.0f, 1.0f);
+      glPolygonOffset(0.1f, 0.1f);
 
       glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-      // Wireframe mode
-      // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-      // back to its default using glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
    }
 
-   // exit(EXIT_SUCCESS);
    Shader shader = app->shader;
    bind_shader(shader);
 
@@ -519,157 +873,22 @@ void projection_update(Projection_Application *app, f64 dt) {
    }
 
 
-   static Scene_Node scene_nodes[10] = {-1};
-   static Scene_Node sophias[3] = {-1};
-   static bool scene_loaded = false;
-   static Scene_Node alleyana = {0};
+   draw_scene_few2(app);
+   // draw_scene_few(app);
+   draw_scene(app);
 
-   if (!scene_loaded) {
-      scene_loaded = true;
-      ZString model_filepath = "";
-
-      Model boy_model    = create_model("res/models/boy/boy_animation_textured.fbx");
-      Model luster_model = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
-
-      Model box_model    = create_model("res/models/box/box.fbx");
-      assert(1 == box_model.materials.count);
-      box_model.materials.items[0].diffuse = "res/textures/brickwall.jpg";
-      box_model.materials.items[0].normal  = "res/textures/brickwall_normal.jpg";
-
-
-      static Model alleyana_model = {0};
-
-      alleyana_model = create_model("res/models/alleyana/source/Alleyana.fbx");
-      // alleyana_model = create_model("res/models/alleyana-no-content/source/untitled.obj");
-      // alleyana_model = create_model("res/models/alleyana-no-content/source/Alleyana.fbx");
-
-      Transform alleyana_transform = transform_identity;
-      alleyana_transform.scale = mul(alleyana_transform.scale, 20.);
-      alleyana_transform.translation = add(alleyana_transform.translation, ((Vector3){-20., 0, 0}));
-      alleyana = create_scene_node(&alleyana_model, alleyana_transform);
-
-
-      Transform box_transform = alleyana_transform;
-      box_transform.scale = (Vector3){200., 200., 5.};
-      box_transform.translation = add(box_transform.translation, ((Vector3){-120., 1., 0}));
-      Scene_Node box_node = create_scene_node(&box_model, box_transform);
-
-      Model sophia_model     = create_model("res/models/sophia-doll-victory-dance/source/sophia doll victory dance.fbx");
-      Model sophia_big_model = create_model("res/models/sophia-doll-victory-dance/source/Sophia Doll VictoryDance.Fbx");
-
-      model_filepath = "res/models/mari/source/Mari.fbx";
-      // model_filepath = "res/models/boy/boy_animation_textured.fbx";
-      begin_profile();
-      {
-         Model m  = create_model(model_filepath);
-         Transform transform = transform_identity;
-         scene_nodes[0] = create_scene_node(&m, transform);
-         set_animation_time(scene_nodes[0], 0.0);
-         play_animation(scene_nodes[0]);
-
-         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
-         transform.scale  = mul(transform.scale, 0.5);
-         scene_nodes[2] = create_scene_node(&boy_model, transform);
-         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
-         scene_nodes[4] = create_scene_node(scene_nodes[2], transform);
-         set_animation_time (scene_nodes[4], 0.65);
-         set_animation_speed(scene_nodes[4], 1.65);
-
-         transform.scale  = mul(transform.scale, 2.0);
-         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
-         scene_nodes[3] = create_scene_node_new_cmd(scene_nodes[0], transform);
-         set_animation_time(scene_nodes[3], 0.25);
-         set_animation_speed(scene_nodes[3], 0.1);
-         play_animation(scene_nodes[3]);
-      }
-      end_profile(model_filepath);
-
-
-      model_filepath = "res/models/backpack/backpack.obj";
-      begin_profile();
-      if (true) {
-         Model m  = create_model(model_filepath);
-         Transform transform = transform_identity;
-         transform.scale = mul(transform.scale, 1.5);
-         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
-         transform.translation = add(transform.translation, ((Vector3){25., 15., 0}));
-         scene_nodes[5] = create_scene_node(&m, transform);
-         play_animation(scene_nodes[5]);
-
-         transform.scale = mul(((Vector3){1., 1., 1.}), 1.5);
-         transform.translation = add(transform.translation, ((Vector3){45., 5., 0}));
-         sophias[0] = create_scene_node(&sophia_model, transform);
-         set_animation_time_percentage(sophias[0], 0.0);
-         set_animation_speed(sophias[0], 0.3);
-
-         transform.translation = add(transform.translation, ((Vector3){25., 5., 0}));
-         sophias[1] = create_scene_node(&sophia_big_model, transform);
-         set_animation_time_percentage(sophias[1], 0.5);
-
-         transform.translation = add(transform.translation, ((Vector3){25., 5., 0}));
-         sophias[2] = create_scene_node(sophias[0], transform);
-         set_animation_time_percentage(sophias[2], 0.9);
-
-      }
-      end_profile(model_filepath);
-
-
-      {
-         Transform transform = transform_identity;
-         transform.scale = mul(transform.scale, 0.25);
-         transform.translation = add(transform.translation, ((Vector3){-45., 5., 0}));
-         scene_nodes[8] = create_scene_node(&luster_model, transform);
-      }
-
-
-      if (false) { // Testing somethings
-         glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
-         glDepthMask(GL_TRUE);
-         glDisable(GL_BLEND);
-         glDepthFunc(GL_LESS);
-      }
-
-      // TODO: Create a destroy function
-      // destroy_model(&m);
-
+   if (is_button_pressed(BUTTON_K)) {
+      set_redererer_mode(RENDERER_MODE_WIREFRAME);
+      draw_indirect((Texture){0}, app->shader);
+   } else {
+      set_redererer_mode(RENDERER_MODE_FILL);
+      draw_indirect((Texture){0}, app->shader);
    }
 
-   const bool draw_with_manager = true;
-   if (draw_with_manager) {
-
-      // update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-
-
-      // TODO: make sure scene_node with 0 index is invalid
-      play_animation(scene_nodes[3]);
-      play_animation(scene_nodes[0]);
-      play_animation(scene_nodes[2]);
-      play_animation(scene_nodes[4]);
-      play_animation(scene_nodes[8]);
-
-      play_animation(sophias[0]);
-      play_animation(sophias[1]);
-      play_animation(sophias[2]);
-
-
-
-      if (is_button_pressed(BUTTON_B)) {
-         set_animation_speed(scene_nodes[4], 0.65);
-         set_animation_speed(scene_nodes[8], 0.65);
-         play_animation_identity(alleyana);
-      } else if (is_button_pressed(BUTTON_N)) {
-         set_animation_speed(scene_nodes[4], 1.65);
-         set_animation_speed(scene_nodes[8], 1.65);
-         play_animation(alleyana);
-      }
-
-      static Texture tex = {0};
-      if (!is_valid_texture(tex)) {
-         tex = create_texture_from_filepath("res/models/alleyana/textures/mn_vonr_00_body_d.png");
-      }
-
-      bind_texture(tex, 3);
-      draw_indirect(tex, app->shader);
+   if (is_button_pressed(BUTTON_J)) {
+      glEnable(GL_CULL_FACE);
+   } else {
+      glDisable(GL_CULL_FACE);
    }
 
    // draw_old_way(app, shader, camera);
@@ -686,11 +905,23 @@ void projection_update(Projection_Application *app, f64 dt) {
          final_fb = resolve_multisample_framebuffer(app->fb);
       }
 
-      blit_framebuffer(default_framebuffer, final_fb,
-         // 0, 0, 800, 675,
-         // 0, 0, 800, 675
-         0, 0, final_fb.color.width, final_fb.color.height,
-         0, 0, final_fb.color.width, final_fb.color.height
+
+      Framebuffer dst_fb = default_framebuffer, src_fb = final_fb;
+
+      // const f64 rectangle_shrink_factor = 0.80;
+      const f64 rectangle_shrink_factor = 1.0;
+      Rectangle_I32 destination = {
+         // .x = 100/4.,
+         // .y = 100/4.,
+         // .width = 600, .height = 400,
+         .width = src_fb.color.width   * rectangle_shrink_factor,
+         .height = src_fb.color.height * rectangle_shrink_factor,
+      };
+
+      Rectangle_I32 source = destination;
+      blit_framebuffer(dst_fb, src_fb,
+         destination,
+         source
       );
       // glBlitNamedFramebuffer(
       //       final_fb.handle, 0,
