@@ -821,20 +821,20 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    if (generate_tanget_space) {
       trace_okay("Generating tangent space for node %s scene %s.", node->name.data, scene->metadata.filename.data);
       // Should this really be after the every other attribute from the mesh is completely resolved?
-      SMikkTSpaceInterface iface = {
-         .m_getNumFaces          = getNumFaces,
-         .m_getNumVerticesOfFace = getNumVerticesOfFace,
-         .m_getPosition          = getPosition,
-         .m_getNormal            = getNormal,
-         .m_getTexCoord          = getTexCoord,
-         .m_setTSpaceBasic       = setTSpaceBasic,
+      SMikkTSpaceInterface mikk_interface = {
+         .m_getNumFaces          = mikk_get_num_faces,
+         .m_getNumVerticesOfFace = mikk_get_num_vertices_of_face,
+         .m_getPosition          = mikk_get_position,
+         .m_getNormal            = mikk_get_normal,
+         .m_getTexCoord          = mikk_get_tex_coord,
+         .m_setTSpaceBasic       = mikk_set_tagent_space_basic,
       };
 
-      MikkUserData userData = {&mesh};
+      Mikk_User_Data user_data = {&mesh};
 
       SMikkTSpaceContext ctx = {
-         .m_pInterface = &iface,
-         .m_pUserData  = &userData,
+         .m_pInterface = &mikk_interface,
+         .m_pUserData  = &user_data,
       };
 
       genTangSpaceDefault(&ctx);
