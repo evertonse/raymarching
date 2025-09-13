@@ -12,10 +12,9 @@ struct Draw_Command {
    DRAW_COMMAND_BASE;
    uint material_index;
    uint vertices_count;
-   uint has_joints;
-   uint joints_offset;
+   uint tangents_offset, has_tangents;
+   uint joints_offset, has_joints;
    uint is_inverleaved;
-   uint pad2, pad3;
 };
 
 

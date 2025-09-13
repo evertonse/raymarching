@@ -19,6 +19,7 @@ uniform int  has_animation = -1;
 uniform vec3 camera_position;
 uniform vec2 spherical;
 
+
 layout (location = 0) out Varying {
    vec3 Position;
    vec3 Normal;
@@ -30,8 +31,8 @@ layout (location = 0) out Varying {
 
 layout (location = 8) out Flat {
    flat uint material_index;
+   flat uint has_tangents;
 };
-
 #include "./src/coordinates.glsl"
 #include "./src/remaps.glsl"
 #include "./src/perspective.glsl"
@@ -90,10 +91,12 @@ void main() {
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
    vec3 normal   = pull_normal(gl_VertexID);
    vec2 uv       = pull_uv(gl_VertexID);
-   vec4 tangent  = pull_tangent(gl_VertexID);
+   // vec4 tangent  = pull_tangent(gl_VertexID);
 
    Draw_Command draw_command = draw_commands[gl_DrawID];
    material_index = int(draw_command.material_index);
+
+   vec4 tangent = vertex_tangents2[draw_command.tangents_offset + gl_VertexID - gl_BaseVertex];
 
    highp mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
 
@@ -133,12 +136,15 @@ void main() {
             // uv.v = 1.0 - uv.v
             mat3 normal_matrix = mat3(transpose(inverse(model)));
             Normal = normalize(normal_matrix * normal);
-            // Normalize TBN vectors before interpolation, per MikkTSpace. See: http://www.mikktspace.com/
-            Tangent = normalize(normal_matrix * tangent.xyz);
-            vec3 binormal = normalize(cross(Normal, Tangent) * tangent.w);
-            // vec3 binormal = normalize(cross(Normal, Tangent));
-            Bitangent = normalize(binormal);
-            tangent_w_sign = tangent.w;
+            has_tangents = draw_command.has_tangents;
+            if (draw_command.has_tangents == 1) {
+               // Normalize TBN vectors before interpolation, per MikkTSpace. See: http://www.mikktspace.com/
+               Tangent = normalize(normal_matrix * tangent.xyz);
+               vec3 binormal = normalize(cross(Normal, Tangent) * tangent.w);
+               // vec3 binormal = normalize(cross(Normal, Tangent));
+               Bitangent = normalize(binormal);
+               tangent_w_sign = tangent.w;
+            }
          } else {
             Normal = mat3(transpose(inverse(model))) * normal;
          }
@@ -187,6 +193,7 @@ void main() {
 
 
 // TODO: Match these by location as well
+// in #include "./src/stage_data.glsl"
 layout (location = 0) in Varying {
    vec3 Position;
    vec3 Normal;
@@ -198,6 +205,7 @@ layout (location = 0) in Varying {
 
 layout (location = 8) in Flat {
    flat uint material_index;
+   flat uint has_tangents;
 };
 
 
@@ -736,7 +744,7 @@ void main() {
    // return_color(normalize(normal.rgb));
    // return_color(normalize(diffuse_color.rgb));
 
-   if (alpha_channel < 0.1) {
+   if (alpha_channel < 0.5) {
       // Beware that Early-Z is disabled if your fragment shader does any of:
       // discard / alpha test behavior
       // alpha blending enabled
@@ -772,26 +780,26 @@ void main() {
       const float oscilator = abs(mod(per_frame.elapsed_time * oscilator_speed, 2.0) - 1.0);
       // if (true || true && gl_FragCoord.x > oscilator*1600) {
       if (true) {
-
          if (true) {
             // if (true || gl_FragCoord.x > oscilator*1600) {
             int i = 3;
-            if (i == 1) {
-               const mat3 TBN = compute_tbn3(Position, normalize(normal), uv);
+            if (1 != has_tangents || i == 1) {
+               // const mat3 TBN = compute_tbn3(Position, normalize(normal), uv);
                // const mat3 TBN = compute_tbn5(Position, (normal), uv);
-               // const mat3 TBN = gen_basis_tb(Position, normalize(normal), uv);
+               const mat3 TBN = gen_basis_tb(Position, normalize(normal), uv);
                normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
             } else if (i == 2) {
                Tangent_Frame tbn_frame = compute_tbn2(Position, normalize(normal), uv);
                normal = apply_normal_map(tbn_frame, uv, normal_texel.rgb);
             } else if (i == 3){
-               // Do not normalize as per https://github.com/KhronosGroup/glTF/issues/2056#issuecomment-1213795031
-               mat3 TBN = mat3(Tangent, Bitangent, Normal);
+               // Do not normalize the tbn vectors as per https://github.com/KhronosGroup/glTF/issues/2056#issuecomment-1213795031
+               mat3 TBN = mat3(Tangent,  Bitangent, normal);
                normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
+               // normal = normalize(TBN * normal_texel.rgb);
                // normal = normalize(TBN * normal_texel.rgb);
             } else {
                vec3 binormal = normalize(cross(Normal, Tangent)) * tangent_w_sign;
-               mat3 TBN = mat3(Tangent, binormal, Normal);
+               mat3 TBN = mat3(Tangent, binormal, normal);
                normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
             }
 
@@ -905,8 +913,9 @@ void main() {
 
    FragColor.xyz = gamma_correct(FragColor.xyz);
    // FragColor.xyz = apply_contrast(FragColor.xyz, 1.079);
-   // FragColor.w = alpha_channel;
-   FragColor.w = max(pow(alpha_channel, 1/2.2), 0.9);
+   FragColor.w = alpha_channel;
+   // FragColor.w = max(alpha_channel, 1/2.2), 0.1);
+   // FragColor.w = max(pow(alpha_channel, 1/2.2), 0.1);
    // FragColor.w = 1.0;
 
 }

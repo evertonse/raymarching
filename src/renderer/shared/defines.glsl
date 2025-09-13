@@ -14,6 +14,7 @@
 #define BINDING_INDICES_BUFFER     5
 #define BINDING_VERTEX_BUFFER      3
 #define BINDING_VERTEX_TANGENT     7
+#define BINDING_TANGENTS_BUFFER    8
 #define BINDING_PER_FRAME          4
 #define BINDING_DRAW_COMMAND       18
 #define BINDING_MATERIAL           10

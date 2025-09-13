@@ -1,21 +1,25 @@
 // You can call vertex_buffer.length() to get the the count of positions
-layout(std430, binding = BINDING_VERTEX_BUFFER) readonly  buffer Vertex_Buffer {
+layout(std430, binding = BINDING_VERTEX_BUFFER) readonly buffer Vertex_Buffer {
    float vertex_buffer[];
 };
 
-layout(std430, binding = BINDING_VERTEX_TANGENT) readonly  buffer Vertex_Tanget_Buffer {
+layout(std430, binding = BINDING_VERTEX_TANGENT) readonly buffer Vertex_Tanget_Buffer {
    vec4 vertex_tangents[];
 };
 
-layout(std430, binding = BINDING_DRAW_COMMAND) readonly  buffer Draw_Command_Buffer {
+layout(std430, binding = BINDING_TANGENTS_BUFFER) readonly buffer Tangents_Buffer {
+   vec4 vertex_tangents2[];
+};
+
+layout(std430, binding = BINDING_DRAW_COMMAND) readonly buffer Draw_Command_Buffer {
    Draw_Command draw_commands[];
 };
 
-layout(std430, binding = BINDING_MATERIAL) readonly  buffer Material_Buffer {
+layout(std430, binding = BINDING_MATERIAL) readonly buffer Material_Buffer {
    Material materials[];
 };
 
-layout(std430, binding = BINDING_INSTANCE_BUFFER) readonly  buffer Instance_Buffer {
+layout(std430, binding = BINDING_INSTANCE_BUFFER) readonly buffer Instance_Buffer {
    Instance instances[];
 };
 

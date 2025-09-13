@@ -881,9 +881,9 @@ void projection_update(Projection_Application *app, f64 dt) {
    }
 
 
-   // draw_scene_few2(app);
-   draw_scene_few(app);
-   // draw_scene(app);
+   draw_scene_few2(app);
+   // draw_scene_few(app);
+   draw_scene(app);
 
    if (is_button_pressed(BUTTON_K)) {
       set_redererer_mode(RENDERER_MODE_WIREFRAME);

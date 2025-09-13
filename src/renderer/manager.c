@@ -39,6 +39,8 @@ static_assert(size_of(Draw_Command) % 16 == 0);
 typedef struct {
    // CPU staging arrays
 
+   // TODO: Unify these type of buffers for ease of development.
+
    struct {
       Vector3 *positions;
       Vector3 *normals;
@@ -53,6 +55,13 @@ typedef struct {
       bool   dirty;
    } vertices;
 
+   struct {
+      Vector4 *items;
+      u32    count;
+      u32    capacity;
+      Buffer buffer;
+      bool   dirty;
+   } tangents;
 
    struct {
       Joint_Vertex *items;
@@ -61,6 +70,7 @@ typedef struct {
       Buffer buffer; // Optional, but likely
       bool   dirty;
    } joints;
+
 
    struct {
       u32   *items;
@@ -140,6 +150,7 @@ typedef struct {
          isz instance_index;
          isz renderable_index;
       }) nodes;
+
       Buffer instances_buffer;
       Buffer geometry_to_world_matrices_buffer;
       bool  instances_dirty;
@@ -162,7 +173,7 @@ bool overload has_animation(Scene_Node node) {
 
 
 // Why is this taking u32?
-void grow_manager_if_needed(u32 required_vertices, u32 required_indices, bool has_joints) {
+void grow_manager_if_needed(u32 required_vertices, u32 required_indices, bool has_joints, bool has_tangents) {
    // Check if we need to grow vertex arrays
    if (manager.vertices.count + required_vertices > manager.vertices.capacity) {
       u32 new_capacity = manager.vertices.capacity + (manager.vertices.capacity / 2);
@@ -191,6 +202,20 @@ void grow_manager_if_needed(u32 required_vertices, u32 required_indices, bool ha
 
       manager.joints.capacity = new_capacity;
       manager.joints.dirty    = true; // Mark for full upload
+   }
+
+   u32 required_tangents = required_vertices;
+   if (has_tangents && (manager.tangents.count + required_tangents > manager.tangents.capacity)) {
+      u32 new_capacity = manager.tangents.capacity + (manager.tangents.capacity / 2);
+      if (new_capacity < manager.tangents.count + required_tangents) {
+         new_capacity = manager.tangents.count + required_tangents;
+      }
+
+      // Reallocate CPU arrays
+      manager.tangents.items = realloc(manager.tangents.items, new_capacity * size_of(manager.tangents.items[0]));
+
+      manager.tangents.capacity = new_capacity;
+      manager.tangents.dirty    = true; // Mark for full upload
    }
 
    // Check if we need to grow index buffer
@@ -232,17 +257,20 @@ Draw_Index push_draw_command_to_manager(const Draw_Command command) {
 
 // Add surface data to global buffers
 Draw_Index push_arrays_to_manager(
-      Vector3 *positions, Vector3 *normals, Vector2 *uvs, void *joints, u32 vertices_count,
+      Vector3 *positions, Vector3 *normals, Vector2 *uvs, Vector4 *tangents, void *joints, u32 vertices_count,
       u32 *indices, u32 indices_count,
       u32 material_index,
       isz base_vertices_offset_override, // Can pass -1 to not override anything
-      isz base_joints_offset_override // Can pass -1 to not override anything
+      isz base_tangents_offset_override,  // Can pass -1 to not override anything
+      isz base_joints_offset_override   // Can pass -1 to not override anything
 ) {
    bool has_joints = joints != nullptr;
-   grow_manager_if_needed(vertices_count, indices_count, has_joints);
+   bool has_tangents = tangents != nullptr;
+   grow_manager_if_needed(vertices_count, indices_count, has_joints, has_tangents);
 
-   u32 base_vertices_offset = -1 == base_vertices_offset_override ? (u32)manager.vertices.count : (u32)base_vertices_offset_override;
-   u32 base_joints_offset   = -1 == base_joints_offset_override   ? (u32)manager.joints.count   : (u32)base_joints_offset_override;
+   u32 base_vertices_offset = -1 == base_vertices_offset_override   ? (u32)manager.vertices.count : (u32)base_vertices_offset_override;
+   u32 base_joints_offset   = -1 == base_joints_offset_override     ? (u32)manager.joints.count   : (u32)base_joints_offset_override;
+   u32 base_tangents_offset = -1 == base_tangents_offset_override   ? (u32)manager.tangents.count : (u32)base_tangents_offset_override;
 
    // Create description for the command
    Draw_Command draw_command = {
@@ -252,9 +280,12 @@ Draw_Index push_arrays_to_manager(
       .vertices_offset = base_vertices_offset,
       .instance_offset = 0,
 
+      .tangents_offset = base_tangents_offset_override,
+      .has_tangents    = has_tangents,
       .joints_offset   = base_joints_offset,
-      .material_index  = material_index,
       .has_joints      = has_joints,
+
+      .material_index  = material_index,
       .vertices_count  = vertices_count
    };
 
@@ -272,6 +303,10 @@ Draw_Index push_arrays_to_manager(
       if (has_joints) {
          memcpy(&manager.joints.items[manager.joints.count], joints, vertices_count * size_of(manager.joints.items[0]));
       }
+
+      if (has_tangents) {
+         memcpy(&manager.tangents.items[manager.tangents.count], tangents, vertices_count * size_of(manager.tangents.items[0]));
+      }
    }
 
    assert_msg(indices_count, "I don't see any reason why the number of indices should be zero");
@@ -280,6 +315,9 @@ Draw_Index push_arrays_to_manager(
 
    // Update counters
    manager.vertices.count += vertices_count;
+   if (has_tangents) {
+      manager.tangents.count += vertices_count;
+   }
    if (has_joints) {
       manager.joints.count += vertices_count;
    }
@@ -287,6 +325,9 @@ Draw_Index push_arrays_to_manager(
 
    // Mark buffers as dirty for GPU upload
    manager.vertices.dirty = true;
+   if (has_tangents) {
+      manager.tangents.dirty = true;
+   }
    if (has_joints) {
       manager.joints.dirty = true;
    }
@@ -329,6 +370,17 @@ void update_manager_gpu_resources() {
       manager.vertices.dirty = false;
    }
 
+
+   if (manager.tangents.dirty) {
+      trace_info("[Manager] tangents were dirty");
+      // Always sync the gpu buffer size to the cpu capacity, not the cpu size just so we do less resizes as resize won't occurs if we already have enough
+      isz required_buffer_capacity_in_bytes = manager.tangents.capacity * size_of(manager.tangents.items[0]);
+      resize_buffer_if_needed(&manager.tangents.buffer, required_buffer_capacity_in_bytes);
+
+      isz tangents_size = manager.tangents.count * size_of(manager.tangents.items[0]);
+      update_buffer(&manager.tangents.buffer, manager.tangents.items, 0, tangents_size);
+      manager.tangents.dirty = false;
+   }
 
    if (manager.joints.dirty) {
       trace_info("[Manager] Joints were dirty");
@@ -636,10 +688,14 @@ void draw_indirect(Texture diffuse, Shader shader) {
    }
 
    {
+      auto tangents_size = manager.tangents.count * (size_of(manager.tangents.items[0]));
+      bind_buffer_view(&manager.tangents.buffer,  BUFFER_TYPE_STORAGE, BINDING_TANGENTS_BUFFER, 0, tangents_size);
+   }
+
+   {
       auto joints_size = manager.joints.count * (size_of(manager.joints.items[0]));
       bind_buffer_view(&manager.joints.buffer,  BUFFER_TYPE_STORAGE, BINDING_JOINT_BUFFER, 0, joints_size);
    }
-
 
    {
       auto material_handles_size = manager.materials.count * size_of(Material);
@@ -743,6 +799,7 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
    // Thats why every surface had the same base_vertices_offset
 
    auto base_vertices_offset = manager.vertices.count;
+   auto base_tangents_offset = manager.tangents.count;
    auto base_joints_offset   = manager.joints.count;
 
    // Process each surface as a separate draw_command
@@ -766,12 +823,14 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
          mesh->vertices.positions,   // All positions
          mesh->vertices.normals,     // All normals
          mesh->vertices.uvs,         // All UVs
+         mesh->vertices.tangents,    // Tangents   (can be nullptr)
          mesh->vertices.joints,      // Joint data (can be nullptr)
          vertices_count,             // Total vertex count
          surface_indices,            // Surface-specific indices
          surface_indices_count,      // Surface index count
          final_material_index,       // Material index
          base_vertices_offset,       // Forcing an offset for vertices
+         base_tangents_offset,       // Forcing an offset for tangents
          base_joints_offset          // Forcing an offset for joints
       );
 
@@ -1184,6 +1243,9 @@ void init_manager() {
    isz vertex_item_size     = size_of(manager.vertices.positions[0]) + size_of(manager.vertices.normals[0]) + size_of(manager.vertices.uvs[0]);
    isz vertex_buffer_size   = initial_vertex_capacity * vertex_item_size;
    manager.vertices.buffer  = create_buffer(buffer_flag, nullptr, vertex_buffer_size);
+
+   isz tangents_buffer_size   = initial_vertex_capacity * size_of(manager.tangents.items[0]);
+   manager.tangents.buffer    = create_buffer(buffer_flag, nullptr, tangents_buffer_size);
 
    isz joints_buffer_size   = initial_vertex_capacity * size_of(manager.joints.items[0]);
    manager.joints.buffer    = create_buffer(buffer_flag, nullptr, joints_buffer_size);
