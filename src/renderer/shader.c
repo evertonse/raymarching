@@ -655,12 +655,101 @@ static bool metadata_map_line_to_file(int shader_index, Shader_Type shader_type,
       return ok1;
    }
 }
-
 static void print_remapped_opengl_errors(const char *error_string, int shader_index, Shader_Type shader_type) {
    DString ds = {0};
+   const char *p = error_string;
+   const char *end = error_string + strlen(error_string);
+
+   while (p < end) {
+      // Try to find "(<number>)" pattern
+      const char *paren = strchr(p, '(');
+      if (!paren)
+         break;
+
+      // Check if previous chars look like "... <int>("
+      const char *num_start = paren;
+      while (num_start > p && isdigit((unsigned char)num_start[-1])) {
+         num_start--;
+      }
+      if (num_start == paren) {
+         p = paren + 1;
+         continue; // no number before '('
+      }
+
+      // Parse integer before '('
+      long first_num = strtol(num_start, nullptr, 10);
+
+      // Parse inside "(<int>)"
+      const char *inside = paren + 1;
+      char *inside_end = nullptr;
+      long line_num = strtol(inside, &inside_end, 10);
+
+      if (!inside_end || *inside_end != ')') {
+         p = paren + 1;
+         continue; // not a valid "(int)"
+      }
+
+      const char *after = inside_end + 1;
+      if (*after != ':') {
+         p = after;
+         continue; // not "(int):"
+      }
+
+      // At this point we have a match
+      const char *line_start = p;
+      const char *line_end = after;
+      while (*line_end && *line_end != '\n' && *line_end != '\r')
+         line_end++;
+
+      // Write original prefix
+      ds_write_buf(&ds, line_start, num_start - line_start);
+
+      // Remap line number
+      isz global_line = line_num;
+      isz local_line = -1;
+      const char *filepath = nullptr;
+      ZString inform_type_msg = "";
+
+      if (shader_type == SHADER_TYPE_VERTEX) {
+         global_line += shaders_metadata[shader_index].vertex_line - 1;
+         inform_type_msg = "Vertex shader";
+      } else if (shader_type == SHADER_TYPE_FRAGMENT) {
+         global_line += shaders_metadata[shader_index].fragment_line - 1;
+         inform_type_msg = "Fragment shader";
+      }
+
+      ds_printf(&ds, "%s\n", inform_type_msg);
+      if (metadata_map_line_to_file(shader_index, shader_type, global_line, &filepath, &local_line)) {
+         ds_printf(&ds, "%s:%zu", filepath, local_line);
+      } else {
+         ds_printf(&ds, "full_block:%ld", line_num);
+      }
+
+      // Append rest of error message
+      ds_printf(&ds, " %.*s\n", (int)(line_end - after), after);
+
+      // Advance
+      p = line_end;
+   }
+
+   // Write any trailing text if we didn’t consume all
+   if (p < end) {
+      ds_write_buf(&ds, p, end - p);
+   }
+
+   if (ds.count) {
+      ds_write_zero(&ds);
+      trace_error("%s", ds.items);
+   }
+   ds_free(ds);
+}
+
+static void print_remapped_opengl_errors2(const char *error_string, int shader_index, Shader_Type shader_type) {
+   DString ds = {0};
    stb_lexer lex = {0};
-   char store[512];
-   stb_c_lexer_init(&lex, error_string, error_string + strlen(error_string), store, 512);
+   char store[8*1024];
+   isz error_string_length = strlen(error_string);
+   stb_c_lexer_init(&lex, error_string, error_string + error_string_length, store, count_of(store));
 
    const char *line_start = error_string;
    while (stb_c_lexer_get_token(&lex)) {

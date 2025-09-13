@@ -3,6 +3,10 @@ layout(std430, binding = BINDING_VERTEX_BUFFER) readonly  buffer Vertex_Buffer {
    float vertex_buffer[];
 };
 
+layout(std430, binding = BINDING_VERTEX_TANGENT) readonly  buffer Vertex_Tanget_Buffer {
+   vec4 vertex_tangents[];
+};
+
 layout(std430, binding = BINDING_DRAW_COMMAND) readonly  buffer Draw_Command_Buffer {
    Draw_Command draw_commands[];
 };

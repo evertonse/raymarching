@@ -24,58 +24,9 @@
 
 # Projection Pipeline
 
-[ ] Why do many applications flip normals based on facing data
-// From blender used in workbench_prepass_frag.glsl
-float2 workbench_normal_encode(bool front_face, float3 n)
-{
-  n = normalize(front_face ? n : -n);
-  float p = sqrt(n.z * 8.0f + 8.0f);
-  n.xy = clamp(n.xy / p + 0.5f, 0.0f, 1.0f);
-  return n.xy;
-}
-// Blender in eevee_surf_lib.glsl
-#ifdef GPU_FRAGMENT_SHADER
-  g_data.N = (FrontFacing) ? g_data.N : -g_data.N;
-  g_data.Ni = (FrontFacing) ? g_data.Ni : -g_data.Ni;
-  g_data.Ng = safe_normalize(cross(gpu_dfdx(g_data.P), gpu_dfdy(g_data.P)));
-#endif
-
-//  Blender, but is for shading, maybe thats part of why backfacing look weird on blin shading but not on pbr pipelines.
-// from gpu_shader_material_layer_weight.glsl
-    fresnel = fresnel_dielectric(V, N, (FrontFacing) ? 1.0f / eta : eta);
-
-// Blender eevee_surf_capture_frag.glsl
-surfel_buf[surfel_id].normal = gl_FrontFacing ? g_data.Ng : -g_data.Ng;
-
-// Godot scene.glsl scene_forward_mobile.glsl and in forward_clustered/scene_forward_clustered.glsl
-	vec3 normal = normal_interp;
-#if defined(DO_SIDE_CHECK)
-	if (!gl_FrontFacing) {
-		normal = -normal;
-	}
-#endif // DO_SIDE_CHECK
-// Godot 
-   vec3 normal_highp = normal_interp;
-#if defined(DO_SIDE_CHECK)
-	if (!gl_FrontFacing) {
-		normal_highp = -normal_highp;
-	}
-#endif // DO_SIDE_CHECK
-
-
-// they set this define in material_storage.cpp
-actions.render_mode_defines["cull_front"] = "#define DO_SIDE_CHECK\n";
-actions.render_mode_defines["cull_disabled"] = "#define DO_SIDE_CHECK\n";
 
 
 
-
-[ ] Investigate Alexya model continuity, coloring is creating some pure black and some pure white spots, also normal mapping is flickering
-[ ] Respect the model's texture's wrapping characteristic (repeat, clamp, sRBG vs Linear)
-
-[ ] Alpha textures what should we do with it ? {
-   Investigate Sophia Model textures. Which ones are not being passed along
-}
 [ ] Texture manager. {
    Good for caching some data for repeated paths for the same shadow.
    If the manager is asked for a texture from path we can linearly check if there's one already.
@@ -83,32 +34,95 @@ actions.render_mode_defines["cull_disabled"] = "#define DO_SIDE_CHECK\n";
    we would need both textures at the same time with both wrapping modes available for different draw commands, I dont think we can skip the copy.
 }
 
-*[ ] Normal Mapping.
+
 
 [ ] PBR Shading
 
+[ ] SSAO
+
+
+[ ] Parallax Mapping
+
+---
+
+[ ] Normal Mapping by per vertex tangents.
+[ ] Normal Mapping: Understand why the face on Mari and Lust is split in the middle when we copy line by line code base off of differential derivation from "Surface Gradient–Based Bump Mapping Framework"
+
+[ ] Why do many applications flip normals based on facing data {
+   // From blender used in workbench_prepass_frag.glsl
+   float2 workbench_normal_encode(bool front_face, float3 n)
+   {
+     n = normalize(front_face ? n : -n);
+     float p = sqrt(n.z * 8.0f + 8.0f);
+     n.xy = clamp(n.xy / p + 0.5f, 0.0f, 1.0f);
+     return n.xy;
+   }
+   // Blender in eevee_surf_lib.glsl
+   #ifdef GPU_FRAGMENT_SHADER
+     g_data.N = (FrontFacing) ? g_data.N : -g_data.N;
+     g_data.Ni = (FrontFacing) ? g_data.Ni : -g_data.Ni;
+     g_data.Ng = safe_normalize(cross(gpu_dfdx(g_data.P), gpu_dfdy(g_data.P)));
+   #endif
+
+   //  Blender, but is for shading, maybe thats part of why backfacing look weird on blin shading but not on pbr pipelines.
+   // from gpu_shader_material_layer_weight.glsl
+       fresnel = fresnel_dielectric(V, N, (FrontFacing) ? 1.0f / eta : eta);
+
+   // Blender eevee_surf_capture_frag.glsl
+   surfel_buf[surfel_id].normal = gl_FrontFacing ? g_data.Ng : -g_data.Ng;
+
+   // Godot scene.glsl scene_forward_mobile.glsl and in forward_clustered/scene_forward_clustered.glsl
+      vec3 normal = normal_interp;
+   #if defined(DO_SIDE_CHECK)
+      if (!gl_FrontFacing) {
+         normal = -normal;
+      }
+   #endif // DO_SIDE_CHECK
+   // Godot 
+      vec3 normal_highp = normal_interp;
+   #if defined(DO_SIDE_CHECK)
+      if (!gl_FrontFacing) {
+         normal_highp = -normal_highp;
+      }
+   #endif // DO_SIDE_CHECK
+
+
+   // they set this define in material_storage.cpp
+   actions.render_mode_defines["cull_front"] = "#define DO_SIDE_CHECK\n";
+   actions.render_mode_defines["cull_disabled"] = "#define DO_SIDE_CHECK\n";
+}
+
+[ ] Sfx like in this video https://www.youtube.com/watch?v=FcMB0Ws1f04
+
+[ ] Animation System: Take a look at Godot
+
+[ ] Respect the model's texture's wrapping characteristic (repeat, clamp, sRBG vs Linear) {
+   Partially "done" by asserting is always repeat (it usually is), sRGB is not taking into account as of rn.
+}
+
+[ ] Alpha textures what should we do with it ? {
+   Investigate Sophia Model textures. Which ones are not being passed along
+}
+
+
 [x] Investigate animation problem 17.99s (mari.fbx)
 
-[ ] *Investigate screen flashing (probably related to animation). It's some time to time and it seems regular. {
+[x] *Investigate screen flashing (probably related to animation). It's some time to time and it seems regular. {
    [x] Maybe you can debug using the evaluate scene from ufbx
    [x] Maybe is the find keyframe interval function, make it linear
    [x] Make it able to loop from beginning animation to end
 
-   [ ] Take a look at godot animation system
-   [ ] Maybe is the storing of matrices
-   [ ] Maybe is the joint indices, make sure it's always >= 0 and < joint_list.count
+   [x] (edit: it wasn't) Maybe is the storing of matrice
+   [x] Maybe is the joint indices, make sure it's always >= 0 and < joint_list.count
 
    [x] If only 1 keyframe than it's that for the whole animation
        if 0 then should be identity
        if more than two then fine, we ball the two pairs only
 }
+[x] Normal Mapping by differentials in fragment.
+[x] Investigate Alexya model continuity, coloring is creating some pure black and some pure white spots, also normal mapping is flickering
 
-
-
-
-
----
-[ ] view dependent specular and roughness though
+[ ] View dependent specular and roughness though
 
 [ ] Environment Model that entities can walk on
 
@@ -118,18 +132,16 @@ actions.render_mode_defines["cull_disabled"] = "#define DO_SIDE_CHECK\n";
 
 [ ] Make a instance be able to be invisible (scene node).
 
-[ ] Make a scene be able to be loaded and undeloaded both from cpu and gpu.
+[ ] Make a scene be able to be loaded and unloaded both from Cpu and Gpu.
 
 [ ] Scene Manager (play_animation and operations on scene) needs to me separated from the Gpu Buffer Manager
-      Right now they're connected through the ideiad of a renderable and instance
-
+      Right now they're connected through the idea of a Renderable and Instance.
 
 [ ] Model Animation Blending: support blending animation into another one smoothly. Example: from walk to idle
 
 [ ] Bloom
 
 [ ] Cascading Shadows
-
 
 [ ] Multisample window back buffer. Can we give that information without being tied to a specific api backend? {
 

@@ -3,6 +3,9 @@
 #undef Command
 #include "tinyobj_loader_c.h"
 
+#include "mikktspace.c"
+#include "./mikk.c"
+
 #undef swap
 #undef local
 #include "ufbx.h"
@@ -567,6 +570,37 @@ static void setup_materials_from_ufbx_scene(Model *model, const ufbx_scene *cons
    }
 }
 
+bool mesh_requires_tangents(const ufbx_mesh *mesh) {
+   if (!mesh) {
+      return false;
+   }
+
+   // if the mesh already has tangents, we don't need to regenerate. But we're gonna anyways
+   if (mesh->vertex_tangent.values.count > 0 || mesh->vertex_bitangent.values.count > 0) {
+      // return (undecided for now);
+   }
+
+   // Tangents require valid UVs (can't generate without them).
+   if (!(mesh->vertex_uv.values.count > 0)) {
+      return false;
+   }
+
+   // Check if any material assigned to the mesh uses a normal map.
+   for (size_t i = 0; i < mesh->materials.count; i++) {
+      const ufbx_material *mat = mesh->materials.data[i];
+      if (!mat) {
+         continue;
+      }
+
+      if (mat->pbr.normal_map.texture_enabled || mat->fbx.normal_map.texture_enabled || 0 /* Other maps in the future would go here */ ) {
+         return true;
+      }
+   }
+
+   // No material with a normal map found, no need for tangents
+   return false;
+}
+
 static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    static constexpr int MAX_WEIGHTS = 4;
 
@@ -630,6 +664,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    isz total_vertex_count = 0;
    isz total_index_count = 0;
    usz max_weight_count_found = 0;
+   bool generate_tanget_space = mesh_requires_tangents(fbx_mesh);
 
    // Process each material part (surface), always at least 1.
    for (usz part_index = 0; part_index < fbx_mesh->material_parts.count; part_index += 1) {
@@ -638,11 +673,14 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
 
       auto surface = &mesh.surfaces.items[part_index];
 
+      auto fbx_material = node->materials.data[part_index];
+
       // Set surface start
       surface->indices_offset = total_index_count;
       surface->material_index = part_index < node->materials.count ?
-            material_index_from_ufbx_scene(node->materials.data[part_index], scene)
+            material_index_from_ufbx_scene(fbx_material, scene)
           :-1;
+
 
       isz part_vertex_start = total_vertex_count;
 
@@ -759,7 +797,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    trestore(checkpoint);
 
    // Optimize with vertex deduplication
-   const bool reduce_indices = false;
+   const bool reduce_indices = true;
    if (reduce_indices) {
       ufbx_vertex_stream streams[] = {
          {mesh.vertices.positions,  total_vertex_count, size_of(mesh.vertices.positions[0])},
@@ -778,6 +816,28 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
       // ufbx_generate_indices only remaps vertex data and updates the index values
       // but preserves the index buffer structure and ordering. Or so I believe.
       trace_okay("ufbx_generate_indices optimized from %lld to %lld vertices", total_vertex_count, vertices_count_new);
+   }
+
+   if (generate_tanget_space) {
+      trace_okay("Generating tangent space for node %s scene %s.", node->name.data, scene->metadata.filename.data);
+      // Should this really be after the every other attribute from the mesh is completely resolved?
+      SMikkTSpaceInterface iface = {
+         .m_getNumFaces          = getNumFaces,
+         .m_getNumVerticesOfFace = getNumVerticesOfFace,
+         .m_getPosition          = getPosition,
+         .m_getNormal            = getNormal,
+         .m_getTexCoord          = getTexCoord,
+         .m_setTSpaceBasic       = setTSpaceBasic,
+      };
+
+      MikkUserData userData = {&mesh};
+
+      SMikkTSpaceContext ctx = {
+         .m_pInterface = &iface,
+         .m_pUserData  = &userData,
+      };
+
+      genTangSpaceDefault(&ctx);
    }
 
    return mesh;
@@ -848,7 +908,7 @@ Model create_model(const char *filepath) {
 
 
    model.meshes.count = 0;
-   model.meshes.items = malloc(scene->meshes.count * size_of(model.meshes.items[0]));
+   model.meshes.items = calloc(scene->meshes.count, size_of(model.meshes.items[0]));
    for (usz node_index = 0; node_index < scene->nodes.count; node_index += 1) {
       ufbx_node *node = scene->nodes.data[node_index];
       if (nullptr == node->mesh) {

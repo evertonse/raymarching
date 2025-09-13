@@ -561,14 +561,24 @@ void draw_scene(Projection_Application *app) {
 void draw_scene_few(Projection_Application *app) {
    static Scene_Node alleyana = {-1};
    static bool scene_loaded = false;
+   static Buffer tangent_buffer = {0};
 
    if (!scene_loaded) {
       scene_loaded = true;
       // Model alleyana_model = create_model("res/models/alleyana/source/Alleyana.fbx");
       // Model luster_model      = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
       // Model luster_model      = create_model("res/models/Lust-Watcher-of-Realms/source/Lust-Watcher-of-Realms.fbx");
-      Model sophia_model  = create_model("res/models/sophia-doll-victory-dance/source/sophia doll victory dance.fbx");
-      Model alleyana_model    = sophia_model;
+
+      Model mari_model       = create_model("res/models/mari/source/Mari.fbx");
+      // Model sophia_model  = create_model("res/models/sophia-doll-victory-dance/source/sophia doll victory dance.fbx");
+      Model alleyana_model    = mari_model;
+      if (mari_model.meshes.items[0].vertices.tangents) {
+         tangent_buffer = create_buffer(
+         BUFFER_USAGE_STATIC,
+         mari_model.meshes.items[0].vertices.tangents,
+         mari_model.meshes.items[0].vertices.count * size_of(mari_model.meshes.items[0].vertices.tangents[0])
+      );
+      }
 
       // Model alleyana_model   = create_model("res/models/alleyana/source/Alleyana-No-Textures.fbx");
       // Model alleyana_model   = create_model("res/models/alleyana-no-content/source/Alleyana.fbx");
@@ -626,8 +636,8 @@ void draw_scene_few(Projection_Application *app) {
       play_animation(alleyana);
    }
 
-   if (draw_with_manager) {
-   }
+   bind_buffer(&tangent_buffer, BUFFER_TYPE_STORAGE, BINDING_VERTEX_TANGENT);
+
 }
 
 void draw_scene_few2(Projection_Application *app) {
@@ -841,8 +851,6 @@ void projection_update(Projection_Application *app, f64 dt) {
    upload_uniform_bool(app->shader, "has_emissive", false);
 
    {
-
-
       auto shader = app->shader;
       {
          upload_uniform_vec3(shader, "camera_position", camera.position);
@@ -873,9 +881,9 @@ void projection_update(Projection_Application *app, f64 dt) {
    }
 
 
-   draw_scene_few2(app);
-   // draw_scene_few(app);
-   draw_scene(app);
+   // draw_scene_few2(app);
+   draw_scene_few(app);
+   // draw_scene(app);
 
    if (is_button_pressed(BUTTON_K)) {
       set_redererer_mode(RENDERER_MODE_WIREFRAME);

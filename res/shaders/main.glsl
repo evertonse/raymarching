@@ -23,9 +23,12 @@ layout (location = 0) out Varying {
    vec3 Position;
    vec3 Normal;
    vec2 TextureCoordinate;
+   vec3 Tangent;
+   vec3 Bitangent;
+   float tangent_w_sign;
 };
 
-layout (location = 4) out Flat {
+layout (location = 8) out Flat {
    flat uint material_index;
 };
 
@@ -68,6 +71,11 @@ vec2 pull_uv(int id) {
        vertex_buffer[id*2 + 1 + uv_offset]
    );
 }
+
+vec4 pull_tangent(int id) {
+   return vec4(vertex_tangents[id]);
+}
+
 #endif
 
 
@@ -79,15 +87,13 @@ const float far_plane = 256.000000;
 void main() {
    material_index = -1;
 
-#ifdef PULLING
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
    vec3 normal   = pull_normal(gl_VertexID);
    vec2 uv       = pull_uv(gl_VertexID);
+   vec4 tangent  = pull_tangent(gl_VertexID);
+
    Draw_Command draw_command = draw_commands[gl_DrawID];
    material_index = int(draw_command.material_index);
-#else
-   vec4 position = vec4(position.xyz,  1.0);
-#endif
 
    highp mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
 
@@ -117,20 +123,32 @@ void main() {
    position = model * position;
 
    {  // Send to next shader
-      // Everything is sent in World Space
+      // NOTE: Everything is sent in *World Space*
       Position = position.xyz;
       // See more about the normal matrix: http://www.lighthouse3d.com/tutorials/glsl-12-tutorial/the-normal-matrix/
       if (true) {
          // Apply mat3 to "drop" the translation portion
          if (true) {
-            Normal = normalize(mat3(transpose(inverse(model))) * normalize(normal));
+            // Normalize at the end as per: https://github.com/KhronosGroup/glTF/issues/2056#issuecomment-1213795031
+            // uv.v = 1.0 - uv.v
+            mat3 normal_matrix = mat3(transpose(inverse(model)));
+            Normal = normalize(normal_matrix * normal);
+            // Normalize TBN vectors before interpolation, per MikkTSpace. See: http://www.mikktspace.com/
+            Tangent = normalize(normal_matrix * tangent.xyz);
+            vec3 binormal = normalize(cross(Normal, Tangent) * tangent.w);
+            // vec3 binormal = normalize(cross(Normal, Tangent));
+            Bitangent = normalize(binormal);
+            tangent_w_sign = tangent.w;
          } else {
             Normal = mat3(transpose(inverse(model))) * normal;
          }
+
       } else {
          Normal = normal.xyz;
       }
       TextureCoordinate = uv;
+
+
    }
 
 
@@ -173,9 +191,12 @@ layout (location = 0) in Varying {
    vec3 Position;
    vec3 Normal;
    vec2 TextureCoordinate;
+   vec3 Tangent;
+   vec3 Bitangent;
+   float tangent_w_sign;
 };
 
-layout (location = 4) in Flat {
+layout (location = 8) in Flat {
    flat uint material_index;
 };
 
@@ -501,21 +522,65 @@ mat3 compute_tbn5sda(vec3 position, vec3 normal, vec2 uv) {
     return mat3(normalize(tangent), normalize(bitangent), normalize(normal));
 }
 
-mat3 compute_tbn5(vec3 position, vec3 normal, vec2 uv)
-{
-    vec3 dpdx = dFdx(position);
-    vec3 dpdy = dFdy(position);
-    vec2 dUVdx = dFdx(uv);
-    vec2 dUVdy = dFdy(uv);
+mat3 gen_basis_tb(vec3 position_world, vec3 normal_world, vec2 texcoord) {
+   // texcoord.y = 1.0 - texcoord.y;
+   normal_world = normalize(normal_world);
+   // Derivatives of position (world-space, relative)
+   vec3 dpdx = dFdxFine(position_world);
+   vec3 dpdy = dFdyFine(position_world);
 
-    float det = dUVdx.x * dUVdy.y - dUVdx.y * dUVdy.x;
-    float sign_det = (det < 0.0) ? -1.0 : 1.0;
+   // Project out normal component (keep tangential parts only)
+   vec3 sigma_x = dpdx - dot(dpdx, normal_world) * normal_world;
+   vec3 sigma_y = dpdy - dot(dpdy, normal_world) * normal_world;
 
-    vec3 T = sign_det * normalize(dUVdy.y * dpdx - dUVdx.y * dpdy);
-    vec3 B = sign_det * normalize(cross(normal, T));
-    vec3 N = normalize(normal);
+   // Derivatives of UVs
+   vec2 dstdx = dFdxFine(texcoord);
+   vec2 dstdy = dFdyFine(texcoord);
 
-    return mat3(T, B, N);
+   // Determinant and its sign
+   float det = dot(dstdx, vec2(dstdy.y, -dstdy.x));
+   float sign_det = det < 0.0 ? -1.0 : 1.0;
+
+   // invC0 = (dXds, dYds) scaled by sign only
+   vec2 inv_c0 = sign_det * vec2(dstdy.y, -dstdx.y);
+
+   // Tangent
+   vec3 tangent = sigma_x * inv_c0.x + sigma_y * inv_c0.y;
+   if (abs(det) > 1e-8) {
+      tangent = normalize(tangent);
+   }
+
+   // Flip sign based on orientation of derivatives
+   float flip_sign = dot(dpdy, cross(normal_world, dpdx)) < 0.0 ? -1.0 : 1.0;
+
+   // Bitangent
+   vec3 bitangent = (sign_det * flip_sign) * cross(normal_world, tangent);
+
+   return mat3(tangent, bitangent, normal_world);
+}
+
+mat3 compute_tbn5(vec3 position, vec3 normal, vec2 uv) {
+   // uv.y = 1.0 - uv.v;
+   vec3 dpdx = dFdx(position);
+   vec3 dpdy = dFdx(position);
+   vec2 dUVdx = dFdx(uv);
+   vec2 dUVdy = dFdy(uv);
+
+   float det = dUVdx.x * dUVdy.y - dUVdx.y * dUVdy.x;
+   float sign_det = (det < 0.0) ? -1.0 : 1.0;
+   vec3 T = vec3(0.);
+   vec3 B = vec3(0.);
+   normal = normalize(normal);
+   if (true) {
+      T = sign_det * normalize(dUVdy.y * dpdx - dUVdx.y * dpdy);
+      B = sign_det * normalize(cross(normal, T));
+   } else {
+      T = normalize(dUVdy.y * dpdx - dUVdx.y * dpdy);
+      B = normalize(cross(normal, T));
+   }
+   vec3 N = normalize(normal);
+
+   return mat3(T, B, N);
 }
 
 Tangent_Frame compute_tbn2(vec3 position, vec3 normal, vec2 uv) {
@@ -539,6 +604,7 @@ Tangent_Frame compute_tbn2(vec3 position, vec3 normal, vec2 uv) {
    // float signJ = -1.0;
 
    // Tangent
+   // Technically we should only sign on bitangent but it looks wrong, on GP discord serach for the paper will see
    vec3 T = signJ * normalize(duvdy.y * dpdx - duvdx.y * dpdy);
    // Bitangent
    vec3 B = signJ * cross(n, T);
@@ -635,7 +701,7 @@ mat3 compute_tbn(vec3 pos, vec3 normal, vec2 uv) {
 
    // Ensure tangent, bitangent, and normal are orthogonal
    tangent = normalize(tangent - normal * dot(normal, tangent));
-   bitangent = cross(normal, tangent);
+   bitangent = normalize(cross(normal, tangent));
 
    return mat3(tangent, bitangent, normal);
 }
@@ -704,22 +770,34 @@ void main() {
       const float oscilator_speed = 0.7;
       // const float oscilator = ((sin(per_frame.elapsed_time*2.)*2.5 -1.))         // const float oscilator = mod(per_frame.elapsed_time * oscilator_speed, 1.);
       const float oscilator = abs(mod(per_frame.elapsed_time * oscilator_speed, 2.0) - 1.0);
-      if (true && gl_FragCoord.x > oscilator*1600) {
-
+      // if (true || true && gl_FragCoord.x > oscilator*1600) {
+      if (true) {
 
          if (true) {
             // if (true || gl_FragCoord.x > oscilator*1600) {
-            if (false) {
-               // const mat3 TBN = compute_tbn(Position, normalize(normal), uv);
-               const mat3 TBN = compute_tbn5(Position, normalize(normal), uv);
-               normal = normalize(TBN * (normal_texel.rgb * 2.0 - 1.0));
-            } else {
+            int i = 3;
+            if (i == 1) {
+               const mat3 TBN = compute_tbn3(Position, normalize(normal), uv);
+               // const mat3 TBN = compute_tbn5(Position, (normal), uv);
+               // const mat3 TBN = gen_basis_tb(Position, normalize(normal), uv);
+               normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
+            } else if (i == 2) {
                Tangent_Frame tbn_frame = compute_tbn2(Position, normalize(normal), uv);
                normal = apply_normal_map(tbn_frame, uv, normal_texel.rgb);
+            } else if (i == 3){
+               // Do not normalize as per https://github.com/KhronosGroup/glTF/issues/2056#issuecomment-1213795031
+               mat3 TBN = mat3(Tangent, Bitangent, Normal);
+               normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
+               // normal = normalize(TBN * normal_texel.rgb);
+            } else {
+               vec3 binormal = normalize(cross(Normal, Tangent)) * tangent_w_sign;
+               mat3 TBN = mat3(Tangent, binormal, Normal);
+               normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
             }
+
          }
          // normal = normal_texel.rgb;
-         specular_color = vec3(0.2);
+         specular_color = vec3(0.18);
          // diffuse_color = normal_texel.rgb;
          // diffuse_color = vec3(normal_texel.g + normal_texel.r + normal_texel.b)/3.;
          // return_color(normal.rgb);

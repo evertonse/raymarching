@@ -18,6 +18,9 @@ typedef struct {
          Vector4    weights;
          // should have one of each per position or none
       } *joints;
+
+      Vector4 *tangents; // One per vertex as well or null
+
       u32 count;
    } vertices;
 
