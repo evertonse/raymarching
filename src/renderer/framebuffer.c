@@ -9,7 +9,7 @@ typedef struct {
    bool is_default_framebuffer; // hacky
 } Framebuffer;
 
-// Get's updated in renderer
+// Gets updated in renderer
 Framebuffer default_framebuffer = {
    .is_default_framebuffer = true,
 };
@@ -19,7 +19,7 @@ bool inline is_valid_framebuffer(Framebuffer fb) {
    if (fb.is_default_framebuffer) {
       return true;
    }
-   if (fb.handle == 0) {
+   if (0 == fb.handle) {
       return false;
    }
 
@@ -234,7 +234,7 @@ inline bool validate_framebuffer(Framebuffer fb) {
       if (verbose)
          printf("Depth texture format: 0x%04X\n", depth_format);
 
-      // Common depth formats: GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT32F
+      // Common depth formats GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT32F
       if (!(depth_format == GL_DEPTH_COMPONENT || depth_format == GL_DEPTH_COMPONENT16 || depth_format == GL_DEPTH_COMPONENT24 || depth_format == GL_DEPTH_COMPONENT32F || depth_format == GL_DEPTH24_STENCIL8 || depth_format == GL_DEPTH32F_STENCIL8)) {
          if (verbose)
             printf("Depth texture has invalid format for depth attachment: 0x%04X\n", depth_format);
@@ -737,6 +737,7 @@ Framebuffer resolve_multisample_framebuffer_old(const Framebuffer msaa_fb) {
    return static_resolve_fb;
 }
 
+// NOTE: UNUSED function and untested for realsies
 void blend_framebuffers(const Framebuffer *a, const Framebuffer *b, Framebuffer *out) {
    assert(is_valid_framebuffer(*a));
    assert(is_valid_framebuffer(*b));

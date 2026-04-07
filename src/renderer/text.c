@@ -1,3 +1,6 @@
+// THIS whole file is gonna get deleted once we have sdf text rendering ok?
+
+
 #define MAX_FONTS 16
 #define MAX_FONT_SIZES 8
 #define ATLAS_SIZE 4048

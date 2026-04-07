@@ -1,3 +1,5 @@
+
+
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles
@@ -18,13 +20,15 @@ CMakeUserPresets.json
 *.exe
 *.bin
 *.out
-*.obj
 *.zip
 *.o
 *.pdb
 *.sln
+
+*.obj
 .cache/
 .vim/
 ignore/
 src/shaders/output/
 res/models/sophia-doll-victory-dance/source/Sophia\ Doll\ VictoryDance.Fbx
+*.Zone.Identifier

@@ -1,4 +1,5 @@
 // We're taking this from raylib and assuming all matches glfw. But we didnt check all
+// TODO: is_button_being_pressed vs is_button_pressed behaviour needs to be created and checked I'm pretty sure the latter is acting as the first.
 
 static void window_mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
    auto current = &__state.button.current[BUTTON_MOUSE_BEGIN-button];

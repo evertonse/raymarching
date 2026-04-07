@@ -30,7 +30,7 @@
 
 
 
-// NOTE: If not defined, nuklear will try to define itself BUT is crashes when freeing a null which is wrong since stb relys on that behaviour it seems.
+// NOTE: If not defined, nuklear will try to define itself BUT is crashes when freeing a null which is wrong since stb relies on that behaviour it seems.
 #define STBTT_malloc(x,u)  ((void)(u),malloc(x))
 #define STBTT_free(x,u)    ((void)(u),free(x))
 

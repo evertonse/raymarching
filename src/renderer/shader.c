@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,7 +83,7 @@ static isz append_unique_path(ZString path) {
       char* curr_path = (char*)all_unique_paths.data + count;
       usz len = strlen(curr_path);
       assert_msg(len < I16_MAX, "Overflow might happens here and we're geting close in this case");
-      if (strcmp(path, curr_path) == 0) {
+      if (0 == strcmp(path, curr_path)) {
          return count;
       }
       count += (isz)len + 1;
@@ -291,8 +292,7 @@ static bool pre_process_shader_with_metadata(
                   ds_write_zero(ds);
                }
 
-               {  // NOTE: We're considering that #pragma type occupies a full line k
-                  //       we shall account for that with a -1
+               {  // NOTE: We're considering that #pragma type occupies a full line
                   auto shader_type_offset = ds->count;
                   if (is_fragment) {
                      shaders_metadata[shader_index].fragment_line = *current_line_number;
@@ -656,92 +656,88 @@ static bool metadata_map_line_to_file(int shader_index, Shader_Type shader_type,
    }
 }
 static void print_remapped_opengl_errors(const char *error_string, int shader_index, Shader_Type shader_type) {
-   DString ds = {0};
-   const char *p = error_string;
-   const char *end = error_string + strlen(error_string);
+   static DString ds = {0};
+   ds.count = 0;
 
-   while (p < end) {
-      // Try to find "(<number>)" pattern
-      const char *paren = strchr(p, '(');
-      if (!paren)
-         break;
+   const char *start = error_string;
+   const char *end   = error_string + strlen(error_string);
+   const char *p     = start;
+   const char* num_begin = nullptr;
+   const char* num_end = nullptr;
 
-      // Check if previous chars look like "... <int>("
-      const char *num_start = paren;
-      while (num_start > p && isdigit((unsigned char)num_start[-1])) {
-         num_start--;
-      }
-      if (num_start == paren) {
-         p = paren + 1;
-         continue; // no number before '('
-      }
 
-      // Parse integer before '('
-      long first_num = strtol(num_start, nullptr, 10);
 
-      // Parse inside "(<int>)"
-      const char *inside = paren + 1;
-      char *inside_end = nullptr;
-      long line_num = strtol(inside, &inside_end, 10);
+   if(p == end) {
+      return;
+   }
+   assert(end > p);
 
-      if (!inside_end || *inside_end != ')') {
-         p = paren + 1;
-         continue; // not a valid "(int)"
-      }
+   ZString inform_type_msg =
+      shader_type == SHADER_TYPE_FRAGMENT ?
+         "Fragment shader" :
+      shader_type ==  SHADER_TYPE_VERTEX  ?
+         "Vertex shader" :
+         "Unknown shader type"
+      ;
+   ds_printf(&ds, "%s\n", inform_type_msg);
 
-      const char *after = inside_end + 1;
-      if (*after != ':') {
-         p = after;
-         continue; // not "(int):"
-      }
+   p -= 1; // Every state increament so we -1 now
 
-      // At this point we have a match
-      const char *line_start = p;
-      const char *line_end = after;
-      while (*line_end && *line_end != '\n' && *line_end != '\r')
-         line_end++;
 
-      // Write original prefix
-      ds_write_buf(&ds, line_start, num_start - line_start);
-
-      // Remap line number
-      isz global_line = line_num;
-      isz local_line = -1;
-      const char *filepath = nullptr;
-      ZString inform_type_msg = "";
-
-      if (shader_type == SHADER_TYPE_VERTEX) {
-         global_line += shaders_metadata[shader_index].vertex_line - 1;
-         inform_type_msg = "Vertex shader";
-      } else if (shader_type == SHADER_TYPE_FRAGMENT) {
-         global_line += shaders_metadata[shader_index].fragment_line - 1;
-         inform_type_msg = "Fragment shader";
-      }
-
-      ds_printf(&ds, "%s\n", inform_type_msg);
-      if (metadata_map_line_to_file(shader_index, shader_type, global_line, &filepath, &local_line)) {
-         ds_printf(&ds, "%s:%zu", filepath, local_line);
+   open_parathesis:
+      p += 1; if(p >= end) { goto end; }
+      if ('(' == *p                                // desired token to get to number lines
+        && ((p - 1 >= start) && isdigit(*(p - 1))) // only valid is the previous was a digit and previous is in bounds
+      ) {
+         assert_msg(ds.count > 0, "If we got to this the previous was a digit which means we should've wrote to ds already");
+         ds.count -= 1;
+         goto inside_line_digits;
       } else {
-         ds_printf(&ds, "full_block:%ld", line_num);
+         ds_printf(&ds, "%c", *p);
+         goto open_parathesis;
       }
 
-      // Append rest of error message
-      ds_printf(&ds, " %.*s\n", (int)(line_end - after), after);
+   inside_line_digits:
+      p += 1; if(p >= end) { goto end; }
+      if (isdigit(*p)) {
+         num_begin = num_begin ? num_begin : p;
+         goto inside_line_digits;
+      } else {
+         p -= 1; // backtrack
+         goto close_parathesis;
+      }
 
-      // Advance
-      p = line_end;
-   }
+   close_parathesis:
+      p += 1; if(p >= end) { goto end; }
+      if (')' == *p && num_begin) {
+         // Happy path: We have a begin and all we got here from only digits
+         char *q = (char *)p;
+         isz global_line = (isz)strtol(num_begin, &q, 10);
+         if (shader_type == SHADER_TYPE_VERTEX) {
+            global_line += shaders_metadata[shader_index].vertex_line - 1;
+         } else if (shader_type == SHADER_TYPE_FRAGMENT) {
+            global_line += shaders_metadata[shader_index].fragment_line - 1;
+         }
+         const char* filepath = nullptr;
+         isz local_line = -1;
+         if (metadata_map_line_to_file(shader_index, shader_type, global_line, &filepath, &local_line)) {
+            ds_printf(&ds, "%s:%lld", filepath, local_line);
+         } else {
+            ds_printf(&ds, "full_block:%lld", global_line);
+         }
+      } else {
+         p -= 1; // backtrack
+      }
 
-   // Write any trailing text if we didn’t consume all
-   if (p < end) {
-      ds_write_buf(&ds, p, end - p);
-   }
+      // Failing or succeding we must reset the whole process.
+      num_begin = nullptr; // reset
+      goto open_parathesis;
 
-   if (ds.count) {
-      ds_write_zero(&ds);
-      trace_error("%s", ds.items);
-   }
-   ds_free(ds);
+   end:
+   ds_printf(&ds, "%s", p);
+   ds_write_zero(&ds);
+   trace_error("%s", ds.items);
+   return;
 }
 
 static void print_remapped_opengl_errors2(const char *error_string, int shader_index, Shader_Type shader_type) {
@@ -1233,6 +1229,11 @@ void upload_uniform_mat4(const Shader shader, const char* name, const Matrix val
     if (loc >= 0) glUniformMatrix4fv(loc, 1, GL_FALSE, MatrixToFloat(value));
 }
 
+void upload_uniform_vec2(const Shader shader, const char* name, const Vector2 value) {
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniform2f(loc, value.x, value.y);
+}
+
 void upload_uniform_vec3(const Shader shader, const char* name, const Vector3 value) {
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform3f(loc, value.x, value.y, value.z);
@@ -1259,6 +1260,11 @@ void upload_uniform_bool(const Shader shader, const char* name, bool value) {
     if (loc >= 0) glUniform1i(loc, value ? 1 : 0);
 }
 
+
+void upload_uniform_ivec2(const Shader shader, const char* name, int v1, int v2) {
+    GLint loc = glGetUniformLocation(shader.handle, name);
+    if (loc >= 0) glUniform2i(loc, v1, v2);
+}
 void upload_uniform_int(const Shader shader, const char* name, int value) {
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform1i(loc, value);

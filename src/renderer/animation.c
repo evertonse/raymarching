@@ -220,16 +220,16 @@ void destroy_joint_list(Joint_List *list) {
 Animation animation_deep_copy(const Animation *src) {
    Animation dst = {0};
 
-   // Copy basic timing fields
+   // Copy timing fields
    dst.time_begin   = src->time_begin;
    dst.time_end     = src->time_end;
 
    usz total_bytes = 0;
 
-   // Add space for joints array
+   // Count space for joints array
    total_bytes += src->joints_animation.count * size_of(Joint_Animation);
 
-   // Add space for all keyframe data
+   // Count space for all keyframe data
    for (u32 i = 0; i < src->joints_animation.count; i++) {
       const Joint_Animation *joint = &src->joints_animation.items[i];
       total_bytes += joint->translation_keyframes.count * size_of(*joint->translation_keyframes.items);
@@ -237,11 +237,11 @@ Animation animation_deep_copy(const Animation *src) {
       total_bytes += joint->rotation_keyframes.count    * size_of(*joint->rotation_keyframes.items);
    }
 
-   // Add space for name (if it exists)
+   // Count space for name (if it exists)
    usz name_len = src->name ? strlen(src->name) + 1 : 0;
    total_bytes += name_len;
 
-   // Single allocation for all data
+   // We prefer if possible and not too much of a hustle do a single allocation for all data
    byte *memory_block = malloc(total_bytes);
    if (!memory_block) {
       return (Animation){0};
@@ -308,8 +308,11 @@ void animation_deep_free(Animation* anim) {
 
 ///-------------------------- Keyframes --------------------------///
 
-// NOTE: We could pass an offset + size into .time instead of this typeof
-static inline isz find_keyframe_interval_old(const typeof(((Joint_Animation *)0)->translation_keyframes.items) keys, u32 count, double time) {
+// NOTE: We could pass an offset + size into .time instead of this ugly typeof
+static inline isz find_keyframe_interval_old(
+      const typeof(((Joint_Animation *)0)->translation_keyframes.items) keys,
+      u32 count, double time
+) {
    assert_msg(count >= 2, "The caller should have checked this");
 
    isz low = 0, high = count - 2;
@@ -365,13 +368,13 @@ static inline isz find_keyframe_interval2(const typeof(((Joint_Animation *)0)->t
 
    // Handle edge cases first
    if (time <= keys[0].time) {
-      return 0; // Before first keyframe - use first interval
+      return 0; // Before first keyframe: use first interval
    }
    if (time >= keys[count - 1].time) {
-      return count - 2; // After last keyframe - use last interval
+      return count - 2; // After last keyframe: use last interval
    }
 
-   isz low = 0, high = count - 2; // high is max valid interval index
+   isz low = 0, high = count - 2; // 'high' is max valid interval index
    while (low <= high) {
       isz mid = (low + high) / 2;
 
@@ -385,7 +388,7 @@ static inline isz find_keyframe_interval2(const typeof(((Joint_Animation *)0)->t
       }
    }
 
-   assert_msg(false, "fuck you");
+   assert_msg(false, "Fuck you");
    // Should never reach here with proper input, but just in case
    return count - 2;
 }
@@ -546,8 +549,8 @@ static inline void interpolate_from_keyframes(const typeof(((Joint_Animation *)0
    if (out_vector3) {
       *out_vector3 = Vector3Lerp(a.vec3, b.vec3, alpha);
    } else {
-      *out_quat    = QuaternionSlerp(a.quat, b.quat, alpha);
-      // *out_quat    = QuaternionNlerp(a.quat, b.quat, alpha);
+      // *out_quat    = QuaternionSlerp(a.quat, b.quat, alpha);
+      *out_quat    = QuaternionNlerp(a.quat, b.quat, alpha);
       // *out_quat    = QuaternionLerp(a.quat, b.quat, alpha);
 
    }

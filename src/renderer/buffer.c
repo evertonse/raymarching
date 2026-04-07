@@ -12,7 +12,7 @@ typedef enum {
     // Mutually exclusive
     BUFFER_USAGE_STATIC,
     BUFFER_USAGE_SUBDATA,
-    BUFFER_USAGE_ORPHANABLE, // Old opengl api had this concept i'll leave here for performance issues
+    BUFFER_USAGE_ORPHANABLE, // Old opengl api had this concept i'll leave here for performance testing
     BUFFER_USAGE_MAP_READ,
     BUFFER_USAGE_MAP_WRITE,
     BUFFER_USAGE_MAP_READ_WRITE,
@@ -29,6 +29,9 @@ typedef struct {
    Buffer_Usage usage;
    Buffer_Type  type;
 } Buffer;
+
+// NOTE: Most of these are unused actually. We can get away with just some images and a buffer interface and thats it, no need to especialist.
+// They're probably gonna be gone soon
 
 //--------------------------------------
 // Texture Buffer Object (Texture_Buffer)
@@ -320,9 +323,9 @@ bool copy_from_buffer(
    return true;
 }
 
-// You do this by creating a fence object. This is a token in the command stream that you can test to see if it has been completed. 
+// You do this by creating a fence object. This is a token in the command stream that you can test to see if it has been completed.
 // Since the stream is an ordered list, if the fence has completed, then every command issued before that fence was issued has also completed.
-// Sync objects have a specific type, which defines their signaling behavior. Currently, there is only one type: fences.
+// Sync objects have a specific type, which defines their signaling behavior. Currently, there is only one type: fences (since opengl is done being updated we're never gonna get another type xD).
 GLsync sync_point(GLsync sync) {
    if (sync) {
       glDeleteSync(sync);
@@ -360,7 +363,6 @@ void wait_sync_point(GLsync sync) {
 bool is_valid_uniform_buffer(const Uniform_Buffer ub) {
     return is_valid_buffer(ub.buffer) && ub.cpu_mem;
 }
-
 
 bool is_valid_texture_buffer(const Texture_Buffer tb) {
 
@@ -606,6 +608,7 @@ Texture_Buffer create_texture_buffer(
 
 
 
+// Shit's unused and overengineering.
 #define STD140_ALIGN __attribute__((aligned(16)))
 Uniform_Buffer create_uniform_buffer(isz size, i64 binding) {
     Uniform_Buffer result = {0};
@@ -652,24 +655,23 @@ Index_Buffer create_index_buffer(const u32* data, isz index_count) {
 }
 
 //--------------------------------------
-// Shader Binding Usage
+// Some Notes for me to remember how to use it from Shaders:
 //--------------------------------------
-// Uniform_Buffer: layout(std140, binding = N) uniform BlockName {}
-// Texture_Buffer: uniform samplerBuffer texBuffer;
-// Storage_Buffer: layout(std430, binding = N) buffer BlockName {}
-// Image2D: layout(rgba32f, binding = N) uniform image2D myImage;
-// Texture2D: uniform sampler2D tex;
 
-//--------------------------------------
-// Notes:
-//--------------------------------------
+// Shader Binding Usage
+// - Uniform_Buffer: layout(std140, binding = N) uniform BlockName {}
+// - Texture_Buffer: uniform samplerBuffer texBuffer;
+// - Storage_Buffer: layout(std430, binding = N) buffer BlockName {}
+// - Image2D       : layout(rgba32f, binding = N) uniform image2D myImage;
+// - Texture2D     : uniform sampler2D tex;
+
 // Image2D vs Regular Texture:
-// - Image2D supports read-write operations from shaders (imageLoad/imageStore).
+// - Image2D supports read AND write operations from shaders (imageLoad/imageStore).
 // - Regular Texture (sampler2D) is read-only and supports filtering and mipmaps.
 // - You can bind the same GL_TEXTURE_2D to both image2D and sampler2D with different usage (e.g. bind to both for writing and sampling).
 
 // Uniform vs Texture vs Storage_Buffer:
-// - Uniform Buffer: Fast, small data, 16-byte alignment. Shared across programs. Limited size (e.g. 64KB).
+// - Uniform Buffer: Fast, small data, 16-byte alignment. Shared across programs. Limited size (64KB).
 // - Texture Buffer: 1D only, best for tightly packed uniform-like arrays. Read-only in shaders.
 // - Storage_Buffer: Most flexible, larger storage, can read-write. Slower than Uniform_Buffers for small data.
-// - Image2D: Arbitrary read/write, good for GPGPU or post-processing passes. Requires memory barriers.
+// - Image2D       : Arbitrary read/write, good for post-processing passes. Requires memory barriers.

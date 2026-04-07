@@ -38,6 +38,10 @@
 #   define FLT_EPSILON 1.192092896e-07F
 #endif
 
+// #ifndef FLOAT_EQUALS(x,y)
+// #   define FLOAT_EQUALS(x,y)
+// #endif
+
 
 #ifndef TAU
 #   define TAU PI * 2.

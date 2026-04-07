@@ -1,11 +1,11 @@
 
-
 // TODO: Add 16F when hdr pipeline and test performance compared to 32F
 typedef enum {
    TEXTURE_FORMAT_UNDEFINED,
    TEXTURE_FORMAT_DEPTH24,
    TEXTURE_FORMAT_SHADOW,
    TEXTURE_FORMAT_RGBA32F,
+   TEXTURE_FORMAT_R32F,
    TEXTURE_FORMAT_RGB8,
    TEXTURE_FORMAT_RGBA8,
    TEXTURE_FORMAT_RG8,
@@ -84,6 +84,7 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
       case TEXTURE_FORMAT_RG8:     internal_format = GL_RG8;               gl_format = GL_RG;              break;
       case TEXTURE_FORMAT_R8:      internal_format = GL_R8;                gl_format = GL_RED;             break;
       case TEXTURE_FORMAT_RGBA32F: internal_format = GL_RGBA32F;           gl_format = GL_RGBA;            data_type = GL_FLOAT;        break;
+      case TEXTURE_FORMAT_R32F:    internal_format = GL_R32F;              gl_format = GL_RED;             data_type = GL_FLOAT;        break;
       case TEXTURE_FORMAT_DEPTH24: internal_format = GL_DEPTH_COMPONENT24; gl_format = GL_DEPTH_COMPONENT; data_type = GL_UNSIGNED_INT; break;
       case TEXTURE_FORMAT_SHADOW:  internal_format = GL_DEPTH_COMPONENT24; gl_format = GL_DEPTH_COMPONENT; data_type = GL_UNSIGNED_INT; compare_mode = GL_COMPARE_REF_TO_TEXTURE; compare_func = GL_LEQUAL; break;
       default: assert_msg(false, "Unsupported texture format"); return result;
@@ -166,6 +167,7 @@ Texture create_texture_extended(int width, int height, void *data, Texture_Forma
 }
 
 
+
 inline Texture create_texture(int width, int height) {
     return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 0);
 }
@@ -199,7 +201,7 @@ Texture create_texture_from_filepath(const char *filepath) {
 
    int width, height, channels;
    stbi_set_flip_vertically_on_load(true);
-   unsigned char *data = stbi_load(filepath, &width, &height, &channels, 0);
+   u8 *data = stbi_load(filepath, &width, &height, &channels, 0);
 
    if (!data) {
       trace_error("Failed to load texture from: %s\n", filepath);
@@ -250,7 +252,8 @@ void update_texture(Texture* tex, int new_width, int new_height, const void* new
         case TEXTURE_FORMAT_RGB8:      format = GL_RGB; break;
         case TEXTURE_FORMAT_RG8:       format = GL_RG; break;
         case TEXTURE_FORMAT_R8:        format = GL_RED; break;
-        case TEXTURE_FORMAT_RGBA32F:   format = GL_RGBA; type = GL_FLOAT; break;
+        case TEXTURE_FORMAT_RGBA32F:   format = GL_RGBA;            type = GL_FLOAT; break;
+        case TEXTURE_FORMAT_R32F:      format = GL_RED;             type = GL_FLOAT; break;
         case TEXTURE_FORMAT_DEPTH24:   format = GL_DEPTH_COMPONENT; type = GL_UNSIGNED_INT; break;
         default:
             assert_msg(false, "Unsupported texture format for subimage update");
@@ -308,6 +311,7 @@ void bind_texture_as_image(const Texture texture, usz binding, Texture_Access ac
 
     switch (texture.format) {
         case TEXTURE_FORMAT_RGBA32F: format = GL_RGBA32F; break;
+        case TEXTURE_FORMAT_R32F:    format = GL_R32F;    break;
         case TEXTURE_FORMAT_RGBA8:   format = GL_RGBA8;   break;
         case TEXTURE_FORMAT_RGB8:    format = GL_RGB8;    break;
         case TEXTURE_FORMAT_RG8:     format = GL_RG8;     break;
@@ -339,3 +343,304 @@ void bind_texture_as_image(const Texture texture, usz binding, Texture_Access ac
 }
 
 
+#define bind_texture_as_sampler bind_texture
+
+
+bool generate_max_mipmaps(Texture *texture) {
+
+   if (texture == NULL) {
+      trace_error("generate_max_mipmaps: texture null");
+      return false;
+   }
+
+   if (!is_valid_texture(*texture)) {
+      trace_error("generate_max_mipmaps: invalid texture");
+      return false;
+   }
+
+   if (texture->samples > 0) {
+      trace_error("generate_max_mipmaps: multisampled not supported");
+      return false;
+   }
+
+   if (texture->format != TEXTURE_FORMAT_R32F) {
+      trace_warn("%s: converting texture to R32F automatically (using R channel)", __func__);
+   }
+
+   GLint existing_levels = 0;
+   glGetTextureParameteriv(texture->handle, GL_TEXTURE_IMMUTABLE_LEVELS, &existing_levels);
+
+   if (existing_levels > 1) {
+      trace_error("%s: texture already has mipmaps allocated", __func__);
+      return false;
+   }
+
+   int base_width  = texture->width;
+   int base_height = texture->height;
+
+   if (base_width <= 0 || base_height <= 0) {
+      trace_error("generate_max_mipmaps: invalid size");
+      return false;
+   }
+
+   int max_dimension = base_width > base_height ? base_width : base_height;
+   int mip_count = 1 + (int)floor(log2((float)max_dimension));
+
+   usize base_pixel_count = (usize)base_width * (usize)base_height;
+
+   float *base_level_data = malloc(base_pixel_count * size_of(float));
+   if (base_level_data == NULL) {
+      trace_error("generate_max_mipmaps: malloc failed");
+      return false;
+   }
+
+   glGetTextureImage(
+      texture->handle,
+      0,
+      GL_RED,
+      GL_FLOAT,
+      base_pixel_count * size_of(float),
+      base_level_data
+   );
+   for (usize i = 0; i < base_pixel_count; i++) {
+      float data = base_level_data[i];
+      if (data > 1.0) {
+         trace_fatal(" givver than 1. %f", data);
+      }
+   }
+
+   glDeleteTextures(1, &texture->handle);
+   glCreateTextures(GL_TEXTURE_2D, 1, &texture->handle);
+
+   glTextureStorage2D(
+      texture->handle,
+      mip_count,
+      GL_R32F,
+      base_width,
+      base_height
+   );
+
+   glTextureSubImage2D(
+      texture->handle,
+      0,
+      0,
+      0,
+      base_width,
+      base_height,
+      GL_RED,
+      GL_FLOAT,
+      base_level_data
+   );
+
+   int previous_width  = base_width;
+   int previous_height = base_height;
+
+   float *previous_level_data = base_level_data;
+
+   for (int mip_level = 1; mip_level < mip_count; mip_level++) {
+
+      int next_width  = previous_width  > 1 ? previous_width  / 2 : 1;
+      int next_height = previous_height > 1 ? previous_height / 2 : 1;
+
+      usize next_pixel_count = (usize)next_width * (usize)next_height;
+      float *next_level_data = malloc(next_pixel_count * size_of(float));
+
+      if (next_level_data == NULL) {
+         free(previous_level_data);
+         trace_error("generate_max_mipmaps: malloc failed");
+         return false;
+      }
+
+      for (int y = 0; y < next_height; y++) {
+         for (int x = 0; x < next_width; x++) {
+
+            int base_x = x * 2;
+            int base_y = y * 2;
+
+            float maximum_value = -1e30f;
+
+            const int sample_offsets[4][2] = {
+               {0, 0},
+               {1, 0},
+               {0, 1},
+               {1, 1}
+            };
+
+            for (int i = 0; i < count_of(sample_offsets); i++) {
+
+               int sample_x = base_x + sample_offsets[i][0];
+               int sample_y = base_y + sample_offsets[i][1];
+
+               if (sample_x < previous_width && sample_y < previous_height) {
+
+                  float value = previous_level_data[sample_y * previous_width + sample_x];
+
+                  if (value > maximum_value) {
+                     maximum_value = value;
+                  }
+               }
+            }
+
+            if (maximum_value > 1.0) {
+               trace_fatal("maximum_value > 1. %f (We're expecting range to be from 0.0 to 1.0)", maximum_value);
+            }
+
+            next_level_data[y * next_width + x] = maximum_value;
+         }
+      }
+
+      glTextureSubImage2D(
+         texture->handle,
+         mip_level,
+         0,
+         0,
+         next_width,
+         next_height,
+         GL_RED,
+         GL_FLOAT,
+         next_level_data
+      );
+
+      if (mip_level > 1) {
+         free(previous_level_data);
+      }
+
+      previous_level_data = next_level_data;
+      previous_width  = next_width;
+      previous_height = next_height;
+   }
+
+   free(previous_level_data);
+
+   glTextureParameteri(texture->handle, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+   glTextureParameteri(texture->handle, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+   texture->format = TEXTURE_FORMAT_R32F;
+   return true;
+}
+
+
+bool dump_texture_mips_png(Texture *texture, const char *filename) {
+   if (!texture || !is_valid_texture(*texture) || !filename) {
+      trace_error("%s: invalid args", __func__);
+      return false;
+   }
+
+   GLint base_width = 0, base_height = 0;
+   glGetTextureLevelParameteriv(texture->handle, 0, GL_TEXTURE_WIDTH, &base_width);
+   glGetTextureLevelParameteriv(texture->handle, 0, GL_TEXTURE_HEIGHT, &base_height);
+
+   if (base_width <= 0 || base_height <= 0) {
+      trace_error("invalid texture size");
+      return false;
+   }
+
+   // detect mip count
+   int mip_levels = 1;
+   int w = base_width, h = base_height;
+   while (w > 1 || h > 1) {
+      w = (w > 1) ? w / 2 : 1;
+      h = (h > 1) ? h / 2 : 1;
+      mip_levels++;
+   }
+
+   // detect channels
+   GLint internal_format;
+   glGetTextureLevelParameteriv(texture->handle, 0, GL_TEXTURE_INTERNAL_FORMAT, &internal_format);
+
+   int channels = 1;
+   if (internal_format == GL_RG32F || internal_format == GL_RG16F) {
+      channels = 2;
+   }
+   if (internal_format == GL_RGBA32F) {
+      channels = 4;
+   }
+
+   int total_height = 0;
+   w = base_width;
+   h = base_height;
+   for (int i = 0; i < mip_levels; i++) {
+      total_height += h;
+      w = (w > 1) ? w / 2 : 1;
+      h = (h > 1) ? h / 2 : 1;
+   }
+
+   int out_width  = base_width;
+   int out_height = total_height;
+
+   u8 *png_pixels = malloc((usize)out_width * out_height * 3);
+   memset(png_pixels, 0, (usize)out_width * out_height * 3);
+
+   int y_offset = 0;
+   w = base_width;
+   h = base_height;
+
+   for (int level = 0; level < mip_levels; level++) {
+
+      usize pixel_count = (usize)w * h * channels;
+      float *buffer = malloc(pixel_count * size_of(float));
+
+      glGetTextureImage(texture->handle, level, (channels == 1 ? GL_RED : (channels == 2 ? GL_RG : GL_RGBA)), GL_FLOAT, pixel_count * size_of(float), buffer);
+
+      float minv = buffer[0];
+      float maxv = buffer[0];
+
+      for (usize i = 0; i < pixel_count; i += channels) {
+         float v = buffer[i];
+
+         if (isnan(v) || isinf(v))
+            continue;
+
+         if (v < minv)
+            minv = v;
+         if (v > maxv)
+            maxv = v;
+      }
+
+      float range = maxv - minv;
+      if (range < 1e-8f)
+         range = 1.0f;
+
+      for (int y = 0; y < h; y++) {
+         for (int x = 0; x < w; x++) {
+
+            float v = buffer[(y * w + x) * channels];
+
+            // remove this if you want raw values visualization
+            float n = (v - minv) / range;
+
+            if (n < 0)
+               n = 0;
+            if (n > 1)
+               n = 1;
+
+            u8 c = (u8)(n * 255);
+
+            int out_y = y_offset + y;
+            int idx = (out_y * out_width + x) * 3;
+
+            png_pixels[idx + 0] = c;
+            png_pixels[idx + 1] = c;
+            png_pixels[idx + 2] = c;
+         }
+      }
+
+      free(buffer);
+      y_offset += h;
+
+      w = (w > 1) ? w / 2 : 1;
+      h = (h > 1) ? h / 2 : 1;
+   }
+
+   int ok = stbi_write_png(filename, out_width, out_height, 3, png_pixels, out_width * 3);
+
+   free(png_pixels);
+
+   if (!ok) {
+      trace_error("png write failed");
+      return false;
+   }
+
+   trace_info("%s wrote %s", __func__, filename);
+   return true;
+}

@@ -106,8 +106,12 @@ static const ufbx_load_opts ufbx_default_opts = {
 
 
 
+   	// Don't fail loading if external files are not found.
+
    .obj_search_mtl_by_filename = true,
-   .load_external_files = true, // IMPORTANT: Auto load mtl and other texture files (unsafe if user defined data)0
+
+   .load_external_files = true,           // IMPORTANT: Auto load mtl and other texture files (unsafe if user defined data)0
+   .ignore_missing_external_files = true, // IMPORTANT: Don't fail in case the external file doesn't exist (warn only)
 
    // (.obj) Don't split geometry into meshes by object.
    .obj_merge_objects = please_obj_merge,
@@ -570,6 +574,26 @@ static void setup_materials_from_ufbx_scene(Model *model, const ufbx_scene *cons
    }
 }
 
+void generate_tangent_space(Mesh *mesh) {
+   SMikkTSpaceInterface mikk_interface = {
+      .m_getNumFaces          = mikk_get_num_faces,
+      .m_getNumVerticesOfFace = mikk_get_num_vertices_of_face,
+      .m_getPosition          = mikk_get_position,
+      .m_getNormal            = mikk_get_normal,
+      .m_getTexCoord          = mikk_get_tex_coord,
+      .m_setTSpaceBasic       = mikk_set_tagent_space_basic,
+   };
+
+   Mikk_User_Data user_data = {mesh};
+
+   SMikkTSpaceContext ctx = {
+      .m_pInterface = &mikk_interface,
+      .m_pUserData  = &user_data,
+   };
+
+   genTangSpaceDefault(&ctx);
+}
+
 bool mesh_requires_tangents(const ufbx_mesh *mesh) {
    if (!mesh) {
       return false;
@@ -600,6 +624,7 @@ bool mesh_requires_tangents(const ufbx_mesh *mesh) {
    // No material with a normal map found, no need for tangents
    return false;
 }
+
 
 static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    static constexpr int MAX_WEIGHTS = 4;
@@ -664,7 +689,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    isz total_vertex_count = 0;
    isz total_index_count = 0;
    usz max_weight_count_found = 0;
-   bool generate_tanget_space = mesh_requires_tangents(fbx_mesh);
+   bool needs_tanget_space = mesh_requires_tangents(fbx_mesh);
 
    // Process each material part (surface), always at least 1.
    for (usz part_index = 0; part_index < fbx_mesh->material_parts.count; part_index += 1) {
@@ -818,30 +843,15 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
       trace_okay("ufbx_generate_indices optimized from %lld to %lld vertices", total_vertex_count, vertices_count_new);
    }
 
-   if (generate_tanget_space) {
+   if (needs_tanget_space) {
       trace_okay("Generating tangent space for node %s scene %s.", node->name.data, scene->metadata.filename.data);
-      // Should this really be after the every other attribute from the mesh is completely resolved?
-      SMikkTSpaceInterface mikk_interface = {
-         .m_getNumFaces          = mikk_get_num_faces,
-         .m_getNumVerticesOfFace = mikk_get_num_vertices_of_face,
-         .m_getPosition          = mikk_get_position,
-         .m_getNormal            = mikk_get_normal,
-         .m_getTexCoord          = mikk_get_tex_coord,
-         .m_setTSpaceBasic       = mikk_set_tagent_space_basic,
-      };
-
-      Mikk_User_Data user_data = {&mesh};
-
-      SMikkTSpaceContext ctx = {
-         .m_pInterface = &mikk_interface,
-         .m_pUserData  = &user_data,
-      };
-
-      genTangSpaceDefault(&ctx);
+      // TODO: make this function check for already allocated memory to allow pre-allocation
+      generate_tangent_space(&mesh);
    }
 
    return mesh;
 }
+
 
 void trace_model(const Model *model) {
    if (!model) {
@@ -876,8 +886,8 @@ Model create_model(const char *filepath) {
       trace_error("%s failed: %s %s", __func__, error.info, err_buf);
       return model;
    }
-   trace_ufbx_warnings(scene);
 
+   trace_ufbx_warnings(scene);
    trace_ufbx_scene_stats(scene);
 
    if (scene->anim_stacks.count > 0) {   // Setup animations
@@ -1027,63 +1037,62 @@ Model create_cube_model(
    const char *emissive_tex,
    const char *normal_tex
 ) {
-
-   constexpr float interleaved[] = {
+   static constexpr float interleaved[] = {
       // positions          // normals           // texture coords
-      -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
-       0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
-       0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
-
-       0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
-      -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
-      -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
-
+      // Front face (z = 0.5) - Counter-clockwise when viewed from outside
       -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
        0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,
        0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
-
        0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
       -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  1.0f,
       -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
 
-      -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
-      -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
-      -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+      // Back face (z = -0.5) - Counter-clockwise when viewed from outside
+      -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
+      -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
+       0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
+       0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
+       0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
+      -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
 
-      -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-      -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
-      -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+      // Left face (x = -0.5) - Counter-clockwise when viewed from outside
+      -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
+      -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+      -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
+      -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
+      -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+      -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
 
-       0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+      // Right face (x = 0.5) - Counter-clockwise when viewed from outside
+       0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
        0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
-       0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-
-       0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+       0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+       0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
        0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
-       0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+       0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
 
+      // Bottom face (y = -0.5) - Counter-clockwise when viewed from outside
       -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
        0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f,
        0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
-
        0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
       -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,
       -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
 
+      // Top face (y = 0.5) - Counter-clockwise when viewed from outside
       -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
-       0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
-       0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
-
-       0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
       -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
+       0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+       0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+       0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
       -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
    };
 
    Model model = {0};
 
    // We need: 1 mesh + 1 material
-   size_t meshes_size    = sizeof(Mesh);
-   size_t materials_size = sizeof(*model.materials.items);
+   size_t meshes_size    = size_of(Mesh);
+   size_t materials_size = size_of(*model.materials.items);
    byte *memory = malloc(meshes_size + materials_size);
 
    model.meshes.count = 1;
@@ -1098,6 +1107,7 @@ Model create_cube_model(
    model.materials.items[0].specular = specular_tex;
    model.materials.items[0].emissive = emissive_tex;
    model.materials.items[0].normal   = normal_tex;
+   generate_tangent_space(&model.meshes.items[0]);
    return model;
 }
 

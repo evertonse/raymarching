@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include <time.h>
 
-// Optional: For Windows you might want to use QueryPerformanceCounter
-// This example uses cross-platform clock_gettime (POSIX)
+// For Windows we might wanna to use QueryPerformanceCounter
+// For now we're just using hte glfw implementation rsrs
+
 #ifdef _WIN32
 #include <windows.h>
 static LARGE_INTEGER freq;
@@ -132,8 +133,8 @@ typedef enum {
 } Type;
 
 typedef struct {
-   u32 magic;                // Unique identifier for type safety
-   f64 seconds;        // Time to wait
+   u32 magic;                // Unique identifier for type safety (experimenting with that. Overengineering type shit)
+   f64 seconds;              // Time to wait
    f64  seconds_left;        // Remaining time
    f64  previous_time;       // Time of last update
    bool repeat;              // Should it reset after triggering?

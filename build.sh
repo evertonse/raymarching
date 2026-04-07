@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+
 # Store timer state globally
 __profile_start_s=""
 __profile_start_ns=""
@@ -61,7 +62,8 @@ popd() {
 
 
 WINDOWS_DESTINATION_DIR='C:\Dev\code\GPUCompute'
-DEBUGGER_DIRECTORY='C:\Dev\tools\raddbg\'
+# DEBUGGER_DIRECTORY='C:\Dev\tools\raddbg\'
+DEBUGGER_DIRECTORY='E:\Dev\programs'
 DEBUGGER_EXECUTABLE_NAME='raddbg.exe'
 DEBUGGER_FILEPATH="$DEBUGGER_DIRECTORY\\$DEBUGGER_EXECUTABLE_NAME"
 
@@ -69,25 +71,26 @@ config_gcc_linux() {
     cc='gcc'
     glfw_obj=rglfw.o
     bin='main.bin'
-    pbd=''
+    pdb=''
     flags_debug="-g -ggdb"
 }
 
 config_mingw() {
     cxx='/bin/x86_64-w64-mingw32-g++'
     cc='/bin/x86_64-w64-mingw32-gcc' glfw_obj=rglfw.obj bin='main.exe'
-    pbd='main.pdb'
+    pdb='main.pdb'
 
     # TODO: Need to change debug compilation directory in mingw
-    flags_debug="-g --for-linker --pdb=\"$pbd\""
+    flags_debug="-g --for-linker --pdb=$pdb"
 }
 
 config_clang_from_linux_to_windows() {
-    cc='clang --target=x86_64-w64-windows-gnu' # Also valid: 'x86_64-windows-gnu' but don't know the difference
-    cxx='clang++ --target=x86_64-w64-windows-gnu'
+    local target='x86_64-w64-windows-gnu' # Also valid: 'x86_64-w64-windows-gnu' 'x86_64-windows-gnu' but don't know the difference
+    cc="clang --target=$target"
+    cxx="clang++ --target=$target"
     glfw_obj=rglfw.obj
     bin='main.exe'
-    pbd='main.pdb'
+    pdb='main.pdb'
 
     #
     # Here we're trying to get clang to generated .pdb files for debugging
@@ -101,7 +104,10 @@ config_clang_from_linux_to_windows() {
     flags_debug_codeview_extra="-gcodeview-command-line -gcolumn-info"
     flags_debug_directory="-fdebug-prefix-map=$(pwd)=$WINDOWS_DESTINATION_DIR -fdebug-compilation-dir=$WINDOWS_DESTINATION_DIR"
     flags_debug_macro="-fdebug-macro"
-    flags_debug="-v $flags_debug_directory -fuse-ld=lld -g -gcodeview $flags_debug_codeview_extra -Xlinker -pdb="
+
+    # Fixed debug bug with this resource: https://stackoverflow.com/questions/74416539/clang-14-does-not-generate-pdb-file
+    flags_debug="-v -g -gcodeview -fuse-ld=lld -Wl,--pdb= $flags_debug_directory $flags_debug_codeview_extra"
+
 
     #
     # NOTE: WinDbg "works" with dwarf-5 embed-source. Flags would be:
@@ -140,7 +146,8 @@ build() {
     #
 
     # Annoying warnings removed
-    flags_no_warn='-Wno-unused-command-line-argument -Wno-missing-braces -Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -Wno-unknown-warning-option -Wno-unused-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-keyword-macro -Wno-unused-variable -Wno-self-assign'
+    flags_no_warn='-Wno-unused-command-line-argument -Wno-missing-braces -Wno-format-nonliteral -Wno-unused-function -Wno-error=pointer-sign -Wno-error=missing-braces -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing -Wno-unknown-warning-option -Wno-unused-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-keyword-macro -Wno-unused-variable -Wno-self-assign -Wno-nan-infinity-disabled'
+
 
     # Collection of decently extra extra warnings
     flags_ub='-fwrapv -fno-strict-aliasing -ftrapv'
@@ -269,10 +276,10 @@ sync_to_windows() {
 
     profile_start
 
-    rync_flags='--size-only --delete' # size_only might be wrong sometimes, albeit its fast
-    rync_flags='--delete-delay --delete'
+    rync_flags='--size-only' # size_only might be wrong sometimes, albeit its fast
     # --times is important to let rsync skip some files next syncing point
-    rsync -r --executability --times "${exclude_patterns[@]}" ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
+    mkdir -p "$(wslpath "$WINDOWS_DESTINATION_DIR")" || true
+    rsync -a --delete-delay --executability --times "${exclude_patterns[@]}" ./ "$(wslpath "$WINDOWS_DESTINATION_DIR")"
 
     profile_end "Syncing files into directory $WINDOWS_DESTINATION_DIR"
     # After syncing we don't want any '.pdb' files here
@@ -280,9 +287,12 @@ sync_to_windows() {
 }
 
 on_wsl() {
-    grep -qEi "(Microsoft|WSL)" /proc/version
+  if grep -qEi '(microsoft|wsl)' /proc/version 2>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
 }
-
 
 start_debugger() {
     local debugger="$(wslpath "$DEBUGGER_FILEPATH")"
@@ -311,6 +321,7 @@ main() {
             ;;
         run)
             build "release"
+            ./"$bin"
             ;;
         debug)
             if ! on_wsl; then
@@ -328,6 +339,7 @@ main() {
             ;;
     esac
 }
+
 
 main "$@"
 

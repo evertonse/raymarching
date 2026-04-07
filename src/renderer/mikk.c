@@ -4,7 +4,7 @@ typedef struct {
 } Mikk_User_Data;
 
 
-// Returns number of faces (triangles)
+// Returns number of faces (triangles always)
 int mikk_get_num_faces(const SMikkTSpaceContext* ctx) {
     Mikk_User_Data* ud = (Mikk_User_Data*)ctx->m_pUserData;
     return ud->mesh->indices.count / 3;

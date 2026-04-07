@@ -239,7 +239,6 @@ Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
 }
 
 
-// Mesh
 bool inline is_valid_mesh(Mesh mesh) {
    return nullptr != mesh.indices.items
       &&  nullptr != mesh.vertices.positions

@@ -798,6 +798,14 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
    // If it changes and somehow surfaces has never before seen owned positions data then this will be wrong.
    // Thats why every surface had the same base_vertices_offset
 
+   //
+   // TODO: This base_thingy is so predominant that we should design push_arrays around that, instead of these overrides.
+   //       Also, not every surface in the mesh need to have tangents, it might make sense to only upload the
+   //       tangents that are actually used by a surface we're aready controlling base_tangents_offset per draw_command anyways.
+   //       Maybe the mesh itself should trim the tangents before getting here, but the problem with that is that tangents are related to the other vertex data (positions, uvs...) through indices buffer.
+   //       It would add too much complication to have a separate indices for tangets or something of the kind. Making the manager upload less tangent data per draw_command seems more viable and simple.
+   //       We just need to think if indexing the tangent buffer in the shader would bring back the same complication regarding indices that I've mentioned if it were to be done in mesh creation time.
+   //
    auto base_vertices_offset = manager.vertices.count;
    auto base_tangents_offset = manager.tangents.count;
    auto base_joints_offset   = manager.joints.count;
@@ -951,7 +959,7 @@ void play_animation(Scene_Node node) {
    //       The problem is that 2 of the same animation that start at different
    //       times start syncing as if they both had the same start.
    //
-   // That was a hacky solution before, now we're clampting dt which isn't a clever ideal solution
+   // That was a hacky solution before, now we're clamping dt which isn't a clever ideal solution
    // As user's might expected an animation to take exactly a certain amount of time and sunddenly it couldnt
    // finish in time because we advanced the animation by a clamped dt
    //
@@ -977,6 +985,12 @@ void play_animation(Scene_Node node) {
       }
 
 
+      // NOTE: In case the animation delta is too high that is passes the time_end, should we loop around the overshot amount?
+      //       That would make sure that is case of a high delta we don't suddenly sync all the animation to time_begin; effectively making all
+      //       animations start suspiciously synchronized all of sudden (after a high delta caused by lag).
+      //       It's likely we wanna either loop around or clamp, looping around might look strange in the normal case (low delta), because the animation has the seamless loop in mind
+      //       that means that overshooting a bit would likely break that seemless looping feel, unless change animation to lerp from end to begin frames.
+      //       Clamping might have the same syncronizing problem if the animation is short enough.
       static double dt = 0.016;
       if (strategy == clamp_delta) {
          dt = time_delta();
@@ -1017,7 +1031,7 @@ void play_animation(Scene_Node node) {
       auto old_count = list.count;
       list = joint_matrices_using_scene(&renderable->joint_list, animation, *curr_time);
       assert_msg(old_count == list.count, "count does not match for %s", animation->scene->metadata.original_file_path);
-      trace_info("Using roubadinha animation");
+      trace_debug("Using roubadinha animation");
    }
 
 

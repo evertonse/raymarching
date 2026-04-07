@@ -10,7 +10,7 @@ typedef struct {
 
 
 typedef struct {
-   Application app; // must be first
+   Application  app; // must be first
    Vector3_List list;
 
    Shader         shader, light_shader;
@@ -25,7 +25,7 @@ typedef struct {
 
    Framebuffer    fb;
 
-   Rectangle_I32   destination;
+   Rectangle_I32  destination;
    Camera         camera;
    Mesh           sphere_mesh;
 
@@ -70,10 +70,6 @@ typedef struct {
 } Projection_Application;
 
 
-static const char *shader_paths[] = {
-};
-
-// __attribute__((overloadable)) // TODO: Check this out on clang extensions plus builtin vecto3 types
 void projection_update_shaders(Projection_Application *app) {
 
    Shader *shader_slots[] = {
@@ -81,12 +77,18 @@ void projection_update_shaders(Projection_Application *app) {
       // &app->light_shader
    };
 
+
+   trace_debug("%s updating shaders", __func__);
    for (int i = 0; i < count_of(shader_slots); ++i) {
       Shader *s = shader_slots[i];
       const char *path = s->path;
 
       bool need_reload = shader_needs_reload(*s);
+      if (is_button_pressed(BUTTON_F5)) {
+         need_reload = true;
+      }
       bool valid = is_valid_shader(*s);
+      trace_debug("%s valid=%s, need_reload=%s", __func__, valid ? "true" : "false", need_reload ? "true" : "false");
       if (!valid) {
          *s = create_shader(path, 0);
       } else {
@@ -199,14 +201,15 @@ void projection_init(Projection_Application *app) {
       auto main =  "res/shaders/main.glsl";
       auto light = "res/shaders/light.glsl";
       app->shader = create_shader(light, 0);
+      app->shader_countdown_to_reload = create_countdown(0.19, true);
    }
 
 
-   app->shader_countdown_to_reload = create_countdown(0.19, true);
 
    // const struct {isz width, height;} resolution = {2560, 1080};
    // const struct {isz width, height;} resolution = {1152, 486};
-   const struct {isz width, height;} resolution = {1600, 900};
+   // const struct {isz width, height;} resolution = {1600, 900};
+   const struct {isz width, height;} resolution = {get_window_width(), get_window_height()};
 
    const isz samples = 16;
    // create_framebuffer_multisample,create_framebuffer
@@ -233,7 +236,7 @@ void projection_init(Projection_Application *app) {
       && is_valid_texture                     (app->diffuse_texture)
       && is_valid_texture                     (app->cube_texture)
       && is_valid_uniform_buffer              (app->per_frame_buffer)
-      ,"Something wanst valid upon creation"
+      ,"Something wans't valid upon creation"
    );
 }
 
@@ -367,9 +370,10 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
 
 
 void draw_scene(Projection_Application *app) {
+   static bool scene_loaded = false;
+
    static Scene_Node scene_nodes[10] = {-1};
    static Scene_Node sophias[3] = {-1};
-   static bool scene_loaded = false;
    static Scene_Node alleyana = {0};
 
    static Scene_Node box_node  = {-1};
@@ -413,11 +417,16 @@ void draw_scene(Projection_Application *app) {
       auto box_padding = 100;
       auto box_scale   = 70;
       box_transform.scale       = (Vector3){box_scale, box_scale, box_scale};
-      box_model.materials.items[0].normal  = "res/textures/tileable/Cone_Map_1k_normals.png";
+
+      box_model.materials.items[0].normal  = "res/textures/tileable/sofa.png";
       box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
       create_scene_node(&box_model, box_transform);
 
-      box_model.materials.items[0].normal  = "res/textures/tileable/sofa.png";
+      box_model.materials.items[0].normal  = "res/textures/tileable/Cone_Map_1k_normals.png";
+
+      Texture height_map = create_texture_from_filepath("res/textures/tileable/Cone_Map_1k_depth.png");
+      bind_texture(height_map, 6);
+
       box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
       create_scene_node(&box_model, box_transform);
 
@@ -430,6 +439,15 @@ void draw_scene(Projection_Application *app) {
       create_scene_node(&box_model, box_transform);
 
       box_model.materials.items[0].normal  = "res/textures/Rock/Cliff_Mossy_B_Normal.png";
+      box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      create_scene_node(&box_model, box_transform);
+
+      box_model.materials.items[0].normal  = "res/textures/tileable/details.png";
+      box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      create_scene_node(&box_model, box_transform);
+
+
+      box_model.materials.items[0].normal  = "res/textures/tileable/normal-tribish-normal.png";
       box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
       create_scene_node(&box_model, box_transform);
 
@@ -555,6 +573,294 @@ void draw_scene(Projection_Application *app) {
       }
 
       bind_texture(tex, 3);
+   }
+}
+
+void draw_scene_league(Projection_Application *app) {
+   static bool scene_loaded = false;
+
+   Transform vayne_transform = {0} ;
+   static Scene_Node vayne_node = {0};
+   if (!scene_loaded) {
+      scene_loaded = true;
+      Model vanye_model  = create_model("res/models/league/vayne/Vayne.fbx");
+
+      vayne_transform.scale       = (Vector3){1., 1., 1.};
+      vayne_node = create_scene_node(&vanye_model, vayne_transform);
+
+
+      {
+         set_animation_time(vayne_node, 0.0);
+            play_animation(vayne_node); // This is just to play any pose
+      }
+   }
+
+   const bool draw_with_manager = true;
+   if (draw_with_manager) {
+
+      // update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
+
+      auto time_rotation = QuaternionFromAxisAngle(vector3(1.), time_elapsed());
+      vayne_transform.scale       = (Vector3){0.1, 0.1, 0.1};
+      update_transform(vayne_node, vayne_transform);
+
+      // TODO: make sure scene_node with 0 index is invalid
+      if (is_button_pressed(BUTTON_B)) {
+         set_animation_speed(vayne_node, 0.65);
+      } else if (is_button_pressed(BUTTON_N)) {
+         set_animation_speed(vayne_node, 1.65);
+      }
+
+      if (is_button_pressed(BUTTON_N)) {
+         play_animation(vayne_node);
+      }
+   }
+}
+
+///////////////////////////////////////////////////////
+
+// Main generator function
+// Generate cone map from heightmap file, write to png, return pixel data
+void *generate_cone_map_relaxed(const char *heightmap_path, const char *out_png_path, int *out_width, int *out_height) {
+
+   Texture heightmap = create_texture_from_filepath(heightmap_path);
+
+   int width = heightmap.width, height = heightmap.height;
+
+   Texture cone_map_in  = create_texture(width, height);
+   Texture cone_map_out = create_texture(width, height);
+
+   ZString compute_shader_path = "res/shaders/conemap_generation.glsl";
+   Shader  compute_shader = create_shader(compute_shader_path, COMPUTE_SHADER);
+
+
+   bind_shader(compute_shader);
+   upload_uniform_ivec2(compute_shader, "resolution", width, height);
+
+   int iterations = 1;
+   const int group = 16;
+   int gx = (width + group - 1) / group;
+   int gy = (height + group - 1) / group;
+
+   // bind sampler for heightmap
+   bool is_partial = true;
+   bind_texture(heightmap, 12);
+   upload_uniform_int(compute_shader, "is_partial", is_partial);
+   upload_uniform_vec3(compute_shader, "offset", ((Vector3){0, 0, 0}));
+
+   for (int i = 0; i < width; ++i) {
+      for (int j = 0; j < height; ++j) {
+         trace_info("iteration i = %d/%d j = %d/%d", i+1, width, j+1, height);
+         if (i == 0 && j == 0) {
+            upload_uniform_int(compute_shader, "is_first_time", 1);
+         } else {
+            upload_uniform_int(compute_shader, "is_first_time", 0);
+         }
+
+         upload_uniform_ivec2(compute_shader, "resolution_coordinate_j", i, j);
+
+         {  // In and out cones that keeps switching places (on in place of the other each round)
+            bind_texture_as_sampler(cone_map_in,  11);
+            bind_texture_as_image  (cone_map_out, 5, TEXTURE_ACCESS_WRITE);
+         }
+
+         dispatch_compute_shader(compute_shader, gx, gy, 1);
+         shader_image_acess_barrier();
+
+         auto temp    = cone_map_in;
+         cone_map_in  = cone_map_out;
+         cone_map_out = temp;
+      }
+      glFinish();
+   }
+   trace_info("%s About to read back to write cone png", __func__);
+
+   glFinish();
+   // read back
+   isz buf_size = width * height * 4 * size_of(float);
+   float *pixels = malloc(buf_size);
+   glBindTexture(GL_TEXTURE_2D, cone_map_out.handle);
+   glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels);
+
+   // write png
+   u8 *png_data = malloc(width * height * 4);
+   for (int i = 0; i < width * height * 4; i++) {
+       float val = pixels[i];
+       png_data[i] = (u8)(clamp(val, 0.0f, 1.0f) * 255.0f);
+   }
+
+   stbi_flip_vertically_on_write(false);
+   stbi_write_png(out_png_path, width, height, 4, png_data, width * 4);
+   free(png_data);
+   free(pixels);
+
+
+   if (out_width)  *out_width  = width;
+   if (out_height) *out_height = height;
+
+   destroy_texture(&cone_map_out);
+   destroy_texture(&cone_map_in);
+   destroy_texture(&heightmap);
+
+   return pixels;
+}
+
+void draw_parralax(Projection_Application *app) {
+   static bool scene_loaded = false;
+
+   static Scene_Node box_node  = {-1};
+   static Scene_Node sphere_node = {-1};
+   (void)box_node;
+   (void)sphere_node;
+   const bool using_plane_instead = false;
+   static Texture cone_map1, cone_map2;
+
+   if (!scene_loaded) {
+      scene_loaded = true;
+      // Model box_model = create_model("res/models/box/box.fbx");
+      Model box_model = create_cube_model(nullptr, nullptr, nullptr, nullptr);
+      if (using_plane_instead) {
+         box_model = create_model("res/models/surfgrad-meshes/meshes/quad.obj");
+      }
+
+      // Set all surfaces for all meshes the same material and create tangent space just in case
+      if (box_model.materials.count < 1) {
+         box_model.materials.count = 1;
+         box_model.materials.items = calloc(1, size_of(box_model.materials.items[0]));
+      }
+
+      for (int mesh_index = 0; mesh_index < box_model.meshes.count; mesh_index += 1) {
+         Mesh *mesh = &box_model.meshes.items[mesh_index];
+         generate_tangent_space(mesh);
+         for (u32 surface_index = 0; surface_index < mesh->surfaces.count; surface_index += 1) {
+            auto *surface = &mesh->surfaces.items[surface_index];
+            surface->material_index = 0;
+         }
+      }
+
+      box_model.materials.items[0].diffuse = "res/textures/brickwall.jpg";
+      // box_model.materials.items[0].diffuse = "res/textures/cones/rockbump.jpg";
+      // box_model.materials.items[0].diffuse = "res/textures/i3d08map.png";
+
+      // box_model.materials.items[0].normal  = "res/textures/brickwall_normal.jpg";
+      box_model.materials.items[0].normal  = "res/textures/tileable/Cone_Map_256_normals.png";
+
+      Model sphere_model = create_sphere_model(1.0, 2*32, 2*32,
+            nullptr, nullptr, nullptr, nullptr
+      );
+
+      // Texture height_map = create_texture_from_filepath("res/textures/cones/tile1_quadcone.png");
+      // Texture height_map = create_texture_from_filepath("res/textures/cones/rockbump_relaxedcone.png");
+      // Texture height_map = create_texture_from_filepath("res/textures/i3d08height.png");
+      Texture height_map = create_texture_from_filepath("res/textures/tileable/Cone_Map_1k_depth.png");
+      // auto in_cone  = "res/textures/tileable/Cone_Map_1k_depth.png";
+      auto in_cone  = height_map.path;
+      // auto in_cone  = "res/textures/tileable/Cone_Map_256_depth.png";
+      auto out_cone = "replace-my-name.conemap.png";
+      // in_cone = "res/textures/cones/rockbump_cone.png";
+
+      Texture height_max_mipmap = create_texture_from_filepath(in_cone);
+      bool ok_max_mipmap = generate_max_mipmaps(&height_max_mipmap);
+      if (ok_max_mipmap) {
+         trace_okay("Just generated a maxmipmap");
+         auto file_path = "dump_max_mipmap.png";
+         if (dump_texture_mips_png(&height_max_mipmap, file_path)) {
+            trace_okay("Just dumped a maxmipmap as png (%s)", file_path);
+         }
+      } else {
+         trace_error("Failed to generate a maxmipmap");
+      }
+
+      bind_texture(height_max_mipmap, 7);
+
+      {
+         ZString base_name      = cye_path_stem(cye_path_base_name(in_cone));
+         ZString base_directory = path_dir_of(in_cone);
+         // TODO: We do this path operation a lot, maybe theres something to this?
+         //       also replace string function would go along way but we don't have our good string library yet,
+         //       maybe look at famous C lib replacements such as the ryan Debugger
+         out_cone = path_create(base_directory, tprintf("%s.conemap.png", base_name));
+      }
+
+      if (!file_exists(out_cone)) {
+         trace_info("%s doesnt exist yet, creating", out_cone);
+         (void)generate_cone_map_relaxed(in_cone, out_cone, nullptr, nullptr);
+         trace_okay("%s %s generated with marvelous succ cess pool.", __func__, out_cone);
+      } else {
+         trace_okay("%s %s already exists. We ain't generating shit a second time. Sync problems? Delete %s. We'll gen again np.", __func__, out_cone, out_cone);
+      }
+
+
+
+      cone_map1 = create_texture_from_filepath(out_cone);
+      cone_map2 = create_texture_from_filepath("res/textures/tileable/tile1_relaxedcone.png");
+      height_map = cone_map1;
+      bind_texture(height_map, 6);
+
+      Transform box_transform   = transform_identity;
+
+      if (false) {
+         box_transform.scale       = (Vector3){200., 200., 5.};
+         box_transform.translation = add(box_transform.translation, ((Vector3){-120., -10., 120.}));
+         box_transform.rotation = QuaternionFromAxisAngle(vector3(1.), PI/2.);
+         box_node = create_scene_node(&box_model, box_transform);
+      }
+
+      auto box_padding = 100;
+      auto box_scale   = 70;
+
+      if (using_plane_instead) {
+         box_scale = 10;
+      }
+
+      box_transform.scale = (Vector3){box_scale, box_scale, box_scale};
+
+      box_transform.rotation = QuaternionFromAxisAngle(vector3(1., 0, 0), PI/2.);
+      // box_model.materials.items[0].normal  = "res/textures/tileable/Cone_Map_1k_normals.png";
+      // box_model.materials.items[0].normal = "res/textures/tileable/Cone_Map_1k_normals.png";
+      box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      create_scene_node(&box_model, box_transform);
+
+      // box_model.materials.items[0].normal  = "res/textures/tileable/sofa.png";
+      // box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      // create_scene_node(&box_model, box_transform);
+      //
+      //
+      // box_model.materials.items[0].normal  = "res/textures/tileable/face.jpg";
+      // box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      // create_scene_node(&box_model, box_transform);
+      //
+      // box_model.materials.items[0].normal  = "res/textures/tileable/base_height_conv_to_nmap.png";
+      // box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      // create_scene_node(&box_model, box_transform);
+      //
+      // box_model.materials.items[0].normal  = "res/textures/Rock/Cliff_Mossy_B_Normal.png";
+      // box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      // create_scene_node(&box_model, box_transform);
+      //
+      // box_model.materials.items[0].normal  = "res/textures/tileable/details.png";
+      // box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      // create_scene_node(&box_model, box_transform);
+      //
+      //
+      // box_model.materials.items[0].normal  = "res/textures/tileable/normal-tribish-normal.png";
+      // box_transform.translation = add(box_transform.translation, ((Vector3){-box_padding, 1., 0}));
+      // create_scene_node(&box_model, box_transform);
+      //
+      // Transform sphere_transform = box_transform ;
+      // sphere_transform.scale       = (Vector3){18., 18., 18.};
+      // sphere_transform.translation = add(sphere_transform.translation, ((Vector3){-150., 10, 0}));
+      // sphere_node = create_scene_node(&sphere_model, sphere_transform);
+   }
+
+   static bool cone_switch = true;
+   if (is_button_pressed(BUTTON_G)) {
+      cone_switch = !cone_switch;
+      if (cone_switch) {
+         bind_texture(cone_map1, 6);
+      } else {
+         bind_texture(cone_map2, 6);
+      }
    }
 }
 
@@ -881,9 +1187,16 @@ void projection_update(Projection_Application *app, f64 dt) {
    }
 
 
-   draw_scene_few2(app);
+   // draw_scene_few2(app);
    // draw_scene_few(app);
-   draw_scene(app);
+   // draw_scene(app);
+   draw_scene_league(app);
+   // draw_parralax(app);
+
+   glDisable(GL_CULL_FACE);
+   if (is_button_pressed(BUTTON_J)) {
+      glEnable(GL_CULL_FACE);
+   }
 
    if (is_button_pressed(BUTTON_K)) {
       set_redererer_mode(RENDERER_MODE_WIREFRAME);
@@ -893,11 +1206,6 @@ void projection_update(Projection_Application *app, f64 dt) {
       draw_indirect((Texture){0}, app->shader);
    }
 
-   if (is_button_pressed(BUTTON_J)) {
-      glEnable(GL_CULL_FACE);
-   } else {
-      glDisable(GL_CULL_FACE);
-   }
 
    // draw_old_way(app, shader, camera);
 

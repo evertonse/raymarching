@@ -1,30 +1,31 @@
-
-# Raymarch Compute Pipeline
-
-[ ] Shader from single buffer by having #pragma Vertex in it
-[x] Render triangles with raymarching xD
-[ ] Render triangles from a model
-[x] Derive cube sdf
-[ ] Antialiasing
-[ ] All common operations plus smoothing
-[ ] Mirroring
-[ ] Focus and defocus
-[ ] Twisting
-[ ] Domain repetition unbounded
-[ ] Domain repetition bounded
-[ ] Actually understand soft shadows
-[x] Understand camera as origin and ray to canvas
-[ ] Understand camera as origin rectangle to canvas
-[ ] Understand ray direction distortion
-[ ] Understand camera distortion
-[ ] Understand camera as a basis vector in the context of raymarching
-[ ] Understand scaling and rotation of distance fields
-[ ] Call back error from opengl howw to setup
-
+[ ] Make debugging on Rad Debugger work again
 
 # Projection Pipeline
 
+## Animation
 
+[ ] Animation 3 way blend (Vayne riot model)
+[ ] Make vayne animations load
+
+## General
+
+[ ] New tonemap taken from that video about outdated unreal engine tonemap
+
+[ ] Investigate why auto reload is not working sometimes
+
+[ ] Fix is_button_pressed based on raylib implementation
+
+
+
+[ ] After PBR, remember to add support for shadows (soft?) and self occlusion to our Relaxed Cone Mapping.
+[x] Relaxed Cone Step Mapping. (comment: The problem with normal cone step mapping is that it uses non slanted cones, what if we slant?)
+[ ] Optional: Generate normal map from albedo map.
+[ ] Optional: Generate depth map from normal map and test relief mapping on the generated map. Make sure to test on a skinned human like model.
+[ ] Add Relief Mapping to the current pipeline by adding an optional depth map and bias + scale for it.
+    To inspire this we shall find a model that uses depth texture
+
+
+[ ] Optional: Relief Mapping with **Silhouette**
 
 
 [ ] Texture manager. {
@@ -36,19 +37,32 @@
 
 
 
+
 [ ] PBR Shading
 
-[ ] SSAO
+[ ] SSAO (GTAO)
 
 
-[ ] Parallax Mapping
+[x] Parallax Mapping
 
----
+------------------------------------------------------------------------------------------------------------------------------------------
 
-[ ] Normal Mapping by per vertex tangents.
-[ ] Normal Mapping: Understand why the face on Mari and Lust is split in the middle when we copy line by line code base off of differential derivation from "Surface Gradient–Based Bump Mapping Framework"
+[ ] Camera following champion.
 
-[ ] Why do many applications flip normals based on facing data {
+[ ] view-dependent reflections
+[ ] Soft Self mapping
+
+[ ] Shell Mapping
+
+[ ] Button to toggle every single effect in the renderer
+
+[ ] Shadow mappign with randomize pcf sampling with parallax occlusion mapping
+
+[x] Normal Mapping by per vertex tangents.
+
+[x] Normal Mapping: (edit: Don't understand perfectly, but it has to do with orientation and symmetric texturing by the authors, it's fine for now) Understand why the face on Mari and Lust is split in the middle when we copy line by line code base off of differential derivation from "Surface Gradient–Based Bump Mapping Framework"
+
+[x] (because of double facing materials) Why do many applications flip normals based on facing data {
    // From blender used in workbench_prepass_frag.glsl
    float2 workbench_normal_encode(bool front_face, float3 n)
    {
@@ -96,9 +110,6 @@
 
 [ ] Animation System: Take a look at Godot
 
-[ ] Respect the model's texture's wrapping characteristic (repeat, clamp, sRBG vs Linear) {
-   Partially "done" by asserting is always repeat (it usually is), sRGB is not taking into account as of rn.
-}
 
 [ ] Alpha textures what should we do with it ? {
    Investigate Sophia Model textures. Which ones are not being passed along
@@ -119,10 +130,11 @@
        if 0 then should be identity
        if more than two then fine, we ball the two pairs only
 }
+
 [x] Normal Mapping by differentials in fragment.
 [x] Investigate Alexya model continuity, coloring is creating some pure black and some pure white spots, also normal mapping is flickering
 
-[ ] View dependent specular and roughness though
+[ ] View dependent specular and roughness
 
 [ ] Environment Model that entities can walk on
 
@@ -177,12 +189,12 @@
 [ ] Fix Shader Compilation problem when type is compute
 
 
-[ ] Compute shader post-processing instead of for eveyfragment in our forward redererer
+[ ] Compute shader post-processing instead of for every fragment in our forward renderer
 
 
 [x] Animation Normal inverse transforming
 
-[ ] Bluring Emissive Objects (After pbr). In fact I believe we're only ever gonna streamline the light creation when we get around pbr.
+[ ] Blurring Emissive Objects (After pbr). In fact I believe we're only ever gonna streamline the light creation when we get around pbr.
 
 [ ] Parallax Corrected Reflections using cube box of the scene to get reflection in a pbr pipeline. The cube box must rendered from multiple angles I suppose then sampled in the final shader, I also wanna do this in forward redering.
 
@@ -282,9 +294,10 @@
 [ ] Sparse (Virtual) Texture Arrays
 [ ] SFX in games. How can it be done ? I'm interested to know to create those fire effect and other things that is streamlined to add these sfx wherever it need be in the scene.
 
-[ ] Inverted z-buffer trick for z-fighting. What is this about, is there a small paper about it?
+[ ] Inverted z-buffer trick for z-fighting. What is this about, is there a small paper about it? {
    GL 4.5 or ARB_clip_control seems to play a role on that
    https://outerra.blogspot.com/2012/11/maximizing-depth-buffer-range-and.html
+}
 
 ## Model Loading
 [x] Retrive .mtl file from .obj when it tried to load it
@@ -293,3 +306,32 @@
 [ ] Model loading with cgtlf
 [x] Sword.fbx with wrong absolute path, deal with it by taking the base_name and search relatively to the .fbx file passed
 
+## Retired or Abandoned
+[-] Quadtree relief mapping (edit: Tried and could not get it working, I could follow the paper even though it looks simple. Since the relaxed cone stepping is already implemented I don't have a reason - other than will and curiosity - to implement quad tree relief mapping as of right now. We're moving on to more productive things as there's a lot to do)
+
+[-] Respect the model's texture's wrapping characteristic (repeat, clamp, sRBG vs Linear) {
+   edit: Partially "done" by asserting is always repeat (it usually is), sRGB is not taking into account as of rn.
+}
+
+
+# Raymarch Compute Pipeline
+
+[ ] Shader from single buffer by having #pragma Vertex in it
+[x] Render triangles with raymarching xD
+[ ] Render triangles from a model
+[x] Derive cube sdf
+[ ] Antialiasing
+[ ] All common operations plus smoothing
+[ ] Mirroring
+[ ] Focus and defocus
+[ ] Twisting
+[ ] Domain repetition unbounded
+[ ] Domain repetition bounded
+[ ] Actually understand soft shadows
+[x] Understand camera as origin and ray to canvas
+[ ] Understand camera as origin rectangle to canvas
+[ ] Understand ray direction distortion
+[ ] Understand camera distortion
+[ ] Understand camera as a basis vector in the context of raymarching
+[ ] Understand scaling and rotation of distance fields
+[ ] Call back error from OpenGl how to setup

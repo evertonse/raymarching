@@ -20,19 +20,11 @@ uniform vec3 camera_position;
 uniform vec2 spherical;
 
 
-layout (location = 0) out Varying {
-   vec3 Position;
-   vec3 Normal;
-   vec2 TextureCoordinate;
-   vec3 Tangent;
-   vec3 Bitangent;
-   float tangent_w_sign;
-};
+layout (location = 0) out #include "./src/pipe.glsl";
 
-layout (location = 8) out Flat {
-   flat uint material_index;
-   flat uint has_tangents;
-};
+// layout (location = 8) out  Flat {
+// };
+
 #include "./src/coordinates.glsl"
 #include "./src/remaps.glsl"
 #include "./src/perspective.glsl"
@@ -105,7 +97,8 @@ void main() {
 
       ivec4 joint_indices = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_indices;
       vec4  joint_weights = joint_vertices[draw_command.joints_offset + gl_VertexID - gl_BaseVertex].joint_weights;
-      if (true) {
+      if (false) {
+         // Directly modified the position (bad, but we need for debugging sometimes)
          position =
               joint_weights[0] * (geometry_to_model[geometry_to_model_offset + joint_indices[0]] * position)
             + joint_weights[1] * (geometry_to_model[geometry_to_model_offset + joint_indices[1]] * position)
@@ -113,6 +106,7 @@ void main() {
             + joint_weights[3] * (geometry_to_model[geometry_to_model_offset + joint_indices[3]] * position)
          ;
       } else {
+         // Create the actual joint_transform and incorporate onto the model matrix
          highp mat4 joint_transform =
               joint_weights[0] * geometry_to_model[geometry_to_model_offset + joint_indices[0]]
             + joint_weights[1] * geometry_to_model[geometry_to_model_offset + joint_indices[1]]
@@ -140,8 +134,9 @@ void main() {
             if (draw_command.has_tangents == 1) {
                // Normalize TBN vectors before interpolation, per MikkTSpace. See: http://www.mikktspace.com/
                Tangent = normalize(normal_matrix * tangent.xyz);
-               vec3 binormal = normalize(cross(Normal, Tangent) * tangent.w);
-               // vec3 binormal = normalize(cross(Normal, Tangent));
+               // re-orthogonalize T with respect to N
+               Tangent = normalize(Tangent - dot(Tangent, Normal) * Normal);
+               vec3 binormal = cross(Normal, Tangent) * tangent.w;
                Bitangent = normalize(binormal);
                tangent_w_sign = tangent.w;
             }
@@ -152,12 +147,15 @@ void main() {
       } else {
          Normal = normal.xyz;
       }
+
       TextureCoordinate = uv;
 
+      mat3 TTBN = transpose(mat3(Tangent, Bitangent, Normal));
+      TangentLightPosition = vec3(0);
+      TangentViewPosition = TTBN * camera_position;
+      TangentFragPosition = TTBN * Position;
 
    }
-
-
 
    {  // World to Camera
       // mat4 view = view_from_spherical(vec3(0., 0., 0.), 0, 0.5);
@@ -170,7 +168,7 @@ void main() {
    }
 
 
-   { // Camera to Clip
+   {  // Camera to Clip
       // gl_Position = per_frame.perspective * vec4(position.xy, position.z*-1., position.w);
       // gl_Position = perspective_from_frustum(position.xyz, fov, aspect, near_plane, far_plane);
       // gl_Position = perspective_from_fov(fov, per_frame.camera.aspect, near_plane, far_plane) * vec4(position.xy, position.z*-1., position.w);
@@ -193,26 +191,16 @@ void main() {
 
 
 // TODO: Match these by location as well
-// in #include "./src/stage_data.glsl"
-layout (location = 0) in Varying {
-   vec3 Position;
-   vec3 Normal;
-   vec2 TextureCoordinate;
-   vec3 Tangent;
-   vec3 Bitangent;
-   float tangent_w_sign;
-};
+layout (location = 0) in #include "./src/pipe.glsl";
 
-layout (location = 8) in Flat {
-   flat uint material_index;
-   flat uint has_tangents;
-};
 
 
 layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
 layout(binding  = 3) uniform sampler2D diffuse_texture;
 layout(binding  = 4) uniform sampler2D specular_texture;
 layout(binding  = 5) uniform sampler2D emissive_texture;
+layout(binding  = 6) uniform sampler2D height_map;
+layout(binding  = 7) uniform sampler2D height_max_mipmap;
 
 bool has_specular = false;
 bool has_emissive = false;
@@ -257,109 +245,7 @@ vec3 apply_contrast(vec3 colour, float contrast) {
    return (colour - 0.5) * contrast + 0.5;
 }
 
-vec3 tonemap_filmic_backend(vec3 x) {
-   // Constants from Hable's "Filmic Tonemapping Operators" talk
-   // https://www.slideshare.net/slideshow/hable-john-uncharted2-hdr-lighting/3602588
-   // const float A = 0.15;
-   // const float B = 0.50;
-   // const float C = 0.10;
-   // const float D = 0.20;
-   // const float E = 0.02;
-   // const float F = 0.30;
-
-   const float A = 0.22; // Shoulder Strength
-   const float B = 0.30; // Linear Strength
-   const float C = 0.10; // Linear Angle
-   const float D = 0.20; // Toe Strength
-   const float E = 0.01; // Toe Numberator
-   const float F = 0.30; // Toe Denominator
-   return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
-}
-
-vec3 tonemap_filmic(vec3 color, float exposure) {
-   // Exposure bias tweak
-   color = tonemap_filmic_backend(color * exposure);
-   // white point (11.2 the default value)
-   float white_scale = 1.0 / tonemap_filmic_backend(vec3(7.2)).r;
-   return color * white_scale;
-}
-
-vec3 tonemap_aces(const vec3 x) { // Narkowicz 2015, "ACES Filmic Tone Mapping Curve"
-   const float a = 2.51;
-   const float b = 0.03;
-   const float c = 2.43;
-   const float d = 0.59;
-   const float e = 0.14;
-   return (x * (a * x + b)) / (x * (c * x + d) + e);
-}
-
-vec3 tonemap_reinhard(const vec3 x) {
-   // reinhard tone mapping
-   return x / (x + vec3(1.0));
-}
-
-vec3 tonemap_reinhard(const vec3 hdr_color, float exposure) {
-   vec3 mapped = vec3(1.0) - exp(-hdr_color * exposure);
-   return mapped;
-}
-
-// ------------------------------------------------------------
-// Uncharted 2 Filmic Tonemap
-// ------------------------------------------------------------
-vec3 tonemap_uncharted(vec3 x) {
-   float A = 0.15;
-   float B = 0.50;
-   float C = 0.10;
-   float D = 0.20;
-   float E = 0.02;
-   float F = 0.30;
-   float W = 11.2; // white scale
-
-   x = ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
-   float white_scale = ((W * (A * W + C * B) + D * E) / (W * (A * W + B) + D * F)) - E / F;
-   return x / white_scale;
-}
-
-// ------------------------------------------------------------
-// ACES Tonemap (Unity style)
-// ------------------------------------------------------------
-vec3 tonemap_aces_unity(vec3 x) {
-   const mat3 aces_input_matrix = mat3(
-      0.59719, 0.35458, 0.04823,
-      0.07600, 0.90834, 0.01566,
-      0.02840, 0.13383, 0.83777
-   );
-
-   const mat3 aces_output_matrix = mat3(
-      1.60475, -0.53108, -0.07367,
-      -0.10208,  1.10813, -0.00605,
-      -0.00327, -0.07276,  1.07602
-   );
-
-   x = aces_input_matrix * x;
-
-   x = (x * (x + 0.0245786) - 0.000090537) /
-       (x * (0.983729 * x + 0.4329510) + 0.238081);
-
-   x = aces_output_matrix * x;
-   return clamp(x, 0.0, 1.0);
-}
-
-// ------------------------------------------------------------
-// ACES Tonemap (Unreal Engine style)
-// ------------------------------------------------------------
-vec3 tonemap_aces_unreal(vec3 x) {
-   // Source: Unreal Engine 4 ACES implementation
-   x *= 0.6; // exposure bias
-   const float a = 2.51;
-   const float b = 0.03;
-   const float c = 2.43;
-   const float d = 0.59;
-   const float e = 0.14;
-
-   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-
+#include "./src/tonemapping.glsl"
 
 #ifdef FIX
 vec3 spot_light_smooth(vec3 frag_to_light_direction) {
@@ -411,7 +297,7 @@ float spot_light(
    float inner_cutoff  = cos(radians(angle));
    float outer_cutoff  = cos(radians(angle + angle_increment));
    float theta         = dot(-spotlight_direction, light_direction);
-   const float min_intensity = 0.1;
+   const float min_intensity = 0.01;
    const float max_intensity = 1.0;
 
    // Early exit for fragments outside spotlight
@@ -422,7 +308,7 @@ float spot_light(
    // Smooth spotlight falloff
    float epsilon = inner_cutoff - outer_cutoff;
    float intensity = clamp((theta - outer_cutoff) / epsilon, min_intensity, max_intensity);
-   // float intensity = smoothstep(0.0, 1.0, (theta - outer_cutoff) / epsilon);
+   // float intensity = smoothstep(min_intensity, max_intensity, (theta - outer_cutoff) / epsilon);
    return intensity;
 
 }
@@ -431,6 +317,7 @@ float point_light(vec3 light_position, vec3 fragment_positon) {
    float attenuation = point_light_light_attenuation(light_position, fragment_positon);
    return attenuation;
 }
+
 struct Fragment {
    vec3 diffuse_color;
    vec3 specular_color;
@@ -483,15 +370,11 @@ vec3 calculate_color(
    }
 
 
-   if (has_emissive && has_specular) {
-      // color += (attenuation_distance * texture(emissive_texture, TextureCoordinate).xyz);
-      if ((fragment_specular_color.z + fragment_specular_color.y + fragment_specular_color.x) > 0.1) {
-         const float time_factor = sin(per_frame.elapsed_time * 2.9)/2. + 0.5;
-         // color += specular_color + time_factor * texture(emissive_texture, TextureCoordinate).xyz;
-         const vec3 emissive_color = texture(emissive_texture, TextureCoordinate).xyz;
-         color += fragment_specular_color * (emissive_color.y + emissive_color.x + emissive_color.z);
-      }
+   if (has_emissive) {
+      const vec3 emissive_color = texture(emissive_texture, TextureCoordinate).xyz;
+      color += fragment_specular_color * (emissive_color.y + emissive_color.x + emissive_color.z);
    }
+
    if (is_light) {
       return light_ambient_color;
    }
@@ -499,7 +382,7 @@ vec3 calculate_color(
 }
 
 #define return_white FragColor.xyzw = vec4(1.); return
-#define return_color(x) FragColor.xyz = vec3(x.xyz); return
+#define return_color(x) FragColor.w = 1.0; FragColor.xyz = vec3(x.xyz); return
 
 struct Tangent_Frame {
    vec3 T;
@@ -625,6 +508,7 @@ Tangent_Frame compute_tbn2(vec3 position, vec3 normal, vec2 uv) {
    return frame;
 }
 
+
 // Apply normal map using surface gradient bump mapping
 vec3 apply_normal_map(Tangent_Frame frame, vec2 uv, vec3 normal_texel) {
    // Sample normal map and remap [0,1] -> [-1,1]
@@ -714,6 +598,216 @@ mat3 compute_tbn(vec3 pos, vec3 normal, vec2 uv) {
    return mat3(tangent, bitangent, normal);
 }
 
+vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir, sampler2D depthMap, float minLayers, float maxLayers, float heightScale) {
+   
+   // number of depth layers
+   // int num_layers = 3
+   float numLayers = mix(maxLayers, minLayers, abs(dot(vec3(0.0, 0.0, 1.0), viewDir)));
+   // float numLayers = 64;
+   // calculate the size of each layer
+   float layerDepth = 1.0 / numLayers;
+   // depth of current layer
+   float currentLayerDepth = 0.0;
+   // the amount to shift the texture coordinates per layer (from vector P)
+   vec2 P = viewDir.xy / viewDir.z * heightScale;
+   vec2 deltaTexCoords = P / numLayers;
+
+   // get initial values
+   vec2 currentTexCoords = texCoords;
+   float currentDepthMapValue = texture(depthMap, currentTexCoords).r;
+
+   while (currentLayerDepth < currentDepthMapValue) {
+      // shift texture coordinates along direction of P
+      currentTexCoords -= deltaTexCoords;
+      // get depthmap value at current texture coordinates
+      currentDepthMapValue = texture(depthMap, currentTexCoords).r;
+      // get depth of next layer
+      currentLayerDepth += layerDepth;
+   }
+
+   // get texture coordinates before collision (reverse operations)
+   vec2 prevTexCoords = currentTexCoords + deltaTexCoords;
+
+   // get depth after and before collision for linear interpolation
+   float afterDepth = currentDepthMapValue - currentLayerDepth;
+   float beforeDepth = texture(depthMap, prevTexCoords).r - currentLayerDepth + layerDepth;
+
+   // interpolation of texture coordinates
+   float weight = afterDepth / (afterDepth - beforeDepth);
+   // vec2 finalTexCoords = prevTexCoords * weight + currentTexCoords * (1.0 - weight);
+   vec2 finalTexCoords = lerp(currentTexCoords, prevTexCoords, weight);
+
+   return finalTexCoords;
+}
+
+vec2 parallax_uv_original(vec2 uv, vec3 tangent_space_view_direction, sampler2D depth_map) {
+   // Sensible defaults
+   const float height_scale = -0.1; // How pronounced the parallax effect is
+   const float height_bias  = -1.0;
+   const int min_samples = 8;      // Minimum number of samples for performance
+   const int max_samples = 64;     // Maximum samples for quality
+
+   // Calculate number of samples based on view angle
+   // More samples when looking straight down, fewer when at grazing angles
+   float num_samples = mix(float(max_samples), float(min_samples), abs(dot(vec3(0.0, 0.0, 1.0), tangent_space_view_direction)));
+
+   // Calculate the parallax offset vector
+   vec2 p = tangent_space_view_direction.xy / tangent_space_view_direction.z * height_scale;
+
+   // Calculate step size
+   float layer_depth = 1.0 / num_samples;
+   float current_layer_depth = 0.0;
+   vec2 delta_tex_coords = p / num_samples;
+
+   // Start values
+   vec2 current_tex_coords = uv;
+   float current_depth_map_value = texture(depth_map, current_tex_coords).r;
+
+   // Step through depth layers
+   while (current_layer_depth < current_depth_map_value) {
+      current_tex_coords -= delta_tex_coords;
+      current_depth_map_value = texture(depth_map, current_tex_coords).r;
+      current_layer_depth += layer_depth;
+   }
+
+   // Binary search refinement for better accuracy
+   vec2 prev_tex_coords = current_tex_coords + delta_tex_coords;
+   float after_depth = current_depth_map_value - current_layer_depth;
+   float before_depth = texture(depth_map, prev_tex_coords).r - current_layer_depth + layer_depth;
+
+   // Interpolate between the two closest points
+   float weight = after_depth / (after_depth - before_depth);
+   vec2 final_tex_coords = prev_tex_coords * weight + current_tex_coords * (1.0 - weight);
+
+   return final_tex_coords;
+}
+
+vec2 parallax_uv(vec2 uv, vec3 tangent_space_view_direction, sampler2D tex_depth) {
+   vec3 view_dir = tangent_space_view_direction;
+   float depth_scale = 0.11;
+   int num_layers = 64;
+   const int type = 4;
+   if (type == 2) {
+      // Parallax mapping
+      float depth = texture(tex_depth, uv).r;
+      vec2 p = view_dir.xy * (depth * depth_scale) / view_dir.z;
+      return uv - p;
+   } else {
+      float layer_depth = 1.0 / num_layers;
+      float cur_layer_depth = 0.0;
+      vec2 delta_uv = view_dir.xy * depth_scale / (view_dir.z * num_layers);
+      vec2 cur_uv = uv;
+
+      float depth_from_tex = texture(tex_depth, cur_uv).r;
+
+      for (int i = 0; i < num_layers; i++) {
+         cur_layer_depth += layer_depth;
+         cur_uv -= delta_uv;
+         depth_from_tex = texture(tex_depth, cur_uv).r;
+         if (depth_from_tex < cur_layer_depth) {
+            break;
+         }
+      }
+
+      if (type == 3) {
+         // Steep parallax mapping
+         return cur_uv;
+      } else {
+         // Parallax occlusion mapping
+         vec2 prev_uv = cur_uv + delta_uv;
+         float next = depth_from_tex - cur_layer_depth;
+         float prev = texture(tex_depth, prev_uv).r - cur_layer_depth + layer_depth;
+         float weight = next / (next - prev);
+         return mix(cur_uv, prev_uv, weight);
+      }
+   }
+}
+
+vec2 parallax_uv2(vec2 uv, vec3 tangent_space_view_direction, sampler2D tex_depth) {
+   vec3 view_dir = tangent_space_view_direction;
+   float depth_scale = 0.9;
+   int num_layers = 64;
+   const int type = 4;
+   if (type == 2) {
+      // Parallax mapping
+      float depth = texture(tex_depth, uv).r;
+      vec2 p = view_dir.xy * (depth * depth_scale) / view_dir.z;
+      return uv - p;
+   } else {
+      float layer_depth = 1.0 / num_layers;
+      float cur_layer_depth = 0.0;
+      vec2 delta_uv = view_dir.xy * depth_scale / (view_dir.z * num_layers);
+      vec2 cur_uv = uv;
+
+      float depth_from_tex = texture(tex_depth, cur_uv).r;
+
+      for (int i = 0; i < num_layers; i++) {
+         cur_layer_depth += layer_depth;
+         cur_uv -= delta_uv;
+         depth_from_tex = texture(tex_depth, cur_uv).r;
+         if (depth_from_tex < cur_layer_depth) {
+            break;
+         }
+      }
+
+      if (type == 3) {
+         // Steep parallax mapping
+         return cur_uv;
+      } else {
+         // Parallax occlusion mapping
+         vec2 prev_uv = cur_uv + delta_uv;
+         float next = depth_from_tex - cur_layer_depth;
+         float prev = texture(tex_depth, prev_uv).r - cur_layer_depth + layer_depth;
+         float weight = next / (next - prev);
+         return mix(cur_uv, prev_uv, weight);
+      }
+   }
+}
+
+//   mat3 TBN (columns T, B, N)
+//   vec3 view_dir_world (from fragment to camera, normalized)
+//   vec2 uv (original uv)
+//   sampler2D normal_map
+//   float parallax_scale user tunable
+vec2 parallax_offset_from_gradient(mat3 TBN, vec3 world_space_view_dir, vec3 tagent_space_normal, vec2 uv, float parallax_scale) {
+   // 1) sample tangent-space normal
+   vec3 m = tagent_space_normal;
+
+   // 2) compute gradient in tangent space (h_u,h_v)
+   float hu = -m.x / max(m.z, 1e-6);
+   float hv = -m.y / max(m.z, 1e-6);
+
+   // 3) view direction in tangent-space
+   vec3 v_t = TBN * normalize(world_space_view_dir); // columns T,B,N: maps world->tangent
+   // ensure v_t.z not near 0
+   float vz = max(v_t.z, 1e-6);
+
+   // 4) directional effective height along view
+   float h_eff = hu * v_t.x + hv * v_t.y;
+
+   // 5) UV offset (note: divide by vz for perspective projection effect)
+   vec2 dv = vec2(v_t.x, v_t.y);
+   vec2 offset_uv = parallax_scale * (h_eff / vz) * dv;
+   return offset_uv;
+}
+
+// return true if intersection found (t >= 0), out 'hit' is the intersection point
+bool intersect_plane(vec3 ray_origin, vec3 ray_dir, vec3 plane_point, vec3 plane_normal, out vec3 hit) {
+    float denom = dot(ray_dir, plane_normal);
+    const float EPS = 1e-6;
+    if (abs(denom) < EPS) {
+        // parallel: no reliable intersection
+        return false;
+    }
+    float t = dot(plane_point - ray_origin, plane_normal) / denom;
+    // we might want t >= 0 if ray only forward
+    if (t < 0.0) return false;
+    hit = ray_origin + t * ray_dir;
+    return true;
+}
+
+#include "./src/parallax.glsl"
+
 void main() {
    // vec3 color = vec3(gl_FragCoord.z);
 
@@ -722,29 +816,147 @@ void main() {
    vec3 specular_color = vec3(0.);
    vec3 emissive_color = vec3(0.);
    float alpha_channel = 1.0;
-   vec3  normal = Normal;
-   FragColor.w = 1.0;
+   vec3 normal = Normal;
+   vec3 position = Position;
+   float shadow = 1.0;
+
+   vec3 camera_direction = camera_forward(spherical);
+   vec3 camera_position = per_frame.camera.position;
+   vec2 uv = TextureCoordinate;
+
+   if (true) {
+
+      mat3 TBN;
+      if (1 == has_tangents) {
+         // TBN = mat3(Tangent,  Bitangent, normal);
+         TBN = mat3(normalize(Tangent),  normalize(Bitangent), normalize(normal));
+         // TBN = gen_basis_tb(position, normalize(normal), uv);
+      } else {
+         TBN = gen_basis_tb(position, normalize(normal), uv);
+      }
+      // const mat3 TTBN = inverse(TBN);
+      const mat3 TTBN = transpose(TBN);
+      // Do not normalize the tbn vectors as per https://github.com/KhronosGroup/glTF/issues/2056#issuecomment-1213795031
+
+      // Not normalizing the normal_texel seems to give a little (almost insignifcant) a performance
+      // normal = normalize(TBN * (normal_texel.rgb * 2.0 - 1.0));
+      // vec3 tangent_space_view_direction = vec3(uv.x, uv.y, 0) - ((TBN) * camera_position);
+      const float height_scale = 1.0, height_bias = 0.0;
+      float height = texture(height_map, TextureCoordinate).r * height_scale + height_bias;
+
+      vec3 tangent_space_position = TTBN * position;
+      vec3 tangent_space_camera_position = TTBN * camera_position;
+      vec3 tangent_space_view_direction = normalize(tangent_space_position - vec3(tangent_space_camera_position.xy, height));
+      // vec3 tangent_space_view_direction2 = normalize(TTBN * (camera_position - position));
+      // vec3 tangent_space_view_direction2 = normalize(TTBN * (position - camera_position));
+      vec3 tangent_space_view_direction2 = normalize(TTBN * (camera_position - position));
+      // vec3 tangent_space_view_direction2 = normalize((TTBN * camera_position - TTBN * position));
+      // vec3 tangent_space_view_direction2 = normalize(TangentViewPosition - TangentFragPosition);
+      // vec3 tangent_space_view_direction2 = normalize(TBN * camera_direction);
+
+      // uv = (vec3(uv, 0) + vec3(tangent_space_view_direction.xy, 0)*height).xy;
+      vec2  original_uv = uv;
+      const float depth_scale = 0.15;
+      const float depth_steps = 32;
+      vec2 uv3 = parallax_uv2(original_uv, tangent_space_view_direction2, height_map);
+      // uv = parallax_uv(original_uv, tangent_space_view_direction2, height_map);
+      vec2 uv4 = ParallaxMapping(uv, tangent_space_view_direction2, height_map, 
+          depth_steps,          // minimum number of steps
+          depth_steps,          // maximum number of steps
+          depth_scale
+      );
+
+
+      vec3 ro = tangent_space_position;
+      vec3 rd = -normalize(tangent_space_view_direction2);
+      bool out_hit;
+      float out_t;
+      vec2 out_uv;
+      vec3 out_pos;
+      vec3 out_normal;
+      vec2 texelSize = vec2(1);
+      int maxSteps = 12;
+      float tMax = 49.;
+
+      vec2 uv1 = parallaxMapping(
+          original_uv, // base UV coordinates
+          rd,          // view direction in tangent space (pointing into surface)
+          height_map,  // height map (R channel)
+          depth_steps,          // minimum number of steps
+          depth_steps,          // maximum number of steps
+          -depth_scale,// parallax scale (depth scale)
+          0,           // parallax bias
+          int(depth_steps)           // refinement steps (binary search)
+      );
+
+      vec3 new_position_ts;
+      float out_shadow;
+      // vec3 light_dir_ts = TTBN * -camera_direction;
+      vec3 light_dir_ts = normalize(TTBN *  camera_direction);
+
+      float g_DepthScale = 0.3;
+      // float g_DepthScale = 1.9;
+      // float g_DepthScale = 0.9;
+
+      vec2 uv2 = relief_mapping(
+         original_uv,
+         ro,         // current fragment position in tangent space
+         rd,
+         height_max_mipmap,
+         // height_map,
+         depth_steps,
+         depth_steps,
+         g_DepthScale,
+         0,
+         int(depth_steps),
+         light_dir_ts,         // light direction in tangent space
+         new_position_ts,      // intersection (u,v,depth)
+         out_shadow      // shadow factor (0.0 lit, 1.0 shadow)
+      );
+
+      vec3 p_ = vec3(original_uv, 0);
+      vec3 v_ = normalize(rd);
+      v_.z = abs(v_.z);
+      v_.xy *= g_DepthScale;
+      vec2 uv20 = ray_intersect_relaxedcone(height_map, p_, v_);
+      shadow = (1. - out_shadow*0.3);
+      // shadow = 1.0;
+
+
+      // position = new_position_ts;
+      // position = TBN * new_position_ts;
+      // position = TTBN * new_position_ts;
+      // uv = uv23;
+      uv = uv2;
+      // uv = uv20;
+      // uv = uv6;
+      // uv = uv20;
+      // uv = uv2;
+      // uv = uv21;
+      // uv = uv;
+
+      // return_color(TBN * vec3(uv, height_texel));
+      // normal *= tangent_space_position.z;
+   }
 
    if (true && !gl_FrontFacing) {
       // NOTE: Shading rn is strange on Alleya model because we get back facing triangles poping up due to animation 
-      // return_color(vec3(1.));
-      normal = -normal; // flip normals on backfaces
+      normal = -normal; // flip normals on backfaces for double sided materials
    }
 
    Material material = materials[material_index];
    if (material.diffuse_handle != uvec2(0)) {
       // TODO: Mode gamma_correction to after sbti loading
       vec4 dtexture = vec4(1.);
-      dtexture = texture(sampler2D(material.diffuse_handle), TextureCoordinate);
+      dtexture = texture(sampler2D(material.diffuse_handle), uv);
       diffuse_color = dtexture.xyz;
       diffuse_color = gamma_correct_texture(diffuse_color);
       alpha_channel = dtexture.w;
+
+      // diffuse_color = vec3(1.);
    }
 
-   // return_color(normalize(normal.rgb));
-   // return_color(normalize(diffuse_color.rgb));
-
-   if (alpha_channel < 0.5) {
+   if (alpha_channel < 0.005) {
       // Beware that Early-Z is disabled if your fragment shader does any of:
       // discard / alpha test behavior
       // alpha blending enabled
@@ -752,22 +964,22 @@ void main() {
       // side effects (imageStore/atomics in FS)
       // In that case, instancing multiplies in fragment cost N times.
       // That means that this is slowing down every single geometry even if there's no transparency on it
-      discard;
+      // discard;
    }
 
-   if (material.specular_handle != uvec2(0)) {
-      vec4 stexture   = texture(sampler2D(material.specular_handle), TextureCoordinate);
+   if (false && material.specular_handle != uvec2(0)) {
+      vec4 stexture   = texture(sampler2D(material.specular_handle), uv);
       specular_color = stexture.xyz;
       has_specular = true;
    }
 
 
-   if (material.normal_handle != uvec2(0)) {
+   if (true && material.normal_handle != uvec2(0)) {
       const float uv_factor = 1.;
       // const float uv_factor = 5.;
       // const float uv_factor = 7.;
 
-      const vec2 uv = TextureCoordinate*uv_factor;
+      const vec2 uv = uv*uv_factor;
       {
          // vec4 dtexture = texture(sampler2D(material.diffuse_handle), uv);
          // diffuse_color = dtexture.xyz;
@@ -782,38 +994,47 @@ void main() {
       if (true) {
          if (true) {
             // if (true || gl_FragCoord.x > oscilator*1600) {
-            int i = 3;
+            int i = 1;
             if (1 != has_tangents || i == 1) {
+               // const mat3 TBN = compute_tbn(Position, normalize(normal), uv);
                // const mat3 TBN = compute_tbn3(Position, normalize(normal), uv);
+               // const mat3 TBN = compute_tbn4(Position, normalize(normal), uv);
                // const mat3 TBN = compute_tbn5(Position, (normal), uv);
-               const mat3 TBN = gen_basis_tb(Position, normalize(normal), uv);
+               mat3 TBN = mat3(Tangent,  Bitangent, normal);
                normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
+               // diffuse_color = vec3(1.);
             } else if (i == 2) {
-               Tangent_Frame tbn_frame = compute_tbn2(Position, normalize(normal), uv);
+               Tangent_Frame tbn_frame = compute_tbn2(position, normalize(normal), uv);
                normal = apply_normal_map(tbn_frame, uv, normal_texel.rgb);
             } else if (i == 3){
                // Do not normalize the tbn vectors as per https://github.com/KhronosGroup/glTF/issues/2056#issuecomment-1213795031
                mat3 TBN = mat3(Tangent,  Bitangent, normal);
+               // Not normalizing the normal_texel seems to give a little (almost insignifcant) a performance
+               // normal = normalize(TBN * (normal_texel.rgb * 2.0 - 1.0));
                normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
-               // normal = normalize(TBN * normal_texel.rgb);
-               // normal = normalize(TBN * normal_texel.rgb);
-            } else {
-               vec3 binormal = normalize(cross(Normal, Tangent)) * tangent_w_sign;
+            } else if (i == 4) {
+               // Construct the Bitangent on the fragment shader
+               vec3 binormal = normalize(cross(normal, Tangent)) * tangent_w_sign;
                mat3 TBN = mat3(Tangent, binormal, normal);
                normal = normalize(TBN * normalize(normal_texel.rgb * 2.0 - 1.0));
+            } else {
             }
 
+
          }
+         // @ REMOVEME DEBUGGING
          // normal = normal_texel.rgb;
-         specular_color = vec3(0.18);
+         specular_color = vec3(0.28);
          // diffuse_color = normal_texel.rgb;
          // diffuse_color = vec3(normal_texel.g + normal_texel.r + normal_texel.b)/3.;
-         // return_color(normal.rgb);
+         // diffuse_color = vec3(normal);
+         // diffuse_color = vec3(normal.g + normal.r + normal.b)/3.;
+         // diffuse_color = vec3(1.);
       }
    }
 
    Fragment fragment;
-   fragment.position = Position;
+   fragment.position = position;
    fragment.normal   = normalize(normal);
    fragment.diffuse_color  = diffuse_color;
    fragment.specular_color = specular_color;
@@ -822,15 +1043,12 @@ void main() {
 
 
 
-   vec3 position = Position;
 
-   vec3 camera_direction = camera_forward(spherical);
-   vec3 camera_position = per_frame.camera.position;
-   float intensity = spot_light(
+   float spot_intensity = spot_light(
       fragment.position,      // fragment_position
       camera_position,        // spotlight_position
       camera_direction,       // spotlight_direction,
-      19.5, 12.0              // cutoff in degrees
+      14.5, 9.0              // cutoff in degrees
    );
 
 
@@ -843,20 +1061,20 @@ void main() {
 
       point_lights[1].position = camera_position + vec3(0., 7., 0.);
       const bool pink_spotlight = false;
-      const float dim_factor = 1.1;
+      const float dim_factor = 1.0;
 
-      point_lights[0].ambient  *= 1/dim_factor;
-      point_lights[0].diffuse  *= 1/dim_factor;
-      point_lights[0].specular *= 1/dim_factor;
+      point_lights[0].ambient  *= 2./dim_factor;
+      point_lights[0].diffuse  *= 2./dim_factor;
+      point_lights[0].specular *= 2./dim_factor;
 
       if (pink_spotlight) {
          point_lights[1].ambient  = vec3(1.0, 0.09, 0.89)/dim_factor;
          point_lights[1].diffuse  = vec3(1.0, 0.09, 0.89)/dim_factor;
          point_lights[1].specular = vec3(1.0, 0.89, 1.0) /dim_factor;
       } else {
-         point_lights[1].specular = vec3(1.0)/dim_factor;
-         point_lights[1].ambient  = vec3(1.0)/dim_factor;
-         point_lights[1].diffuse  = vec3(1.0)/dim_factor;
+         point_lights[1].specular = vec3(2.6)/dim_factor;
+         point_lights[1].ambient  = vec3(2.6)/dim_factor;
+         point_lights[1].diffuse  = vec3(2.6)/dim_factor;
       }
 
 
@@ -881,18 +1099,19 @@ void main() {
 
          vec3 light_direction = normalize(light.position - position);
          if (idx == 1) {
-            attenuation *= intensity;
+            // attenuation *= 100.;
+            attenuation *= spot_intensity;
          } else if (idx == 1) {
             light_direction = vec3(1.);
          } else if (idx == 3) {
             light_direction = vec3(1.);
          } else if (idx == 4) {
+            // Direction light
             light_direction = normalize(point_lights[4].position);
             attenuation = 1.0;
          }
 
-         color += attenuation * calculate_color(light, light_direction, fragment, Normal);
-
+         color += shadow * attenuation * calculate_color(light, light_direction, fragment, camera_position);
       }
    }
 
@@ -903,7 +1122,9 @@ void main() {
    // Gamma correction should come later?
    // FragColor.xyz = tonemap_aces(FragColor.xyz);
    // FragColor.xyz = tonemap_aces_unity(FragColor.xyz);
-   FragColor.xyz = tonemap_aces_unreal(FragColor.xyz);
+   // FragColor.xyz = tonemap_gt7(FragColor.xyz);
+   FragColor.xyz = tonemap_uchimura(FragColor.xyz);
+   // FragColor.xyz = tonemap_ace_unreal(FragColor.xyz);
 
 
    // FragColor.xyz = tonemap_filmic(FragColor.xyz, 1.0);
@@ -914,7 +1135,7 @@ void main() {
    FragColor.xyz = gamma_correct(FragColor.xyz);
    // FragColor.xyz = apply_contrast(FragColor.xyz, 1.079);
    FragColor.w = alpha_channel;
-   // FragColor.w = max(alpha_channel, 1/2.2), 0.1);
+   // FragColor.w = max(alpha_channel, 0.9);
    // FragColor.w = max(pow(alpha_channel, 1/2.2), 0.1);
    // FragColor.w = 1.0;
 
