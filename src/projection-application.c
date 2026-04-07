@@ -606,8 +606,8 @@ void draw_scene_league(Projection_Application *app) {
 
       // TODO: make sure scene_node with 0 index is invalid
       if (is_button_pressed(BUTTON_B)) {
-         set_animation_speed(vayne_node, 0.65);
-      } else if (is_button_pressed(BUTTON_N)) {
+         set_animation_speed(vayne_node, 0.35);
+      } else if (is_button_pressed(BUTTON_V)) {
          set_animation_speed(vayne_node, 1.65);
       }
 

@@ -219,7 +219,7 @@ build() {
     flags="$flags $std_flags $extension_flags"
 
     set -x
-    $cc -Isrc                    \
+    $cc -Isrc  \
         $flags \
         src/main.c                         \
         src/deps/glfw/$glfw_obj            \
