@@ -17,6 +17,11 @@ typedef struct {
 } Draw_Index;
 
 typedef struct {
+   u32 base;  // Index into draw_commands.items
+   u32 count; // Allocated in sequence, Index + 0, Index + 1, ..., Index + count-1
+} Animation_Index;
+
+typedef struct {
    isz index;
 } Scene_Node;
 
@@ -116,19 +121,20 @@ typedef struct {
 
 
    // TODO: I really not satisfied this Renderable Abstraction, can't be Entity either. Think of something better for a render unit thing that has instances and draw_commands associated with it
-   //       We can't really associate draw_commands with instances because various times many draw_commands as associated with only 1 instance, it would be wasteful to allocate gpu space for replicate instace data for each draw_command.
+   //       We can't really associate draw_commands with instances because various times many draw_commands as associated with only 1 instance, it would be wasteful to allocate gpu space for replicate instance data for each draw_command.
    struct {
       struct {
          // Instances and Draw Comamnds are related as we have always less or equal ren than we draw_commands
          struct {
             Draw_Index draw_index;
-            isz animation_index;
+            Animation_Index animation_index;
             Joint_List joint_list; // NOTE: It's not that lean of a structure, maybe we sould make use an index instead?
             // TODO: Make it possible to share 1 Animation between instances
             struct {
                struct {
-                  f64 animation_current_time;
-                  f64 animation_speed;
+                  f64  animation_current_time;
+                  f64  animation_speed;
+                  uint animation_number;
                   // isz animation_last_keyframe_index; // Read animation.c comment to get some insight of what we might need to do to speed up finding keypair
                   Transform transform;
                   Geometry_To_World_List geometry_to_world_matrices;
@@ -165,7 +171,7 @@ static Manager manager = {0};
 bool overload has_animation(Scene_Node node) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    const auto *renderable = &manager.scene.renderables.items[renderable_index];
-   if (renderable->animation_index < 0 || renderable->joint_list.count <= 0) {
+   if (renderable->animation_index.count < 1 || renderable->joint_list.count <= 0) {
       return false;
    }
    return true;
@@ -860,17 +866,21 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
 }
 
 // Push entire model to buffer manager, handling all meshes and materials
-Draw_Index push_model_to_manager(const Model *model, isz *animation_index) {
+Draw_Index push_model_to_manager(const Model *model, Animation_Index *animation_index) {
    assert(model != nullptr);
    assert(model->meshes.items != nullptr);
    assert(model->meshes.count > 0);
 
+   // IMPORTANT: Lets outside how many anymations it has
    if (model->animations.count > 0 ) {
+      animation_index->base  = manager.animations.count;
+      animation_index->count = model->animations.count;
       // NOTE: Only one animation for now
       // Animation  deep_copied_animation = animation_deep_copy(&model->animations.items[0]);
-      Animation  deep_copied_animation = model->animations.items[0];
-      *animation_index = manager.animations.count;
-      da_append(&manager.animations, deep_copied_animation);
+      for (isize i = 0; i < model->animations.count; i++) {
+         Animation  deep_copied_animation = model->animations.items[i];
+         da_append(&manager.animations, deep_copied_animation);
+      }
    }
 
    // First, push all materials from the model to the manager
@@ -914,13 +924,13 @@ void play_animation_identity(Scene_Node node) {
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
    auto renderable = &manager.scene.renderables.items[renderable_index];
 
-   if (renderable->animation_index < 0) {
+   if (renderable->animation_index.count < 1) {
       trace_warn("Trying to play animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
       return;
    }
 
-   auto animation = &manager.animations.items[renderable->animation_index];
    auto instance  = &renderable->instances.items[instance_index];
+   auto animation = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
 
    if (instance->geometry_to_world_matrices.count <= 0 && nullptr == instance->geometry_to_world_matrices.items) {
       instance->geometry_to_world_matrices.count = renderable->joint_list.count;
@@ -935,22 +945,30 @@ void play_animation_identity(Scene_Node node) {
    return;
 }
 
-void play_animation(Scene_Node node) {
+
+void play_animation(Scene_Node node, uint animation_number) {
    // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it.
-   // For now we use instaces_dirty to update geometry_to_world_matrices_buffer after this
+   // For now we use instances_dirty to update geometry_to_world_matrices_buffer after this
    manager.scene.instances_dirty = true;
 
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
    auto renderable = &manager.scene.renderables.items[renderable_index];
 
-   if (renderable->animation_index < 0) {
+   if (renderable->animation_index.count < 1) {
       trace_warn("Trying to play animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
       return;
    }
 
-   auto animation = &manager.animations.items[renderable->animation_index];
+   if (animation_number >= renderable->animation_index.count) {
+      trace_warn("Trying to play animation number (%d) that does not correspod to any animation on this node as it only goes to %d", animation_number, renderable->animation_index.count);
+      return;
+   }
+
    auto instance  = &renderable->instances.items[instance_index];
+   instance->animation_number = animation_number;
+   auto animation = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
+
    f64 *curr_time = &instance->animation_current_time;
    const f64 animation_speed = instance->animation_speed;
 
@@ -1048,8 +1066,18 @@ void play_animation(Scene_Node node) {
 }
 
 
+void overload play_animation(Scene_Node node) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = manager.scene.renderables.items[renderable_index];
+   auto instance   = renderable.instances.items[instance_index];
+   play_animation(node, instance.animation_number);
+}
 
-// NOTE: 2025-09-04 Every Instace is created here renderable is created elsewhere
+
+
+
+// NOTE: 2025-09-04 Every instance is created here renderable is created elsewhere
 Scene_Node internal create_scene_node_from_renderable(isz renderable_index, const Transform transform) {
    auto renderable = &manager.scene.renderables.items[renderable_index];
 
@@ -1084,7 +1112,7 @@ Scene_Node create_scene_node_new_cmd(Scene_Node node, const Transform transform)
    isz src_renderable_index  = manager.scene.nodes.items[node.index].renderable_index;
    Draw_Index src_draw_index = manager.scene.renderables.items[src_renderable_index].draw_index;
    Joint_List src_joint_list = manager.scene.renderables.items[src_renderable_index].joint_list;
-   isz src_animation_index   = manager.scene.renderables.items[src_renderable_index].animation_index;
+   Animation_Index src_animation_index   = manager.scene.renderables.items[src_renderable_index].animation_index;
 
 
    Draw_Index draw_index = {0};
@@ -1111,12 +1139,9 @@ Scene_Node create_scene_node_new_cmd(Scene_Node node, const Transform transform)
 }
 
 // TODO: Change C treesitter query to make overload be a keyword right before the the type instead of after
-Scene_Node overload create_scene_node(const Model *model, const Transform transform) {
-   isz animation_index = -1;
-   isz animations_count = 0;
-
+Scene_Node create_scene_node(const Model *model, const Transform transform) {
+   Animation_Index animation_index = {.base = 0, .count = 0};
    Draw_Index draw_index = push_model_to_manager(model, &animation_index);
-
    isz renderable_index = manager.scene.renderables.count;
    da_append(&manager.scene.renderables, {.draw_index = draw_index, .animation_index = animation_index, .joint_list = model->joints});
    return create_scene_node_from_renderable(renderable_index, transform);
@@ -1129,7 +1154,7 @@ Scene_Node overload create_scene_node(Scene_Node node, const Transform transform
 
 
 //
-// TODO: Updating the whole instaces transform every time seems to be a bit slow
+// TODO: Updating the whole instances transform every time seems to be a bit slow
 //       Maybe just update in place with persistent mapped instead of going through the cpu buffer staging system
 //
 void update_transform(Scene_Node node, Transform transform) {
@@ -1168,8 +1193,8 @@ void set_animation_time(Scene_Node node, f64 time) {
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
 
    auto renderable = &manager.scene.renderables.items[renderable_index];
-   auto animation  = &manager.animations.items[renderable->animation_index];
    auto instance   = &renderable->instances.items[instance_index];
+   auto animation  = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
    instance->animation_current_time = clamp(time, animation->time_begin, animation->time_end);
 }
 
@@ -1179,8 +1204,8 @@ void set_animation_time_percentage(Scene_Node node, f64 percentage) {
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
 
    auto renderable = &manager.scene.renderables.items[renderable_index];
-   auto animation  = &manager.animations.items[renderable->animation_index];
    auto instance   = &renderable->instances.items[instance_index];
+   auto animation  = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
    if (percentage > 1.0 || percentage < 0 ) {
       trace_warn("Trying to play animation at %.2f%% percentage on node=%d. Range should be [0 - 1] inclusive.", percentage*100, node.index);
    }
@@ -1193,8 +1218,8 @@ void set_animation_speed(Scene_Node node, f64 speed) {
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
 
    auto renderable = &manager.scene.renderables.items[renderable_index];
-   auto animation  = &manager.animations.items[renderable->animation_index];
    auto instance   = &renderable->instances.items[instance_index];
+   auto animation  = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
    instance->animation_speed = clamp(speed, -F64_MAX, F64_MAX);
 }
 

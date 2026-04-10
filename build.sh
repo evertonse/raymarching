@@ -18,10 +18,10 @@ profile_end() {
     if [ -n "$__profile_start_ns" ] && [ "$__profile_start_ns" != "$__profile_start_s" ]; then
         local elapsed=$(awk -v s1="$__profile_start_s" -v n1="$__profile_start_ns" -v s2="$end_s" -v n2="$end_ns" \
             'BEGIN { print (s2 - s1) + (n2 - n1)/1e9 }')
-        echo "⏱️ Elapsed: ${elapsed}s"
+        echo "⏱️  Elapsed: ${elapsed}s"
     else
         local elapsed=$((end_s - __profile_start_s))
-        echo "⏱️ Elapsed: $1 ${elapsed}s (low precision)"
+        echo "⏱️  Elapsed: $1 ${elapsed}s (low precision)"
     fi
 }
 

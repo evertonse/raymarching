@@ -583,15 +583,15 @@ void draw_scene_league(Projection_Application *app) {
    static Scene_Node vayne_node = {0};
    if (!scene_loaded) {
       scene_loaded = true;
-      Model vanye_model  = create_model("res/models/league/vayne/Vayne.fbx");
+      Model vayne_model  = create_model("res/models/league/vayne/Vayne.fbx");
 
-      vayne_transform.scale       = (Vector3){1., 1., 1.};
-      vayne_node = create_scene_node(&vanye_model, vayne_transform);
+      vayne_transform.scale       = (Vector3){1, 1, 1};
+      vayne_node = create_scene_node(&vayne_model, vayne_transform);
 
 
       {
          set_animation_time(vayne_node, 0.0);
-            play_animation(vayne_node); // This is just to play any pose
+         play_animation(vayne_node); // This is just to play any pose
       }
    }
 
@@ -601,7 +601,8 @@ void draw_scene_league(Projection_Application *app) {
       // update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
 
       auto time_rotation = QuaternionFromAxisAngle(vector3(1.), time_elapsed());
-      vayne_transform.scale       = (Vector3){0.1, 0.1, 0.1};
+
+      vayne_transform.scale       = (Vector3){0.01, 0.01, 0.01};
       update_transform(vayne_node, vayne_transform);
 
       // TODO: make sure scene_node with 0 index is invalid
@@ -610,17 +611,29 @@ void draw_scene_league(Projection_Application *app) {
       } else if (is_button_pressed(BUTTON_V)) {
          set_animation_speed(vayne_node, 1.65);
       }
+      static int animation_number = 0;
+
+      if (is_button_pressed(BUTTON_X)) {
+         animation_number += 1;
+         animation_number %= 100;
+      }
 
       if (is_button_pressed(BUTTON_N)) {
-         play_animation(vayne_node);
+         if (is_button_pressed(BUTTON_SHIFT)) {
+            set_animation_speed(vayne_node, -0.35);
+         } else {
+            set_animation_speed(vayne_node, 0.35);
+         }
+         play_animation(vayne_node, animation_number);
       }
    }
 }
 
 ///////////////////////////////////////////////////////
-
 // Main generator function
 // Generate cone map from heightmap file, write to png, return pixel data
+// TODO: Get this into the main pipeline and test with some out in the wild scene that has a depth map
+//////////////////////////////////////////////////////
 void *generate_cone_map_relaxed(const char *heightmap_path, const char *out_png_path, int *out_width, int *out_height) {
 
    Texture heightmap = create_texture_from_filepath(heightmap_path);

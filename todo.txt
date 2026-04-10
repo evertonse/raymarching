@@ -1,4 +1,5 @@
-[ ] Make debugging on Rad Debugger work again
+[x] Make debugging on Rad Debugger work again
+[ ] Remove Animation.scene field and make it work regarless
 
 # Projection Pipeline
 

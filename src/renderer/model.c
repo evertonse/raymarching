@@ -574,6 +574,22 @@ static void setup_materials_from_ufbx_scene(Model *model, const ufbx_scene *cons
    }
 }
 
+static void setup_animations_from_ufbx_scene(Model *model, ufbx_scene *scene, const char* scene_filepath) {
+   if (scene->anim_stacks.count > 0) {   // Setup animations
+       model->animations.count = scene->anim_stacks.count;
+       model->animations.items = malloc(model->animations.count * size_of(model->animations.items[0]));
+       for (usz i = 0; i < scene->anim_stacks.count; i += 1) {
+          ufbx_anim_stack *stack = scene->anim_stacks.data[i];
+          trace_info("[Animation] Model from %s animation stack %d called '%s':\n", scene_filepath, i, stack->name.data);
+          Animation animation = create_animation_from_ufbx(scene, stack->anim);
+          assert(is_valid_animation(&animation));
+          assert(animation.joints_animation.items);
+          model->animations.items[i] = animation;
+          // break; // TODO: Get mo' animations
+       }
+   }
+}
+
 void generate_tangent_space(Mesh *mesh) {
    SMikkTSpaceInterface mikk_interface = {
       .m_getNumFaces          = mikk_get_num_faces,
@@ -890,18 +906,8 @@ Model create_model(const char *filepath) {
    trace_ufbx_warnings(scene);
    trace_ufbx_scene_stats(scene);
 
-   if (scene->anim_stacks.count > 0) {   // Setup animations
-       model.animations.count = 1;
-       model.animations.items = malloc(model.animations.count * size_of(model.animations.items[0]));
-       for (usz i = 0; i < scene->anim_stacks.count; i += 1) {
-          ufbx_anim_stack *stack = scene->anim_stacks.data[i];
-          printf("i stack %s:\n", stack->name.data);
-          Animation animation = create_animation_from_ufbx(scene, stack->anim);
-          assert(is_valid_animation(&animation));
-          assert(animation.joints_animation.items);
-          model.animations.items[i] = animation;
-          break; // TODO: Get mo' animations
-       }
+   {
+      setup_animations_from_ufbx_scene(&model, scene, scene_filepath);
    }
 
    {
