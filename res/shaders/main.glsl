@@ -14,10 +14,12 @@ uniform mat4 view;
 uniform mat4 model;
 uniform mat4 perspective;
 uniform bool is_light;
+
+// TODO: remove has_animation
 uniform int  has_animation = -1;
 
 uniform vec3 camera_position;
-uniform vec2 spherical;
+vec2 spherical;
 
 
 layout (location = 0) out #include "./src/pipe.glsl";
@@ -29,7 +31,6 @@ layout (location = 0) out #include "./src/pipe.glsl";
 #include "./src/remaps.glsl"
 #include "./src/perspective.glsl"
 #include "./src/transformations.glsl"
-#include "./src/view.glsl"
 #include "./src/camera.glsl"
 #include "./src/rotation.glsl"
 
@@ -78,6 +79,8 @@ const float near_plane = 0.005;
 const float far_plane = 256.000000;
 
 void main() {
+
+   spherical = vec2(per_frame.camera.phi, per_frame.camera.theta);
    material_index = -1;
 
    vec4 position = vec4(pull_position(gl_VertexID), 1.0);
@@ -158,13 +161,7 @@ void main() {
    }
 
    {  // World to Camera
-      // mat4 view = view_from_spherical(vec3(0., 0., 0.), 0, 0.5);
-      vec3 eye = per_frame.camera.position;
-      vec3 direction = vec3(0., 0., 1.);
-      // direction = -spherical_to_cartesian(-spherical.y, spherical.x + PI/2);
-      direction = camera_forward(spherical);
-      mat4 view = lookat(eye, eye + direction, vec3(0., 1., 0.));
-      position = view * position;
+      position = camera_project(position, per_frame.camera.position, spherical);
    }
 
 
@@ -204,9 +201,9 @@ layout(binding  = 7) uniform sampler2D height_max_mipmap;
 
 bool has_specular = false;
 bool has_emissive = false;
+vec2 spherical;
 uniform bool is_light;
 uniform vec3 camera_position;
-uniform vec2 spherical;
 uniform int is_special = 0;
 
 
@@ -215,7 +212,6 @@ uniform int is_special = 0;
 #include "./src/buffers.glsl"
 
 #include "./src/coordinates.glsl"
-#include "./src/view.glsl"
 #include "./src/camera.glsl"
 #include "./brdf/blinn-phong.glsl"
 
@@ -811,6 +807,7 @@ bool intersect_plane(vec3 ray_origin, vec3 ray_dir, vec3 plane_point, vec3 plane
 void main() {
    // vec3 color = vec3(gl_FragCoord.z);
 
+   spherical = vec2(per_frame.camera.phi, per_frame.camera.theta);
    vec3 color = vec3(0.);
    vec3 diffuse_color  = vec3(1.);
    vec3 specular_color = vec3(0.);

@@ -61,7 +61,7 @@ typedef struct {
 
       struct {
          Vector3 position; f32 pad0;
-         f32 theta, phi, aspect, pad2; // Spherical Coordinates
+         f32 theta, phi, aspect, fov; // Spherical Coordinates
       } camera;
 
       f32 elapsed_time, delta_time;
@@ -579,6 +579,20 @@ void draw_scene(Projection_Application *app) {
 void draw_scene_league(Projection_Application *app) {
    static bool scene_loaded = false;
 
+
+
+   auto per_frame = app->per_frame;
+   Vector2 spherical = {per_frame.camera.phi, per_frame.camera.theta};
+   auto forward = camera_forward(spherical);
+
+   Vector2 mouse_position = cursor_position();
+   Vector2 viewport_resolution = get_window_size();
+   Ray mouse_ray = compute_mouse_ray(
+      mouse_position.x, mouse_position.y,
+      viewport_resolution.x, viewport_resolution.y, PI/3., per_frame.camera.aspect,
+      per_frame.camera.position, spherical
+   );
+
    Transform vayne_transform = {0} ;
    static Scene_Node vayne_node = {0};
    if (!scene_loaded) {
@@ -597,13 +611,43 @@ void draw_scene_league(Projection_Application *app) {
 
    const bool draw_with_manager = true;
    if (draw_with_manager) {
-
-      // update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-
       auto time_rotation = QuaternionFromAxisAngle(vector3(1.), time_elapsed());
+      auto scale = ((1. + sinf(time_elapsed())) / 2.) * 100.;
 
-      vayne_transform.scale       = (Vector3){0.01, 0.01, 0.01};
+      vayne_transform.scale = (Vector3){0.01, 0.01, 0.01};
+
+
+      Vector3 ground_hit = {0};
+      if (raycast_ground(mouse_ray, &ground_hit)) {
+         if (is_button_pressed(BUTTON_MOUSE_LEFT)) {
+            vayne_transform.position = ground_hit;
+         }
+      }
+
+      if (is_button_pressed(BUTTON_C)) {
+         // vayne_transform.position = add(mouse_ray.origin, mul(scale, mouse_ray.direction));
+         auto origin = per_frame.camera.position;
+
+         const bool use_mouse_ray = true;
+         if (use_mouse_ray) {
+            origin  = mouse_ray.origin;
+            forward = mouse_ray.direction;
+         }
+         vayne_transform.position = add(origin, mul(scale, forward));
+         
+
+         trace_info("vayne_transform.position:");
+         trace_struct(vayne_transform.position);
+
+         trace_info("forward:");
+         trace_struct(forward);
+
+         trace_info("per_frame.camera.position:");
+         trace_struct(per_frame.camera.position);
+      }
+
       update_transform(vayne_node, vayne_transform);
+      
 
       // TODO: make sure scene_node with 0 index is invalid
       if (is_button_pressed(BUTTON_B)) {
@@ -1054,7 +1098,7 @@ void projection_update(Projection_Application *app, f64 dt) {
       return;
    }
 
-   const  bool   please_sync = false;
+   const  bool   please_sync = true;
    static GLsync sync = nullptr;
    if (please_sync) {
 
@@ -1183,11 +1227,6 @@ void projection_update(Projection_Application *app, f64 dt) {
          // printf("vec3(%f, %f, %f)\n", direction.x, direction.y, direction.z);
          // Matrix view = MatrixViewFromSpherical(camera.position, -camera.rotation.y, -camera.rotation.x);
          glUniformMatrix4fv(view_location, 1, GL_FALSE, MatrixToFloat(view));
-      }
-
-      {
-         GLint spherical_location = glGetUniformLocation(shader.handle, "spherical");
-         glUniform2f(spherical_location, camera.rotation.y, camera.rotation.x);
       }
 
       {

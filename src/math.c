@@ -6,16 +6,15 @@ typedef float Matrix4 __attribute__((matrix_type(4, 4)));
 typedef float float4 __attribute__((ext_vector_type(4)));
 
 Vector3 spherical_to_cartesian(float theta, float phi) {
-    float x =  sin(phi) * cos(theta);
-    float y = -sin(phi) * sin(theta);
-    float z =  cos(phi);
-    return (Vector3){x, y, z};
+  float x = sin(phi) * cos(theta);
+  float y = -sin(phi) * sin(theta);
+  float z = cos(phi);
+  return (Vector3){x, y, z};
 }
 
 static Vector3 MatrixMultiplyVector3(Matrix matrix, Vector3 vector) {
-   return Vector3Transform(vector, matrix);
+  return Vector3Transform(vector, matrix);
 }
-
 
 Matrix MatrixViewFromSpherical(Vector3 position, float theta, float phi) {
    auto cross     = Vector3CrossProduct;
@@ -85,6 +84,7 @@ void __invalid_generic();
 #define COMPILE_ERROR_TYPE_UNSUPPORTED __invalid_generic
 
 // #define COMPILE_ERROR_TYPE_UNSUPPORTED ((void)_Static_assert(0, "Unsupported multiplication types"), *(int*)0)
+#define invert MatrixInvert
 
 #define mul(a, b) _Generic(((a)),                              \
     Vector3: _Generic(((b)),                                   \
@@ -138,10 +138,13 @@ static inline Vector3 Vector3ScaleSwapped(double scalar, Vector3 vec) {
    return Vector3Scale(vec, scalar);
 }
 
+
 typedef struct Transform {
-	Vector3    translation;
-	Quaternion rotation;
-	Vector3    scale;
+   union {
+      Vector3 translation, position;
+   };
+   Quaternion rotation;
+   Vector3    scale;
 } Transform;
 
 constexpr Transform transform_identity = {
@@ -176,6 +179,7 @@ Transform TransformInterpolate(Transform t1, Transform t2, float amount) {
 }
 #define TransformLerp TransformInterpolate
 
+
 Transform TransformCombine(Transform parent, Transform child) {
     Transform out;
 
@@ -186,13 +190,12 @@ Transform TransformCombine(Transform parent, Transform child) {
     out.rotation = QuaternionMultiply(parent.rotation, child.rotation);
 
     // Translation: parent translation + (parent rotation * (parent scale * child translation))
-    Vector3 scaledChildPos = Vector3Multiply(child.translation, parent.scale);
-    Vector3 rotatedChildPos = Vector3RotateByQuaternion(scaledChildPos, parent.rotation);
-    out.translation = Vector3Add(parent.translation, rotatedChildPos);
+    Vector3 scaled_child_position = Vector3Multiply(child.translation, parent.scale);
+    Vector3 rotated_child_position = Vector3RotateByQuaternion(scaled_child_position, parent.rotation);
+    out.translation = Vector3Add(parent.translation, rotated_child_position);
 
     return out;
 }
-
 
 
 Matrix MatrixCompose(Transform transform) {
@@ -200,56 +203,56 @@ Matrix MatrixCompose(Transform transform) {
    Vector3 s    = transform.scale;
    Vector3 t    = transform.translation;
 
-	float sx = 2.0f * s.x,
+   float sx = 2.0f * s.x,
          sy = 2.0f * s.y,
          sz = 2.0f * s.z;
 
-	float xx = q.x*q.x,
+   float xx = q.x*q.x,
          xy = q.x*q.y,
          xz = q.x*q.z,
          xw = q.x*q.w;
 
-	float yy = q.y*q.y,
+   float yy = q.y*q.y,
          yz = q.y*q.z,
          yw = q.y*q.w;
 
-	float zz = q.z*q.z,
+   float zz = q.z*q.z,
          zw = q.z*q.w;
 
    Matrix m = {0};
    // First column (X axis)
-	m.m0 = sx * (- yy - zz + 0.5f);
-	m.m1 = sx * (+ xy + zw);
-	m.m2 = sx * (- yw + xz);
+   m.m0 = sx * (- yy - zz + 0.5f);
+   m.m1 = sx * (+ xy + zw);
+   m.m2 = sx * (- yw + xz);
 
    // Second column (Y axis)
-	m.m4 = sy * (- zw + xy);
-	m.m5 = sy * (- xx - zz + 0.5f);
-	m.m6 = sy * (+ xw + yz);
+   m.m4 = sy * (- zw + xy);
+   m.m5 = sy * (- xx - zz + 0.5f);
+   m.m6 = sy * (+ xw + yz);
 
    // Third column (Z axis)
-	m.m8  = sz * (+ xz + yw);
-	m.m9  = sz * (- xw + yz);
-	m.m10 = sz * (- xx - yy + 0.5f);
+   m.m8  = sz * (+ xz + yw);
+   m.m9  = sz * (- xw + yz);
+   m.m10 = sz * (- xx - yy + 0.5f);
 
    // Fourth column (Translation)
-	m.m12 = t.x;
-	m.m13 = t.y;
-	m.m14 = t.z;
-	m.m15 = 1.0;
-	return m;
+   m.m12 = t.x;
+   m.m13 = t.y;
+   m.m14 = t.z;
+   m.m15 = 1.0;
+   return m;
 }
 
 typedef union {
-    struct {
-        int items[4];
-    };
-    struct {
-       int x;
-       int y;
-       int z;
-       int w;
-    };
+  struct {
+    int items[4];
+  };
+  struct {
+    int x;
+    int y;
+    int z;
+    int w;
+  };
 } Vector4Int;
 
 // Get float array of matrix data
@@ -277,3 +280,125 @@ Matrix FloatsToMatrix(float floats[16]) {
 Vector3 overload vector3(float v) { return (Vector3){v, v, v}; }
 Vector3 overload vector3(float x, float y, float z) { return (Vector3){x, y, z}; }
 
+Vector3 camera_forward(Vector2 spherical) {
+   float theta = -spherical.x;
+   float phi   = -spherical.y + (PI / 2.0f);
+
+   float x = sinf(phi) * sinf(theta);
+   float y = cosf(phi);
+   float z = sinf(phi) * cosf(theta);
+
+   return Vector3Normalize((Vector3){x, y, z});
+}
+
+typedef struct {
+   union {
+      Vector3 origin, position;
+   };
+   Vector3 direction;
+} Ray;
+
+Vector3 ndc_to_world(
+    Vector3 ndc,  // all three components, each in [-1, 1]
+    float fov_y, float aspect,
+    float z_near, float z_far,
+    Vector3 camera_pos, Vector3 camera_forward,  Vector3 camera_right, Vector3 camera_up
+) {
+   float view_z = z_near + (((ndc.z + 1.)*(z_far-z_near)) / 2.);
+   float j = tanf(fov_y * 0.5f)*view_z;
+   float view_x = ndc.x*aspect*j;
+   float view_y = ndc.y*j;
+
+   Vector3 view_position = vector3(view_x, view_y, view_z);
+
+   Vector3 forward       = camera_forward, right = camera_right, up = camera_up;
+
+   // This is how we do in shader but raymath uses a different coordinate the ours sad. Can't use their shit unless we change it alot.
+   // Hence the explcit early return
+   Matrix look_at        = MatrixLookAt(camera_pos, add(camera_pos, camera_forward), camera_up);
+   auto look_at_inverted = invert(look_at);
+   Vector3 world_pos     = mul(look_at_inverted, view_position);
+   return (Vector3){
+     right.x * view_x + up.x * view_y + forward.x * view_z + camera_pos.x,
+     right.y * view_x + up.y * view_y + forward.y * view_z + camera_pos.y,
+     right.z * view_x + up.z * view_y + forward.z * view_z + camera_pos.z,
+   };
+   return world_pos;
+}
+
+
+void camera_basis(Vector2 spherical, Vector3 *forward, Vector3 *right,Vector3 *up) {
+   *forward = camera_forward(spherical);
+
+   // replica of look_at cross product order
+   Vector3 world_up = {0.0f, 1.0f, 0.0f};
+   *right = normalize(cross(world_up, *forward));
+   *up    = normalize(cross(*forward, *right));
+}
+
+const float near_plane = 0.005;
+const float far_plane = 256.000000;
+const float fov    = PI/3.;
+
+Ray compute_mouse_ray(
+    float mouse_x, float mouse_y,
+    float screen_width, float screen_height,
+    float fov_y, float aspect,
+    Vector3 camera_position, Vector2 spherical
+) {
+   float ndc_x =  (mouse_x / screen_width)  * 2.0f - 1.0f;
+   float ndc_y = -(mouse_y / screen_height) * 2.0f + 1.0f;
+
+   Vector3 forward, right, up;
+   camera_basis(spherical, &forward, &right, &up);
+   auto ndc = (Vector3){ ndc_x, ndc_y,  1.0f };
+   printf("mouse={%f, %f}\n", mouse_x, mouse_y);
+   printf("ndc={%f, %f}\n", ndc_x, ndc_y);
+
+   // Two points on the ray at different depths
+   Vector3 near_world = ndc_to_world(
+      (Vector3){ ndc_x, ndc_y, -1.0f },
+      fov_y, aspect,
+      near_plane, far_plane,
+      camera_position, forward, right, up
+   );
+
+   Vector3 near_center_world = ndc_to_world(
+      (Vector3){ 0.0, 0.0, -1.0f },
+      fov_y, aspect,
+      near_plane, far_plane,
+      camera_position, forward, right, up
+   );
+
+   Vector3 far_world  = ndc_to_world(ndc,
+      fov_y, aspect,
+      near_plane, far_plane,
+      camera_position, forward, right, up
+   );
+
+   Ray r = {0};
+   // r.origin    = camera_position,
+   r.origin    = near_center_world,
+   r.direction = normalize(sub(far_world, r.origin));
+
+   return r;
+}
+
+
+bool raycast_ground(Ray ray, Vector3 *hit) {
+   // Ray is parallel to ground, no intersection
+   if (fabsf(ray.direction.y) < 1e-6f) {
+      return false;
+   }
+   float t = -ray.origin.y / ray.direction.y;
+   // Intersection behind the camera
+   if (t < 0.0f) {
+      return false;
+   }
+   *hit = (Vector3){
+      ray.origin.x + t * ray.direction.x,
+      0.0f, // exactly 0, avoid float drift
+      ray.origin.z + t * ray.direction.z,
+   };
+   return true;
+}

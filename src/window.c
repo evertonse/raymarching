@@ -167,6 +167,12 @@ int get_window_width() {
    }
 }
 
+Vector2 get_window_size() {
+   int width, height;
+   glfwGetWindowSize(__state.window.handle, &width, &height);
+   return (Vector2){width, height};
+}
+
 Vector2 get_screen_resolution() {
    __state.window.mode = glfwGetVideoMode(__state.window.monitor);
    const int max_width  = __state.window.mode->width;

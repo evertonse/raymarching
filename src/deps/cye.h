@@ -1143,7 +1143,7 @@ f32 cye_lerp(f32 start, f32 end, f32 amount);
 f32 cye_normalize(f32 value, f32 start, f32 end);
 
 // Remap input value within input range to output range
-f32 cye_remap(f32 value, f32 inputStart, f32 inputEnd, f32 outputStart, f32 outputEnd);
+f32 cye_remap(f32 value, f32 input_start, f32 input_end, f32 output_start, f32 output_end);
 
 // Wrap input value from min to max
 f32 cye_wrap(f32 value, f32 min, f32 max);
@@ -4660,8 +4660,8 @@ f32 cye_normalize(f32 value, f32 start, f32 end) {
 }
 
 // remap input value within input range to output range
-f32 cye_remap(f32 value, f32 inputStart, f32 inputEnd, f32 outputStart, f32 outputEnd) {
-    f32 result = (value - inputStart)/(inputEnd - inputStart)*(outputEnd - outputStart) + outputStart;
+f32 cye_remap(f32 value, f32 input_start, f32 input_end, f32 output_start, f32 output_end) {
+    f32 result = (value - input_start)/(input_end - input_start)*(output_end - output_start) + output_start;
     return result;
 }
 
