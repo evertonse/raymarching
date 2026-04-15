@@ -39,7 +39,7 @@ struct Light {
 
 struct Camera {
     vec3  position; float pad0;
-    float theta, phi, aspect, pad2;
+    float theta, phi, aspect, pad1;
 };
 
 
@@ -64,7 +64,7 @@ layout(std430, binding = BINDING_JOINT_BUFFER) readonly buffer Joint_Buffer {
   //   gl_Position = uModelViewProjection * vec4(position, 1.0);
 };
 
-layout(std430, binding = BINDING_INDICES_BUFFER) readonly  buffer Indices_Buffer {
+layout(std430, binding = BINDING_INDICES_BUFFER) readonly buffer Indices_Buffer {
    float indices[];
 };
 // buffers end

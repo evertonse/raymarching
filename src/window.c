@@ -2,6 +2,7 @@
 // TODO: is_button_being_pressed vs is_button_pressed behaviour needs to be created and checked I'm pretty sure the latter is acting as the first.
 
 static void window_mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+   trace_debug("Mouse button,action,mods = %d %d %d\n", button, action, mods);
    auto current = &__state.button.current[BUTTON_MOUSE_BEGIN-button];
    if     (action == GLFW_RELEASE) *current = BUTTON_IS_UP;
    else if(action == GLFW_PRESS)   *current = BUTTON_IS_DOWN;
@@ -10,26 +11,13 @@ static void window_mouse_button_callback(GLFWwindow* window, int button, int act
 
 static void window_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
    int button = key;
-
-   auto current = &__state.button.current[BUTTON_MOUSE_BEGIN-button];
+   trace_debug("Key button,action,mods = %d %d %d\n", button, action, mods);
+   auto current = &__state.button.current[button];
    if     (action == GLFW_RELEASE) *current = BUTTON_IS_UP;
    else if(action == GLFW_PRESS)   *current = BUTTON_IS_DOWN;
    else if(action == GLFW_REPEAT)  *current = BUTTON_IS_DOWN;
-
-#if 0
-   if (key == GLFW_KEY_R && action == GLFW_PRESS) {
-      Shader old = compute_shader;
-      compute_shader = reload_shader(compute_shader);
-      printf("reloaded and its broken ? %s\n", INVALID_SHADER_HANDLE == compute_shader.handle ? "yes" : "no");
-      if (old.handle == compute_shader.handle) {
-         title.reload = "(reload failed)";
-      } else {
-         title.reload = "";
-      }
-   }
-#endif
-
 }
+
 
 static void window_scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
    __state.scroll_offset += yoffset;
@@ -77,8 +65,10 @@ void init_window(void) {
    const int max_width  = __state.window.mode->width;
    const int max_height = __state.window.mode->height;
 
-   int window_width  = max_width / 3.2;                // Half the width of the screen
-   int window_height = max_height / 1.6;               // Half the height of the screen
+   // int window_width  = max_width / 3.2;                // Half the width of the screen
+   // int window_height = max_height / 1.6;               // Half the height of the screen
+   int window_width  = max_width  / (3.2 / 1.5);                // Half the width of the screen
+   int window_height = max_height / (1.6 / 1.5);               // Half the height of the screen
 
    int right_padding_from_windows_bar = 67;
    int window_x = max_width - window_width - right_padding_from_windows_bar;  // 3/4 from the left
@@ -94,11 +84,12 @@ void init_window(void) {
 
    glfwSetWindowAttrib(window, GLFW_FLOATING, true); // sticky
    glfwSetWindowPos(window, window_x, window_y);
+
    // GLFW_CURSOR_HIDDEN GLFW_CURSOR_NORMAL GLFW_CURSOR_DISABLED(fps style) GLFW_CURSOR_CAPTURED(Won't be able to leave window) GLFW_CURSOR_DISABLED
    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
-   glfwSetKeyCallback(window, window_key_callback);
    glfwSetScrollCallback(window, window_scroll_callback);
+   glfwSetKeyCallback(window, window_key_callback);
    glfwSetMouseButtonCallback(window, window_mouse_button_callback);
 
 
@@ -188,28 +179,44 @@ void close_window(void) {
    glfwSetWindowShouldClose(__state.window.handle, GLFW_TRUE);
 }
 
-
+// Fires exactly once the frame the button first goes down
 inline bool is_button_pressed(Button input) {
-   if (input >= BUTTON_MOUSE_LEFT) {
-      return glfwGetMouseButton(__state.window.handle, input-BUTTON_MOUSE_LEFT) == GLFW_PRESS;
-   }
-   return glfwGetKey(__state.window.handle, input) == GLFW_PRESS;
+   return __state.button.previous[input] == BUTTON_IS_UP
+       && __state.button.current[input]  == BUTTON_IS_DOWN;
 }
 
+// Fires exactly once the frame the button comes back up
 inline bool is_button_released(Button input) {
-   if (input >= BUTTON_MOUSE_LEFT) {
-      return glfwGetMouseButton(__state.window.handle,  input-BUTTON_MOUSE_LEFT) == GLFW_RELEASE;
-   }
-   return glfwGetKey(__state.window.handle, input) == GLFW_RELEASE;
+   return __state.button.previous[input] == BUTTON_IS_DOWN
+       && __state.button.current[input]  == BUTTON_IS_UP;
 }
 
-inline bool is_button_down(Button input) {
+// True every frame the button is held down
+inline bool is_button_held(Button input) {
    return __state.button.current[input] == BUTTON_IS_DOWN;
 }
 
-inline bool is_button_up(Button input) {
-   return __state.button.current[input] == BUTTON_IS_UP;
-}
+// inline bool is_button_pressed(Button input) {
+//    if (input >= BUTTON_MOUSE_LEFT) {
+//       return glfwGetMouseButton(__state.window.handle, input-BUTTON_MOUSE_LEFT) == GLFW_PRESS;
+//    }
+//    return glfwGetKey(__state.window.handle, input) == GLFW_PRESS;
+// }
+
+// inline bool is_button_released(Button input) {
+//    if (input >= BUTTON_MOUSE_LEFT) {
+//       return glfwGetMouseButton(__state.window.handle,  input-BUTTON_MOUSE_LEFT) == GLFW_RELEASE;
+//    }
+//    return glfwGetKey(__state.window.handle, input) == GLFW_RELEASE;
+// }
+
+// inline bool is_button_down(Button input) {
+//    return __state.button.current[input] == BUTTON_IS_DOWN;
+// }
+//
+// inline bool is_button_up(Button input) {
+//    return __state.button.current[input] == BUTTON_IS_UP;
+// }
 
 inline Vector2 cursor_position() {
    f64 pos_x, pos_y;
@@ -217,16 +224,20 @@ inline Vector2 cursor_position() {
    return (Vector2){(f32)pos_x, (f32)pos_y};
 }
 
-
 void maximize_window(void) {
-    if (glfwGetWindowAttrib(__state.window.handle, GLFW_RESIZABLE) == GLFW_TRUE) {
-        glfwMaximizeWindow(__state.window.handle);
-    }
+   if (glfwGetWindowAttrib(__state.window.handle, GLFW_RESIZABLE) == GLFW_TRUE) {
+      glfwMaximizeWindow(__state.window.handle);
+   }
 }
 
-void minimize_window(void) {
-    glfwIconifyWindow(__state.window.handle);
+void restore_window(void) {
+   auto window = __state.window.handle;
+   glfwRestoreWindow(window);
+   // glfwShowWindow(window);
+   glfwFocusWindow(window);
 }
+
+void minimize_window(void) { glfwIconifyWindow(__state.window.handle); }
 
 inline bool is_window_minimized() {
    return glfwGetWindowAttrib(__state.window.handle, GLFW_ICONIFIED) == GLFW_TRUE;
@@ -252,6 +263,7 @@ void update_on_button(void) {
 }
 
 inline void update_window(void) {
+   memcpy(__state.button.previous, __state.button.current, size_of(__state.button.current));
    update_on_button();
    pool_window_events();
    swap_window_buffers();

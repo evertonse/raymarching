@@ -39,12 +39,12 @@ layout (location = 0) out #include "./src/pipe.glsl";
 
 #ifdef PULLING
 vec3 pull_position(int id) {
+   const int base = 0;
    return vec3(
-      vertex_buffer[id*3 + 0],
-      vertex_buffer[id*3 + 1],
-      vertex_buffer[id*3 + 2]
+      vertex_buffer[base + id*3 + 0],
+      vertex_buffer[base + id*3 + 1],
+      vertex_buffer[base + id*3 + 2]
    );
-
 }
 
 vec3 pull_normal(int id) {
@@ -94,7 +94,6 @@ void main() {
    vec4 tangent = vertex_tangents2[draw_command.tangents_offset + gl_VertexID - gl_BaseVertex];
 
    highp mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
-
    if (draw_command.has_joints == 1) {
       uint geometry_to_model_offset = instances[gl_BaseInstance + gl_InstanceID].geometry_to_model_offset;
 
@@ -163,6 +162,7 @@ void main() {
    {  // World to Camera
       position = camera_project(position, per_frame.camera.position, spherical);
    }
+
 
 
    {  // Camera to Clip
@@ -1136,4 +1136,6 @@ void main() {
    // FragColor.w = max(pow(alpha_channel, 1/2.2), 0.1);
    // FragColor.w = 1.0;
 
+   // @remove-me
+   // FragColor = vec4(1., 0., 0., 1.);
 }

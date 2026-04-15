@@ -348,14 +348,13 @@ void update_manager_gpu_resources() {
    if (manager.vertices.dirty) {
       trace_info("[Manager] Vertices were dirty");
 
-      isz vertex_size = size_of(manager.vertices.positions[0]) + size_of(manager.vertices.normals[0]) +  size_of(manager.vertices.uvs[0]);
 
       // Always sync the gpu buffer size to the cpu capacity, not the cpu size just so we do less resizes as resize won't occurs if we already have enough
       isz required_buffer_capacity_in_bytes = manager.vertices.capacity * (size_of(manager.vertices.positions[0]) + size_of(manager.vertices.normals[0]) + size_of(manager.vertices.uvs[0]));
       resize_buffer_if_needed(&manager.vertices.buffer, required_buffer_capacity_in_bytes);
 
       // We need to pack data as: [all_positions][all_normals][all_uvs]
-      // TODO: I dont like this stile of size_of
+      // TODO: I dont like this style of size_of like size_of(var) >>> size_of(type)
       isz positions_size = manager.vertices.count * size_of(Vector3);
       isz normals_size   = manager.vertices.count * size_of(Vector3);
       isz uvs_size       = manager.vertices.count * size_of(Vector2);
@@ -965,12 +964,18 @@ void play_animation(Scene_Node node, uint animation_number) {
       return;
    }
 
+
    auto instance  = &renderable->instances.items[instance_index];
+   if (animation_number != instance->animation_number) {
+      trace_info("New animation playing from %d to %d", instance->animation_number, animation_number);
+   }
    instance->animation_number = animation_number;
    auto animation = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
 
+
    f64 *curr_time = &instance->animation_current_time;
    const f64 animation_speed = instance->animation_speed;
+
 
    //
    // TODO: We should actually skip frames instead because of unstable delta times.

@@ -114,18 +114,19 @@ Vertex_Array create_vertex_array(const Vertex *vertices, usz vertex_count, const
    return va;
 }
 
-typedef enum {
-   RENDERER_MODE_FILL,
-   RENDERER_MODE_WIREFRAME,
-} Renderer_Mode;
 
 void set_redererer_mode(Renderer_Mode mode) {
+   if (mode == __state.renderer.mode) {
+      return;
+   }
+
    if (RENDERER_MODE_WIREFRAME == mode) {
       glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
    }
    else {
       glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
    }
+   __state.renderer.mode = mode;
 }
 
 Vertex_Array create_vertex_array_from_arrays(Vector3 *positions, Vector3 *normals, Vector2* uvs, isz count, u32* indices, isz indices_count) {
@@ -592,14 +593,15 @@ void initialize_opengl_opts() {
 
 void init_renderer(void) {
    assert_msg(__state.renderer.initialized == false, "Renderer initialized twice?");
-   int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
+   int flags;
+   glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
    assert(flags & GL_CONTEXT_FLAG_DEBUG_BIT);
    enable_error_report();
 
    print_opengl_resource_limits();
    print_default_framebuffer_info();
    initialize_opengl_opts();
-   if (false){ // Some expected settings
+   if (false) { // Some expected settings
       glEnable(GL_BLEND);
       // glBlendEquation(GL_FUNC_ADD);
 
@@ -626,10 +628,9 @@ void init_renderer(void) {
       glDisable(GL_SCISSOR_TEST);
       glEnable(GL_STENCIL_TEST);
    }
-
-   __state.renderer.initialized  = true;
+   __state.renderer.initialized = true;
+   __state.renderer.mode = RENDERER_MODE_FILL;
 }
-
 
 void debug_depth_testing() {
    printf("=== Depth Testing Debug ===\n");
@@ -659,29 +660,24 @@ void debug_depth_testing() {
 }
 
 void debug_culling_state() {
-  printf("=== Culling State Debug ===\n");
+   printf("=== Culling State Debug ===\n");
 
-  // Check if culling is enabled
-  GLboolean cull_face;
-  glGetBooleanv(GL_CULL_FACE, &cull_face);
-  printf("Cull face enabled: %s\n", cull_face ? "yes" : "no");
+   // Check if culling is enabled
+   GLboolean cull_face;
+   glGetBooleanv(GL_CULL_FACE, &cull_face);
+   printf("Cull face enabled: %s\n", cull_face ? "yes" : "no");
 
-  // Check which face is being culled
-  GLint cull_face_mode;
-  glGetIntegerv(GL_CULL_FACE_MODE, &cull_face_mode);
-  printf("Cull face mode: %s\n", cull_face_mode == GL_BACK ? "GL_BACK"
-                                 : cull_face_mode == GL_FRONT
-                                     ? "GL_FRONT"
-                                     : "GL_FRONT_AND_BACK");
+   // Check which face is being culled
+   GLint cull_face_mode;
+   glGetIntegerv(GL_CULL_FACE_MODE, &cull_face_mode);
+   printf("Cull face mode: %s\n", cull_face_mode == GL_BACK ? "GL_BACK" : cull_face_mode == GL_FRONT ? "GL_FRONT" : "GL_FRONT_AND_BACK");
 
-  // Check front face winding order
-  GLint front_face;
-  glGetIntegerv(GL_FRONT_FACE, &front_face);
-  printf("Front face winding: %s\n", front_face == GL_CCW
-                                         ? "GL_CCW (Counter-clockwise)"
-                                         : "GL_CW (Clockwise)");
+   // Check front face winding order
+   GLint front_face;
+   glGetIntegerv(GL_FRONT_FACE, &front_face);
+   printf("Front face winding: %s\n", front_face == GL_CCW ? "GL_CCW (Counter-clockwise)" : "GL_CW (Clockwise)");
 
-  printf("===========================\n");
+   printf("===========================\n");
 }
 
 void shutdown_renderer(void) {

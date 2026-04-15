@@ -151,7 +151,7 @@ build() {
 
     # Collection of decently extra extra warnings
     flags_ub='-fwrapv -fno-strict-aliasing -ftrapv'
-    flags_sanitize='-fsanitize=undefined'
+    flags_sanitize='-fsanitize=undefined,address'
 
     # Everybody does some implicit conversion on purpose of compares floats to zero, cant use this.
     flags_warn_conversions="-Wfloat-equal -Wconversion"

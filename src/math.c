@@ -298,6 +298,7 @@ typedef struct {
    Vector3 direction;
 } Ray;
 
+
 Vector3 ndc_to_world(
     Vector3 ndc,  // all three components, each in [-1, 1]
     float fov_y, float aspect,
@@ -352,8 +353,8 @@ Ray compute_mouse_ray(
    Vector3 forward, right, up;
    camera_basis(spherical, &forward, &right, &up);
    auto ndc = (Vector3){ ndc_x, ndc_y,  1.0f };
-   printf("mouse={%f, %f}\n", mouse_x, mouse_y);
-   printf("ndc={%f, %f}\n", ndc_x, ndc_y);
+   // printf("mouse={%f, %f}\n", mouse_x, mouse_y);
+   // printf("ndc={%f, %f}\n", ndc_x, ndc_y);
 
    // Two points on the ray at different depths
    Vector3 near_world = ndc_to_world(

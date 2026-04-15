@@ -19,7 +19,7 @@ Camera move_camera(Camera cam) {
    f64 mouse_x = cursor.x, mouse_y = cursor.y;
    const f32 sensitivity = 60.0;
    f32 sensitivity_factor = Remap(sensitivity, 0.0f, 100.0f, 0.0059f, 0.0009f);
-   if (is_button_pressed(BUTTON_MOUSE_LEFT)) {
+   if (is_button_held(BUTTON_MOUSE_LEFT)) {
       if (!mouse_button_left_down) {
          // First time pressing the button, store the last position
          mouse_button_left_down = true;
@@ -65,35 +65,35 @@ Camera move_camera(Camera cam) {
    Vector3 up = normalize(cross(right, forward));
 
    f32 speed = 4 * 20.20f;
-   if (is_button_pressed(BUTTON_W)) {
+   if (is_button_held(BUTTON_W)) {
       v = add(v, forward);
    }
 
-   if (is_button_pressed(BUTTON_S)) {
+   if (is_button_held(BUTTON_S)) {
       v = sub(v, forward);
    }
 
-   if (is_button_pressed(BUTTON_A)) {
+   if (is_button_held(BUTTON_A)) {
       v = add(v, right);
    }
 
-   if (is_button_pressed(BUTTON_D)) {
+   if (is_button_held(BUTTON_D)) {
       v = sub(v, right);
    }
 
-   if (is_button_pressed(BUTTON_SPACE)) {
+   if (is_button_held(BUTTON_SPACE)) {
       v = sub(v, Vector3Scale(up, -1));
    }
 
-   if (is_button_pressed(BUTTON_LEFT_CONTROL)) {
+   if (is_button_held(BUTTON_LEFT_CONTROL)) {
       v = sub(v, up);
    }
 
-   if (is_button_pressed(BUTTON_SHIFT)) {
+   if (is_button_held(BUTTON_SHIFT)) {
       speed *= 2.5;
    }
 
-   if (is_button_pressed(BUTTON_C)) {
+   if (is_button_held(BUTTON_C)) {
       speed *= 0.20;
    }
 
@@ -104,14 +104,13 @@ Camera move_camera(Camera cam) {
 
    f64 yoffset = get_mouse_scroll();
    if (yoffset != 0.0) {
-      cam.zoom = 1+yoffset;
+      cam.zoom = 1 + yoffset;
    }
 
    if (cam.zoom < 1) {
       cam.zoom = 1;
       yoffset = 0;
    }
-
 
    return cam;
 }

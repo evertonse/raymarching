@@ -15,6 +15,8 @@ struct nk_context *nk_ctx;
 struct nk_colorf bg;
 
 static void demo(struct nk_context *nk_ctx, struct nk_colorf bg) {
+   // TODO: fix gui
+   return;
    /* GUI */
    if (nk_begin(nk_ctx, "Demo", nk_rect(50, 50, 230, 250), NK_WINDOW_BORDER | NK_WINDOW_MOVABLE | NK_WINDOW_SCALABLE | NK_WINDOW_MINIMIZABLE | NK_WINDOW_TITLE)) {
       enum { EASY, HARD };
@@ -52,6 +54,8 @@ static void demo(struct nk_context *nk_ctx, struct nk_colorf bg) {
 }
 
 void gui_vector3(ZString title, Vector3* vec_in_out ) {
+   // TODO: fix gui
+   return;
    Vector3* vec = vec_in_out;
    // static int window_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE | NK_WINDOW_MOVABLE;
    static int window_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE;
@@ -66,6 +70,8 @@ void gui_vector3(ZString title, Vector3* vec_in_out ) {
 }
 
 void gui_check_box(ZString title, bool* in_out ) {
+   // TODO: fix gui
+   return;
    static int window_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE;
    if (nk_begin(nk_ctx, title, nk_rect(50, 50, 300, 120), window_flags)) {
       nk_layout_row_dynamic(nk_ctx, 30, 3); // 3 columns for X, Y, Z
@@ -76,6 +82,8 @@ void gui_check_box(ZString title, bool* in_out ) {
 }
 
 void gui_float(ZString title, float* in_out) {
+   // TODO: fix gui
+   return;
    auto val = in_out;
    // static int window_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE | NK_WINDOW_MOVABLE;
    static int window_flags = NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE;
@@ -1400,6 +1408,12 @@ static int overview(struct nk_context *nk_ctx) {
 static void error_callback(int e, const char *d) { printf("Error %d: %s\n", e, d); }
 
 void init_gui() {
+   // TODO: nk_glfw3_init set some callback that we absolutely need for ourselves
+   //       That means that we'll need to reimplement nk_glfw3 in our renderer OR go into raygui territory which for me is somewhat preferable. Albeit, raygui is not well prepeared to be used with other engines (raysan has a todo for it tho).
+
+   trace_fatal("NK Gui is not working currently");
+   return;
+
    void *glfw_win = platform_window_handle();
    /* Platform */
 
@@ -1427,6 +1441,8 @@ void init_gui() {
 void shutdown_gui(void) { nk_glfw3_shutdown(&nk_glfw); }
 
 void update_gui(void) {
+   // TODO: fix gui
+   return;
    void *glfw_win = platform_window_handle();
    nk_glfw3_new_frame(&nk_glfw);
    // overview(nk_ctx);
@@ -1436,6 +1452,8 @@ void update_gui(void) {
 }
 
 void render_gui(Framebuffer fb) {
+   // TODO: fix gui
+   return;
    // Auto sets the view port when binding the framebuffer no need to glViewport(0, 0, width, height);
    bind_framebuffer(fb);
 

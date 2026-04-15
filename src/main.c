@@ -233,7 +233,11 @@ int main() {
    init_fps();
    init_renderer();
    init_manager();
-   init_gui();
+
+   static const bool fixed_gui = false;
+   if (fixed_gui) {
+      init_gui();
+   }
 
 
    Countdown window_title_countdown = create_countdown(0.15, true);
@@ -259,7 +263,9 @@ int main() {
       update_renderer();
       update_time();
       update_fps();
-      // update_gui();
+      if (fixed_gui) {
+         update_gui();
+      }
 
       camera = move_camera(camera); // Update Camera
       screen_width  = 1600;
@@ -278,10 +284,14 @@ int main() {
       }
 
 
-      render_gui(default_framebuffer);
+      if (fixed_gui) {
+         render_gui(default_framebuffer);
+      }
    }
 
-   shutdown_gui();
+   if (fixed_gui) {
+      shutdown_gui();
+   }
    shutdown_window();
    shutdown_renderer();
 }

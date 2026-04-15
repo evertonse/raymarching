@@ -136,6 +136,10 @@ enum {
    BUTTON_IS_DOWN
 };
 
+typedef enum {
+   RENDERER_MODE_FILL,
+   RENDERER_MODE_WIREFRAME,
+} Renderer_Mode;
 
 #define FPS_MAX_SAMPLES 60
 typedef struct {
@@ -171,6 +175,7 @@ static struct {
 
    struct {
       bool initialized;
+      Renderer_Mode mode;
    } renderer;
 
    f64 scroll_offset;

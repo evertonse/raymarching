@@ -90,7 +90,7 @@ void raymarching_application_update(Raymarching_Application *app, f64 dt) {
 
       { // Mouse uniform
          Vector2 mouse_position = cursor_position();
-         Vector4 mouse_data = { mouse_position.x, mouse_position.x, is_button_down(BUTTON_MOUSE_LEFT), is_button_down(BUTTON_MOUSE_RIGHT)};
+         Vector4 mouse_data = { mouse_position.x, mouse_position.x, is_button_held(BUTTON_MOUSE_LEFT), is_button_held(BUTTON_MOUSE_RIGHT)};
          upload_uniform_vec4(app->compute_shader, "iMouse", mouse_data);
       }
 

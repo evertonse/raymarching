@@ -36,6 +36,100 @@ typedef struct {
 
 } Model;
 
+void trace_model(const Model *model) {
+  if (!model) {
+    trace_info("[Model] null");
+    return;
+  }
+
+  trace_info("[Model] ==========================================");
+
+  // == Meshes =========================================
+  trace_info("  meshes: %lld", (isz)model->meshes.count);
+
+  usz total_triangles = 0;
+
+  for (isz mi = 0; mi < model->meshes.count; mi += 1) {
+    auto mesh = &model->meshes.items[mi];
+
+    usz mesh_triangles = mesh->indices.count / 3;
+    total_triangles += mesh_triangles;
+
+    trace_info("  mesh[%lld]", mi);
+    trace_info("    vertices : %lld", (isz)mesh->vertices.count);
+    trace_info("    indices  : %lld", (isz)mesh->indices.count);
+    trace_info("    triangles: %lld", (isz)mesh_triangles);
+    trace_info("    surfaces : %lld", (isz)mesh->surfaces.count);
+    trace_info("    skinned  : %s", mesh->vertices.joints ? "yes" : "no");
+
+    for (isz si = 0; si < (isz)mesh->surfaces.count; si += 1) {
+      auto s = &mesh->surfaces.items[si];
+
+      usz surface_triangles = s->indices_count / 3;
+
+      trace_info("    surface[%lld]", si);
+      trace_info("      material_index : %lld", (isz)s->material_index);
+      trace_info("      indices_offset : %lld", (isz)s->indices_offset);
+      trace_info("      indices_count  : %lld", (isz)s->indices_count);
+      trace_info("      triangles      : %lld", (isz)surface_triangles);
+    }
+  }
+
+  trace_info("  total triangles: %lld", (isz)total_triangles);
+
+  // == Materials ======================================
+  trace_info("  materials: %lld", (isz)model->materials.count);
+
+  for (isz mi = 0; mi < model->materials.count; mi += 1) {
+    auto mat = &model->materials.items[mi];
+
+    trace_info("  material[%lld]", mi);
+    trace_info("    diffuse  : %s", mat->diffuse ? mat->diffuse : "(none)");
+    trace_info("    specular : %s", mat->specular ? mat->specular : "(none)");
+    trace_info("    emissive : %s", mat->emissive ? mat->emissive : "(none)");
+    trace_info("    normal   : %s", mat->normal ? mat->normal : "(none)");
+  }
+
+  // == Joints =========================================
+  trace_info("  joints: %lld", (isz)model->joints.count);
+
+  for (isz ji = 0; ji < (isz)model->joints.count; ji += 1) {
+    auto joint = &model->joints.joints[ji];
+    const char *name = model->joints.names ? model->joints.names[ji] : "?";
+
+    trace_info("  joint[%lld] '%s' parent=%lld", ji, name ? name : "?",
+               (isz)joint->parent);
+  }
+
+  // == Animations =====================================
+  trace_info("  animations: %lld", (isz)model->animations.count);
+
+  for (isz ai = 0; ai < model->animations.count; ai += 1) {
+    auto anim = &model->animations.items[ai];
+
+    f64 duration = anim->time_end - anim->time_begin;
+
+    trace_info("  animation[%lld]", ai);
+    trace_info("    time_begin       : %.4f", anim->time_begin);
+    trace_info("    time_end         : %.4f", anim->time_end);
+    trace_info("    duration         : %.4f s", duration);
+    trace_info("    joint_animations : %lld",
+               (isz)anim->joints_animation.count);
+
+    usz total_keys = 0;
+
+    for (isz ji = 0; ji < (isz)anim->joints_animation.count; ji += 1) {
+      auto ja = &anim->joints_animation.items[ji];
+
+      total_keys += ja->translation_keyframes.count +
+                    ja->rotation_keyframes.count + ja->scale_keyframes.count;
+    }
+
+    trace_info("    total keyframes  : %lld", (isz)total_keys);
+  }
+
+  trace_info("[Model] ==========================================");
+}
 
 const bool internal please_obj_merge = false;
 // Options: https://ufbx.github.io/reference#ufbx_load_opts
@@ -52,14 +146,14 @@ static const ufbx_load_opts ufbx_default_opts_godot = {
 		.inherit_mode_handling = UFBX_INHERIT_MODE_HANDLING_COMPENSATE,
 #endif
    // Bone stuff
-   .connect_broken_elements = true,
+   .connect_broken_elements = false,
 
 	.pivot_handling = UFBX_PIVOT_HANDLING_ADJUST_TO_PIVOT,
 	.geometry_transform_helper_name.data = "GeometryTransformHelper",
 	.geometry_transform_helper_name.length = SIZE_MAX,
 	.scale_helper_name.data = "ScaleHelper",
 	.scale_helper_name.length = SIZE_MAX,
-	.node_depth_limit = 512,
+	.node_depth_limit = 2048,
 	.target_camera_axes = ufbx_axes_right_handed_y_up,
 	.target_light_axes = ufbx_axes_right_handed_y_up,
 	.clean_skin_weights = true,
@@ -574,19 +668,26 @@ static void setup_materials_from_ufbx_scene(Model *model, const ufbx_scene *cons
    }
 }
 
+#define MODEL_ANIMATIONS_LIMIT 20
+
 static void setup_animations_from_ufbx_scene(Model *model, ufbx_scene *scene, const char* scene_filepath) {
    if (scene->anim_stacks.count > 0) {   // Setup animations
-       model->animations.count = scene->anim_stacks.count;
-       model->animations.items = malloc(model->animations.count * size_of(model->animations.items[0]));
-       for (usz i = 0; i < scene->anim_stacks.count; i += 1) {
-          ufbx_anim_stack *stack = scene->anim_stacks.data[i];
-          trace_info("[Animation] Model from %s animation stack %d called '%s':\n", scene_filepath, i, stack->name.data);
-          Animation animation = create_animation_from_ufbx(scene, stack->anim);
-          assert(is_valid_animation(&animation));
-          assert(animation.joints_animation.items);
-          model->animations.items[i] = animation;
-          // break; // TODO: Get mo' animations
-       }
+      model->animations.count = scene->anim_stacks.count;
+      if (model->animations.count > MODEL_ANIMATIONS_LIMIT) {
+         trace_warn("Truncating animation count for %s from %d to %d (-%d)", scene_filepath, model->animations.count, MODEL_ANIMATIONS_LIMIT, model->animations.count - MODEL_ANIMATIONS_LIMIT);
+         model->animations.count = MODEL_ANIMATIONS_LIMIT;
+      }
+
+      model->animations.items = malloc(model->animations.count * size_of(model->animations.items[0]));
+      for (isz i = 0; i < model->animations.count; i += 1) {
+         ufbx_anim_stack *stack = scene->anim_stacks.data[i];
+         trace_info("[Animation] Model from %s animation stack %d called '%s':\n", scene_filepath, i, stack->name.data);
+         Animation animation = create_animation_from_ufbx(scene, stack->anim);
+         assert(is_valid_animation(&animation));
+         assert(animation.joints_animation.items);
+         model->animations.items[i] = animation;
+         // break; // TODO: Get mo' animations
+      }
    }
 }
 
@@ -667,7 +768,8 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    isz  tri_indices_count = fbx_mesh->max_face_triangles * 3;
    u32 *tri_indices       = talloc(tri_indices_count * size_of(u32));
 
-   bool has_bones = scene->bones.count > 0;
+   // old way was bool has_bones = scene->bones.count > 0;
+   bool has_bones = fbx_mesh->skin_deformers.count > 0;
 
    usz surfaces_count = fbx_mesh->material_parts.count;
 
@@ -869,22 +971,22 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
 }
 
 
-void trace_model(const Model *model) {
-   if (!model) {
-      return;
-   }
-
-   trace_struct(*model);
-   for (isz mesh_index = 0; mesh_index < model->meshes.count; mesh_index += 1) {
-      auto mesh = model->meshes.items[mesh_index];
-      trace_struct(mesh);
-      for (isz surface_index = 0; surface_index < (isz)mesh.surfaces.count; surface_index += 1) {
-         auto surface = mesh.surfaces.items[surface_index];
-         trace_info("mesh = %d, surface %d", mesh_index, surface_index);
-         trace_struct(surface);
-      }
-   }
-}
+// void trace_model(const Model *model) {
+//    if (!model) {
+//       return;
+//    }
+//
+//    trace_struct(*model);
+//    for (isz mesh_index = 0; mesh_index < model->meshes.count; mesh_index += 1) {
+//       auto mesh = model->meshes.items[mesh_index];
+//       trace_struct(mesh);
+//       for (isz surface_index = 0; surface_index < (isz)mesh.surfaces.count; surface_index += 1) {
+//          auto surface = mesh.surfaces.items[surface_index];
+//          trace_info("mesh = %d, surface %d", mesh_index, surface_index);
+//          trace_struct(surface);
+//       }
+//    }
+// }
 
 Model create_model(const char *filepath) {
    Model model = {0};
@@ -919,8 +1021,7 @@ Model create_model(const char *filepath) {
    }
 
 
-   assert(scene->meshes.count > 0);
-   // assert_msg(scene->meshes.count == scene->nodes.count - 1, "We got %lld meshes and %lld nodes", scene->meshes.count, scene->nodes.count);
+   assert_msg(scene->meshes.count > 0, "Right now we don't think it's particularly useful to load a model with no meshes. But there's a world we load a model for just animations or bone or something that doesn't hav meshes.");
 
 
    model.meshes.count = 0;
@@ -933,6 +1034,8 @@ Model create_model(const char *filepath) {
       auto mesh = create_mesh_from_ufbx_node(node, scene);
       model.meshes.items[model.meshes.count++] = mesh;
    }
+
+   trace_info("[Animation] Model from %s model.meshes.count %d ", scene_filepath, model.meshes.count);
 
    assert(scene->meshes.count == (usz)model.meshes.count);
 

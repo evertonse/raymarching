@@ -1,12 +1,17 @@
 [x] Make debugging on Rad Debugger work again
-[ ] Remove Animation.scene field and make it work regarless
+[ ] Remove Animation.scene field and make it work regardless
+
+[ ] Fix __state management for subsystems. They prolly should be opaque pointers that only the subsystem knows what it is? Not dynamic tho, static allocation for the state.
+
+[ ] Fix Vayne bug that some triangles seem to be loaded incorreclty and randomly as well. Put in wireframe to see it better on draw_scene_league.
+   Might need to count mesh surface triangles and compare to other programs to debug this one.
 
 # Projection Pipeline
 
 ## Animation
 
 [ ] Animation 3 way blend (Vayne riot model)
-[ ] Make vayne animations load
+[x] Make vayne animations load
 
 ## General
 
@@ -14,7 +19,7 @@
 
 [ ] Investigate why auto reload is not working sometimes
 
-[ ] Fix is_button_pressed based on raylib implementation
+[ ] Fix is_button_pressed and variants based on raylib implementation
 
 
 

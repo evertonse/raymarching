@@ -261,7 +261,6 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
 
 
 
-      // Vector3 scale    = gui_vector3("Model Scale");
       static f32 scale_single    =  12.4;
       static f32 rotation_single =  0;
       gui_float("Model Scale", &scale_single);
@@ -381,6 +380,7 @@ void draw_scene(Projection_Application *app) {
 
    if (!scene_loaded) {
       scene_loaded = true;
+      minimize_window();
       ZString model_filepath = "";
 
       Model boy_model    = create_model("res/models/boy/boy_animation_textured.fbx");
@@ -531,7 +531,7 @@ void draw_scene(Projection_Application *app) {
 
       // TODO: Create a destroy function
       // destroy_model(&m);
-
+      restore_window();
    }
 
    const bool draw_with_manager = true;
@@ -557,11 +557,11 @@ void draw_scene(Projection_Application *app) {
       // set_global_animation_speed(1.65); // TODO: make this into reality
 
 
-      if (is_button_pressed(BUTTON_B)) {
+      if (is_button_held(BUTTON_B)) {
          set_animation_speed(scene_nodes[4], 0.65);
          set_animation_speed(scene_nodes[8], 0.65);
          play_animation_identity(alleyana);
-      } else if (is_button_pressed(BUTTON_N)) {
+      } else if (is_button_held(BUTTON_N)) {
          set_animation_speed(scene_nodes[4], 1.65);
          set_animation_speed(scene_nodes[8], 1.65);
       }
@@ -595,11 +595,17 @@ void draw_scene_league(Projection_Application *app) {
 
    Transform vayne_transform = {0} ;
    static Scene_Node vayne_node = {0};
+   static Model vayne_model = {0};
    if (!scene_loaded) {
       scene_loaded = true;
-      Model vayne_model  = create_model("res/models/league/vayne/Vayne.fbx");
 
-      vayne_transform.scale       = (Vector3){1, 1, 1};
+      minimize_window();
+
+      vayne_model = create_model("res/models/league/vayne/Vayne.fbx");
+      trace_info("Vayne Model tracing:");
+      trace_model(&vayne_model);
+
+      vayne_transform.scale = (Vector3){1, 1, 1};
       vayne_node = create_scene_node(&vayne_model, vayne_transform);
 
 
@@ -607,6 +613,8 @@ void draw_scene_league(Projection_Application *app) {
          set_animation_time(vayne_node, 0.0);
          play_animation(vayne_node); // This is just to play any pose
       }
+
+      restore_window();
    }
 
    const bool draw_with_manager = true;
@@ -616,15 +624,14 @@ void draw_scene_league(Projection_Application *app) {
 
       vayne_transform.scale = (Vector3){0.01, 0.01, 0.01};
 
-
       Vector3 ground_hit = {0};
       if (raycast_ground(mouse_ray, &ground_hit)) {
-         if (is_button_pressed(BUTTON_MOUSE_LEFT)) {
+         if (is_button_pressed(BUTTON_MOUSE_RIGHT)) {
             vayne_transform.position = ground_hit;
          }
       }
 
-      if (is_button_pressed(BUTTON_C)) {
+      if (is_button_held(BUTTON_C)) {
          // vayne_transform.position = add(mouse_ray.origin, mul(scale, mouse_ray.direction));
          auto origin = per_frame.camera.position;
 
@@ -635,7 +642,6 @@ void draw_scene_league(Projection_Application *app) {
          }
          vayne_transform.position = add(origin, mul(scale, forward));
          
-
          trace_info("vayne_transform.position:");
          trace_struct(vayne_transform.position);
 
@@ -653,17 +659,17 @@ void draw_scene_league(Projection_Application *app) {
       if (is_button_pressed(BUTTON_B)) {
          set_animation_speed(vayne_node, 0.35);
       } else if (is_button_pressed(BUTTON_V)) {
-         set_animation_speed(vayne_node, 1.65);
+         play_animation_identity(vayne_node);
       }
       static int animation_number = 0;
-
       if (is_button_pressed(BUTTON_X)) {
          animation_number += 1;
-         animation_number %= 100;
+         animation_number %= vayne_model.animations.count;
       }
 
-      if (is_button_pressed(BUTTON_N)) {
-         if (is_button_pressed(BUTTON_SHIFT)) {
+
+      if (is_button_held(BUTTON_N)) {
+         if (is_button_held(BUTTON_SHIFT)) {
             set_animation_speed(vayne_node, -0.35);
          } else {
             set_animation_speed(vayne_node, 0.35);
@@ -1241,22 +1247,31 @@ void projection_update(Projection_Application *app, f64 dt) {
 
    // draw_scene_few2(app);
    // draw_scene_few(app);
-   // draw_scene(app);
-   draw_scene_league(app);
+   draw_scene(app);
+   // draw_scene_league(app);
    // draw_parralax(app);
 
-   glDisable(GL_CULL_FACE);
+   static bool back_face = false;
    if (is_button_pressed(BUTTON_J)) {
+      back_face = !back_face;
+   }
+   if (back_face) {
       glEnable(GL_CULL_FACE);
+   } else {
+      glDisable(GL_CULL_FACE);
    }
 
+   static bool mode_wireframe = false;
    if (is_button_pressed(BUTTON_K)) {
+      mode_wireframe = !mode_wireframe;
+   }
+   if (mode_wireframe) {
       set_redererer_mode(RENDERER_MODE_WIREFRAME);
-      draw_indirect((Texture){0}, app->shader);
    } else {
       set_redererer_mode(RENDERER_MODE_FILL);
-      draw_indirect((Texture){0}, app->shader);
    }
+
+   draw_indirect((Texture){0}, app->shader);
 
 
    // draw_old_way(app, shader, camera);
