@@ -528,7 +528,6 @@ void draw_scene(Projection_Application *app) {
 
 
 
-
       // TODO: Create a destroy function
       // destroy_model(&m);
       restore_window();
@@ -575,11 +574,14 @@ void draw_scene(Projection_Application *app) {
       bind_texture(tex, 3);
    }
 }
+typedef struct {
+   Vector2 position; // x,z from world (y=0)
+   float radius;
+   Scene_Node node;  // visual
+} Unit;
 
 void draw_scene_league(Projection_Application *app) {
    static bool scene_loaded = false;
-
-
 
    auto per_frame = app->per_frame;
    Vector2 spherical = {per_frame.camera.phi, per_frame.camera.theta};
@@ -593,9 +595,15 @@ void draw_scene_league(Projection_Application *app) {
       per_frame.camera.position, spherical
    );
 
-   Transform vayne_transform = {0} ;
+   static Transform  vayne_transform = {0} ;
    static Scene_Node vayne_node = {0};
-   static Model vayne_model = {0};
+   static Model   vayne_model = {0};
+   static Vector3 vayne_target   = {0};
+   static bool    vayne_moving   = false;
+   static float   vayne_speed    = 25.5f; // world units per second
+   static int     walk_animation = 18;
+   static int     idle_animation = 10;
+
    if (!scene_loaded) {
       scene_loaded = true;
 
@@ -625,9 +633,12 @@ void draw_scene_league(Projection_Application *app) {
       vayne_transform.scale = (Vector3){0.01, 0.01, 0.01};
 
       Vector3 ground_hit = {0};
-      if (raycast_ground(mouse_ray, &ground_hit)) {
-         if (is_button_pressed(BUTTON_MOUSE_RIGHT)) {
-            vayne_transform.position = ground_hit;
+      if (is_button_pressed(BUTTON_MOUSE_RIGHT)) {
+         if (raycast_ground(mouse_ray, &ground_hit)) {
+            vayne_target = ground_hit;
+            vayne_moving = true;
+            set_animation_speed(vayne_node, 0.55);
+            play_animation(vayne_node, walk_animation);
          }
       }
 
@@ -652,29 +663,58 @@ void draw_scene_league(Projection_Application *app) {
          trace_struct(per_frame.camera.position);
       }
 
+      if (vayne_moving) {
+         Vector3 to_target = sub(vayne_target, vayne_transform.position);
+         to_target.y = 0.0f; // stay on ground plane
+
+         float dist = Vector3Length(to_target);
+
+         if (dist < 0.05f) {
+            // Arrived
+            vayne_moving = false;
+            vayne_transform.position = vayne_target;
+            play_animation(vayne_node, idle_animation);
+         } else {
+            // Move at constant speed
+            Vector3 dir = Vector3Normalize(to_target);
+            float step = vayne_speed * time_delta();
+            vayne_transform.position = add(vayne_transform.position, mul(min(step, dist), dir));
+
+            // Rotate to face direction
+            // forward is +Z, so angle is atan2 of dir.x / dir.z
+            float target_angle = atan2f(dir.x, dir.z);
+            Quaternion target_rot = QuaternionFromAxisAngle((Vector3){0, 1, 0}, target_angle);
+
+            // Smooth rotation
+            // Slerp from current toward target, t = turn_speed * dt clamped to 1
+            static float vayne_turn_speed = 8.0f; // higher = snappier, lower = floatier
+            float t = min(vayne_turn_speed * time_delta(), 1.0f);
+            vayne_transform.rotation = QuaternionSlerp(vayne_transform.rotation, target_rot, t);
+         }
+      }
       update_transform(vayne_node, vayne_transform);
       
-
-      // TODO: make sure scene_node with 0 index is invalid
-      if (is_button_pressed(BUTTON_B)) {
-         set_animation_speed(vayne_node, 0.35);
-      } else if (is_button_pressed(BUTTON_V)) {
-         play_animation_identity(vayne_node);
-      }
       static int animation_number = 0;
+      animation_number = current_animation(vayne_node);
       if (is_button_pressed(BUTTON_X)) {
          animation_number += 1;
          animation_number %= vayne_model.animations.count;
+         trace_info("Animation number changed to %d", animation_number);
       }
 
-
-      if (is_button_held(BUTTON_N)) {
-         if (is_button_held(BUTTON_SHIFT)) {
-            set_animation_speed(vayne_node, -0.35);
+      if (vayne_moving) {
+         play_animation(vayne_node, walk_animation);
+      } else {
+         if (is_button_held(BUTTON_N)) {
+            if (is_button_held(BUTTON_SHIFT)) {
+               set_animation_speed(vayne_node, -0.35);
+            } else {
+               set_animation_speed(vayne_node, 0.35);
+            }
+            play_animation(vayne_node, animation_number);
          } else {
-            set_animation_speed(vayne_node, 0.35);
+            play_animation(vayne_node, idle_animation);
          }
-         play_animation(vayne_node, animation_number);
       }
    }
 }
@@ -1000,7 +1040,6 @@ void draw_scene_few(Projection_Application *app) {
    set_animation_speed(alleyana, speed);
 
 
-
    if (play) {
       play_animation(alleyana);
    }
@@ -1098,6 +1137,10 @@ void draw_scene_few2(Projection_Application *app) {
 
 
 void projection_update(Projection_Application *app, f64 dt) {
+
+   if (is_button_held(BUTTON_CTRL) && is_button_pressed(BUTTON_C)) {
+      close_window();
+   }
 
    update_countdown(&app->shader_countdown_to_reload, projection_update_shaders(app));
    if (!is_valid_shader(app->shader)) {
@@ -1247,8 +1290,8 @@ void projection_update(Projection_Application *app, f64 dt) {
 
    // draw_scene_few2(app);
    // draw_scene_few(app);
-   draw_scene(app);
-   // draw_scene_league(app);
+   // draw_scene(app);
+   draw_scene_league(app);
    // draw_parralax(app);
 
    static bool back_face = false;

@@ -12,27 +12,27 @@
 #include "ufbx.c"
 
 typedef struct {
-    struct {
-        Mesh* items;
-        isz count;
-    } meshes;
+   struct {
+      Mesh *items;
+      isz count;
+   } meshes;
 
-    struct {
-        struct {
-            const char* diffuse;
-            const char* specular;
-            const char* emissive;
-            const char* normal;
-        } *items;
-        isz count;
-    } materials;
+   struct {
+      struct {
+         const char *diffuse;
+         const char *specular;
+         const char *emissive;
+         const char *normal;
+      } *items;
+      isz count;
+   } materials;
 
-    Joint_List joints;
+   Joint_List joints;
 
-    struct {
-        Animation* items;
-        isz count;
-    } animations;
+   struct {
+      Animation *items;
+      isz count;
+   } animations;
 
 } Model;
 
@@ -668,7 +668,7 @@ static void setup_materials_from_ufbx_scene(Model *model, const ufbx_scene *cons
    }
 }
 
-#define MODEL_ANIMATIONS_LIMIT 20
+#define MODEL_ANIMATIONS_LIMIT 200
 
 static void setup_animations_from_ufbx_scene(Model *model, ufbx_scene *scene, const char* scene_filepath) {
    if (scene->anim_stacks.count > 0) {   // Setup animations

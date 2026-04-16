@@ -142,9 +142,19 @@ typedef struct {
                      u32 base;
                      u32 count;
                   } material_index;
+
+                  struct {
+                     float16 *matrices; // snapshot of poses at transition start, same count as geometry_to_world_matrices
+                     float elapsed;
+                     float duration;
+                     bool active;
+                  } blend;
+
                } *items;
                u32 count;
                u32 capacity;
+
+
             } instances;
          } *items; // Instances for a renderable unit
          u32 count;
@@ -945,6 +955,22 @@ void play_animation_identity(Scene_Node node) {
 }
 
 
+isz current_animation(Scene_Node node) {
+   // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it.
+   // For now we use instances_dirty to update geometry_to_world_matrices_buffer after this
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+
+   if (renderable->animation_index.count < 1) {
+      trace_warn("Trying to get animation on a node that doesn't have one. (renderable_index = %lld, instance_index = %lld)", renderable_index, instance_index);
+      return -1;
+   }
+
+   auto instance  = &renderable->instances.items[instance_index];
+   return instance->animation_number;
+}
+
 void play_animation(Scene_Node node, uint animation_number) {
    // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it.
    // For now we use instances_dirty to update geometry_to_world_matrices_buffer after this
@@ -968,6 +994,19 @@ void play_animation(Scene_Node node, uint animation_number) {
    auto instance  = &renderable->instances.items[instance_index];
    if (animation_number != instance->animation_number) {
       trace_info("New animation playing from %d to %d", instance->animation_number, animation_number);
+      // Snapshot current matrices for blend
+      if (instance->geometry_to_world_matrices.count > 0) {
+         // IMPORTANT: The current blend a is snapshot into new animation, meaning the snapshot is a frozen pose that fades out.
+         // It doesn't evaluate two live animations simultaneously. Basically is a 1-way crossfade with pose capture.
+         isz size = size_of(instance->blend.matrices[0]) * instance->geometry_to_world_matrices.count;
+         if (!instance->blend.matrices) {
+            instance->blend.matrices = malloc(size);
+         }
+         memcpy(instance->blend.matrices, instance->geometry_to_world_matrices.items, size);
+         instance->blend.elapsed  = 0.0f;
+         instance->blend.duration = 0.25f;
+         instance->blend.active   = true;
+      }
    }
    instance->animation_number = animation_number;
    auto animation = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
@@ -994,6 +1033,8 @@ void play_animation(Scene_Node node, uint animation_number) {
       }
    #endif
 
+   static double dt = 0.016;
+
    {  // Timing Operations
       static enum {smooth_delta, clamp_delta, bad_raw_delta, enum_count} strategy = smooth_delta;
       if (is_button_pressed(BUTTON_R)) {
@@ -1014,7 +1055,6 @@ void play_animation(Scene_Node node, uint animation_number) {
       //       It's likely we wanna either loop around or clamp, looping around might look strange in the normal case (low delta), because the animation has the seamless loop in mind
       //       that means that overshooting a bit would likely break that seemless looping feel, unless change animation to lerp from end to begin frames.
       //       Clamping might have the same syncronizing problem if the animation is short enough.
-      static double dt = 0.016;
       if (strategy == clamp_delta) {
          dt = time_delta();
          // clamp to 100ms max
@@ -1066,6 +1106,25 @@ void play_animation(Scene_Node node, uint animation_number) {
    }
 
    memcpy(instance->geometry_to_world_matrices.items, list.items, list_data_size);
+
+   // Check for transition with blending
+   if (instance->blend.active && instance->blend.matrices) {
+      instance->blend.elapsed += dt;
+      float t = instance->blend.elapsed / instance->blend.duration;
+      if (t >= 1.0f) {
+         instance->blend.active = false;
+      } else {
+         float s = t * t * (3.0f - 2.0f * t); // smoothstep
+         isz count = instance->geometry_to_world_matrices.count;
+         for (isz i = 0; i < count; i++) {
+            for (int j = 0; j < 16; j++) {
+               instance->geometry_to_world_matrices.items[i].v[j] =
+                 instance->blend.matrices[i].v[j] * (1.0f - s)
+               + instance->geometry_to_world_matrices.items[i].v[j] * s;
+            }
+         }
+      }
+   }
 
    return;
 }

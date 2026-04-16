@@ -1,5 +1,6 @@
 [x] Make debugging on Rad Debugger work again
 [ ] Remove Animation.scene field and make it work regardless
+[ ] Question: Should delta time be the same for the whole frame what the first instruction in frame has a certain delta time (dt) and takes a certain time which make it so the next instruction would have a different (bigger) dt or elapsed time. Would is preferred here?
 
 [ ] Fix __state management for subsystems. They prolly should be opaque pointers that only the subsystem knows what it is? Not dynamic tho, static allocation for the state.
 
@@ -11,6 +12,8 @@
 ## Animation
 
 [ ] Animation 3 way blend (Vayne riot model)
+[x] Animation blending, simplest way with some fixed transition time
+[ ] Animation blend trees that supports blend tree within itself. That would enable interpolating between crouching and standing up trees.
 [x] Make vayne animations load
 
 ## General

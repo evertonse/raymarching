@@ -83,6 +83,8 @@ typedef enum {
    BUTTON_SHIFT           = 340,      // Key: Shift left
    BUTTON_LEFT_SHIFT      = 340,      // Key: Shift left
 
+   // TODO: Maybe when checking for CTRL we should treat as any ctrl?
+   BUTTON_CTRL            = 341,      // Key: Control left
    BUTTON_CONTROL         = 341,      // Key: Control left
    BUTTON_LEFT_CONTROL    = 341,      // Key: Control left
 
@@ -93,6 +95,7 @@ typedef enum {
    BUTTON_RIGHT_CONTROL   = 345,      // Key: Control right
    BUTTON_RIGHT_ALT       = 346,      // Key: Alt right
    BUTTON_RIGHT_SUPER     = 347,      // Key: Super right
+
    BUTTON_KB_MENU         = 348,      // Key: KB menu
    // Keypad keys
    BUTTON_KP_0            = 320,      // Key: Keypad 0

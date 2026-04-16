@@ -1,18 +1,20 @@
 // We're taking this from raylib and assuming all matches glfw. But we didnt check all
 // TODO: is_button_being_pressed vs is_button_pressed behaviour needs to be created and checked I'm pretty sure the latter is acting as the first.
 
-static void window_mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
-   trace_debug("Mouse button,action,mods = %d %d %d\n", button, action, mods);
-   auto current = &__state.button.current[BUTTON_MOUSE_BEGIN-button];
+
+static void window_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+   int button = key;
+   trace_debug("[Window Callback] Key button,action,mods = %d %d %d\n", button, action, mods);
+   auto current = &__state.button.current[button];
    if     (action == GLFW_RELEASE) *current = BUTTON_IS_UP;
    else if(action == GLFW_PRESS)   *current = BUTTON_IS_DOWN;
    else if(action == GLFW_REPEAT)  *current = BUTTON_IS_DOWN;
 }
 
-static void window_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
-   int button = key;
-   trace_debug("Key button,action,mods = %d %d %d\n", button, action, mods);
-   auto current = &__state.button.current[button];
+
+static void window_mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+   trace_debug("[Window Callback] Mouse button,action,mods = %d %d %d\n", button, action, mods);
+   auto current = &__state.button.current[BUTTON_MOUSE_BEGIN+button];
    if     (action == GLFW_RELEASE) *current = BUTTON_IS_UP;
    else if(action == GLFW_PRESS)   *current = BUTTON_IS_DOWN;
    else if(action == GLFW_REPEAT)  *current = BUTTON_IS_DOWN;
