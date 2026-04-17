@@ -393,7 +393,7 @@ void draw_scene(Projection_Application *app) {
       box_model.materials.items[0].normal  = "res/textures/brickwall_normal.jpg";
 
       Model sphere_model = create_sphere_model(1.0, 2*32, 2*32,
-            nullptr, nullptr, nullptr, "res/textures/tileable/Cone_Map_1k_normals.png"
+         nullptr, nullptr, nullptr, "res/textures/tileable/Cone_Map_1k_normals.png"
       );
 
       static Model alleyana_model = {0};
@@ -574,11 +574,93 @@ void draw_scene(Projection_Application *app) {
       bind_texture(tex, 3);
    }
 }
+
 typedef struct {
-   Vector2 position; // x,z from world (y=0)
-   float radius;
-   Scene_Node node;  // visual
+   Transform transform; // x,z on ground plane
+   Vector3 target;      // Going here
+   float radius;        // collision circle
+
+   struct {
+      float current, max;
+   } health;
+
+   float move_speed;
+   bool moving;
+
+   Model model;
+   Scene_Node node;
 } Unit;
+
+typedef struct {
+   struct {
+      Vector2 current;   // current tip of projectile
+      Vector2 previous; // where it was last frame (for sweep)
+      Vector2 target;
+   } position;
+
+   float speed;
+   float radius; // thickness of the capsule
+   bool active;
+} Projectile;
+
+
+Projectile spawn_projectile(Vector3 from, Vector3 to) {
+   Projectile p = {0};
+
+   Vector2 start = {from.x, from.z};
+   Vector2 target = {to.x, to.z};
+
+   p.position.previous = start;
+   p.position.current  = start;
+   p.position.target   = target;
+
+   p.speed = 10.0f;
+   p.radius = 5.0f;
+   p.active = true;
+
+   return p;
+}
+
+void update_projectile(Projectile *p, float dt) {
+   if (!p->active) {
+      return;
+   }
+
+   if (length(sub(p->position.current, p->position.target)) < 0.001f) {
+      trace_info("Arrived at target = {%f, %f, %f}", p->position.target.x, p->position.target.y);
+      p->active = false;
+      return;
+   }
+
+   p->position.previous = p->position.current;
+
+   auto direction = normalize(sub(p->position.target, p->position.current));
+   Vector2 step = mul(p->speed * dt, direction);
+   p->position.current = add(p->position.current, step);
+}
+
+bool projectile_hits_unit(Projectile *p, Unit *u) {
+   Vector2 a = p->position.previous;
+   Vector2 b = p->position.current;
+   Vector2 center = {u->transform.position.x, u->transform.position.z};
+
+   Vector2 ab = Vector2Subtract(b, a);
+   float ab_len2 = Vector2DotProduct(ab, ab);
+
+   if (ab_len2 == 0.0f) {
+      return false;
+   }
+
+   float t = Vector2DotProduct(Vector2Subtract(center, a), ab) / ab_len2;
+   t = Clamp(t, 0.0f, 1.0f);
+
+   Vector2 closest = Vector2Add(a, Vector2Scale(ab, t));
+
+   float dist = Vector2Distance(center, closest);
+   float r = p->radius + u->radius;
+
+   return dist <= r;
+}
 
 void draw_scene_league(Projection_Application *app) {
    static bool scene_loaded = false;
@@ -589,37 +671,50 @@ void draw_scene_league(Projection_Application *app) {
 
    Vector2 mouse_position = cursor_position();
    Vector2 viewport_resolution = get_window_size();
+   const float fov = PI/3.;
    Ray mouse_ray = compute_mouse_ray(
       mouse_position.x, mouse_position.y,
-      viewport_resolution.x, viewport_resolution.y, PI/3., per_frame.camera.aspect,
+      viewport_resolution.x, viewport_resolution.y, fov, per_frame.camera.aspect,
       per_frame.camera.position, spherical
    );
 
-   static Transform  vayne_transform = {0} ;
-   static Scene_Node vayne_node = {0};
-   static Model   vayne_model = {0};
-   static Vector3 vayne_target   = {0};
-   static bool    vayne_moving   = false;
-   static float   vayne_speed    = 25.5f; // world units per second
-   static int     walk_animation = 18;
-   static int     idle_animation = 10;
+   static Unit vayne = {0};
+
+   static Model hitbox_model = {0};
+   static Transform hitbox_transform = transform_identity;
+   static Scene_Node hitbox_node = {0}, projectile_node = {0};
+
+   static const int walk_animation = 18;
+   static const int idle_animation = 10;
 
    if (!scene_loaded) {
       scene_loaded = true;
 
       minimize_window();
 
-      vayne_model = create_model("res/models/league/vayne/Vayne.fbx");
+      vayne.move_speed     = 39.5f; // world units per second
+      vayne.health.current = 600.f;
+      vayne.health.max     = 600.f;
+      vayne.target         = vayne.transform.position;
+      vayne.radius         = 10.f;
+      vayne.model = create_model("res/models/league/vayne/Vayne.fbx");
       trace_info("Vayne Model tracing:");
-      trace_model(&vayne_model);
+      trace_model(&vayne.model);
 
-      vayne_transform.scale = (Vector3){1, 1, 1};
-      vayne_node = create_scene_node(&vayne_model, vayne_transform);
+      vayne.transform.scale = (Vector3){1, 1, 1};
+      vayne.node = create_scene_node(&vayne.model, vayne.transform);
 
+      // hitbox_model     = create_hitbox_model(1.0, 2*32, 2*32, nullptr, nullptr, nullptr, nullptr);
+
+      hitbox_model = create_torus_model(255, 255, 255, 200);
+      trace_model(&hitbox_model);
+
+      hitbox_node      = create_scene_node(&hitbox_model, hitbox_transform);
+      projectile_node  = create_scene_node(hitbox_node);
 
       {
-         set_animation_time(vayne_node, 0.0);
-         play_animation(vayne_node); // This is just to play any pose
+         set_animation_time(vayne.node, 0.0);
+         play_animation(vayne.node); // This is just to play any pose
       }
 
       restore_window();
@@ -630,20 +725,49 @@ void draw_scene_league(Projection_Application *app) {
       auto time_rotation = QuaternionFromAxisAngle(vector3(1.), time_elapsed());
       auto scale = ((1. + sinf(time_elapsed())) / 2.) * 100.;
 
-      vayne_transform.scale = (Vector3){0.01, 0.01, 0.01};
+      vayne.transform.scale = (Vector3){0.01, 0.01, 0.01};
 
       Vector3 ground_hit = {0};
       if (is_button_pressed(BUTTON_MOUSE_RIGHT)) {
          if (raycast_ground(mouse_ray, &ground_hit)) {
-            vayne_target = ground_hit;
-            vayne_moving = true;
-            set_animation_speed(vayne_node, 0.55);
-            play_animation(vayne_node, walk_animation);
+            vayne.target = ground_hit;
+            vayne.moving = true;
+            set_animation_speed(vayne.node, 0.85);
+            play_animation(vayne.node, walk_animation);
          }
       }
 
+      static Projectile projectile = {0};
+      if (is_button_pressed(BUTTON_E)) {
+         Vector3 hit;
+         if (raycast_ground(mouse_ray, &hit)) {
+            const float range = 150.f;
+            auto direction = normalize(sub(hit, vayne.transform.position));
+            auto target = add(vayne.transform.position, mul(range, direction));
+            projectile = spawn_projectile(vayne.transform.position, target);
+         }
+      }
+
+      update_projectile(&projectile, time_delta());
+
+      if (projectile.active) {
+         if (projectile_hits_unit(&projectile, &vayne)) {
+            trace_info("HIT!");
+            projectile.active = true;
+            vayne.health.current -= 50.0f;
+         }
+         Transform t = transform_identity;
+         t.scale = vector3(projectile.radius);
+         t.position = vector3(
+            projectile.position.current.x,
+            0.,
+            projectile.position.current.y
+         );
+         update_transform(projectile_node, t);
+      }
+
       if (is_button_held(BUTTON_C)) {
-         // vayne_transform.position = add(mouse_ray.origin, mul(scale, mouse_ray.direction));
+         // vayne.transform.position = add(mouse_ray.origin, mul(scale, mouse_ray.direction));
          auto origin = per_frame.camera.position;
 
          const bool use_mouse_ray = true;
@@ -651,34 +775,25 @@ void draw_scene_league(Projection_Application *app) {
             origin  = mouse_ray.origin;
             forward = mouse_ray.direction;
          }
-         vayne_transform.position = add(origin, mul(scale, forward));
-         
-         trace_info("vayne_transform.position:");
-         trace_struct(vayne_transform.position);
-
-         trace_info("forward:");
-         trace_struct(forward);
-
-         trace_info("per_frame.camera.position:");
-         trace_struct(per_frame.camera.position);
+         vayne.transform.position = add(origin, mul(scale, forward));
       }
 
-      if (vayne_moving) {
-         Vector3 to_target = sub(vayne_target, vayne_transform.position);
+      if (vayne.moving) {
+         Vector3 to_target = sub(vayne.target, vayne.transform.position);
          to_target.y = 0.0f; // stay on ground plane
 
          float dist = Vector3Length(to_target);
 
          if (dist < 0.05f) {
             // Arrived
-            vayne_moving = false;
-            vayne_transform.position = vayne_target;
-            play_animation(vayne_node, idle_animation);
+            vayne.moving = false;
+            vayne.transform.position = vayne.target;
+            play_animation(vayne.node, idle_animation);
          } else {
             // Move at constant speed
-            Vector3 dir = Vector3Normalize(to_target);
-            float step = vayne_speed * time_delta();
-            vayne_transform.position = add(vayne_transform.position, mul(min(step, dist), dir));
+            Vector3 dir = normalize(to_target);
+            float step = vayne.move_speed * time_delta();
+            vayne.transform.position = add(vayne.transform.position, mul(min(step, dist), dir));
 
             // Rotate to face direction
             // forward is +Z, so angle is atan2 of dir.x / dir.z
@@ -687,33 +802,39 @@ void draw_scene_league(Projection_Application *app) {
 
             // Smooth rotation
             // Slerp from current toward target, t = turn_speed * dt clamped to 1
-            static float vayne_turn_speed = 8.0f; // higher = snappier, lower = floatier
+            static float vayne_turn_speed = 9.0f; // higher = snappier, lower = floatier
             float t = min(vayne_turn_speed * time_delta(), 1.0f);
-            vayne_transform.rotation = QuaternionSlerp(vayne_transform.rotation, target_rot, t);
+            vayne.transform.rotation = QuaternionSlerp(vayne.transform.rotation, target_rot, t);
          }
       }
-      update_transform(vayne_node, vayne_transform);
+
+      update_transform(vayne.node, vayne.transform);
+
+      hitbox_transform.position = vayne.transform.position;
+      hitbox_transform.scale = vector3(vayne.radius);
+      // hitbox_transform.scale.y = 0.01f;
+      update_transform(hitbox_node, hitbox_transform);
       
       static int animation_number = 0;
-      animation_number = current_animation(vayne_node);
+      animation_number = current_animation(vayne.node);
       if (is_button_pressed(BUTTON_X)) {
          animation_number += 1;
-         animation_number %= vayne_model.animations.count;
+         animation_number %= vayne.model.animations.count;
          trace_info("Animation number changed to %d", animation_number);
       }
 
-      if (vayne_moving) {
-         play_animation(vayne_node, walk_animation);
+      if (vayne.moving) {
+         play_animation(vayne.node, walk_animation);
       } else {
          if (is_button_held(BUTTON_N)) {
             if (is_button_held(BUTTON_SHIFT)) {
-               set_animation_speed(vayne_node, -0.35);
+               set_animation_speed(vayne.node, -0.35);
             } else {
-               set_animation_speed(vayne_node, 0.35);
+               set_animation_speed(vayne.node, 0.35);
             }
-            play_animation(vayne_node, animation_number);
+            play_animation(vayne.node, animation_number);
          } else {
-            play_animation(vayne_node, idle_animation);
+            play_animation(vayne.node, idle_animation);
          }
       }
    }

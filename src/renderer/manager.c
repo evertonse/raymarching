@@ -1216,6 +1216,14 @@ Scene_Node overload create_scene_node(Scene_Node node, const Transform transform
    return create_scene_node_from_renderable(renderable_index, transform);
 }
 
+Scene_Node overload create_scene_node(Scene_Node node) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto instance  = renderable->instances.items[instance_index];
+   return create_scene_node_from_renderable(renderable_index, instance.transform);
+}
+
 
 //
 // TODO: Updating the whole instances transform every time seems to be a bit slow

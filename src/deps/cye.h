@@ -404,6 +404,7 @@ typedef float       f32;
 typedef double      f64;
 
 // Unsigned Integers
+typedef unsigned int uint;
 typedef __uint128_t u128;
 typedef uint64_t    u64;
 typedef uint32_t    u32;

@@ -1140,6 +1140,13 @@ Model create_sphere_model(float radius, int rings, int slices,
    return model;
 }
 
+Model create_torus_model(
+   unsigned char r, unsigned char g, unsigned char b, unsigned char a
+) {
+   Mesh mesh = generate_torus_mesh(1.0f, 0.01f, 4 * 32, 32);
+   return create_model_from_mesh(mesh, nullptr, nullptr, nullptr, nullptr);
+}
+
 Model create_cube_model(
    const char *diffuse_tex,
    const char *specular_tex,
@@ -1199,7 +1206,7 @@ Model create_cube_model(
 
    Model model = {0};
 
-   // We need: 1 mesh + 1 material
+   // 1 mesh and 1 material
    size_t meshes_size    = size_of(Mesh);
    size_t materials_size = size_of(*model.materials.items);
    byte *memory = malloc(meshes_size + materials_size);

@@ -67,13 +67,15 @@ Matrix MatrixViewFromSpherical(Vector3 position, float theta, float phi) {
 
 
 #define add(a, b) _Generic((a), \
-    Vector3: Vector3Add, \
-    Matrix: MatrixAdd \
+   Vector2: Vector2Add, \
+   Vector3: Vector3Add, \
+   Matrix: MatrixAdd \
 )((a), (b))
 
 #define sub(a, b) _Generic((a), \
-    Vector3: Vector3Subtract, \
-    Matrix:  MatrixSubtract \
+   Vector2: Vector2Subtract, \
+   Vector3: Vector3Subtract, \
+   Matrix:  MatrixSubtract \
 )((a), (b))
 
 
@@ -86,6 +88,7 @@ void __invalid_generic();
 // #define COMPILE_ERROR_TYPE_UNSUPPORTED ((void)_Static_assert(0, "Unsupported multiplication types"), *(int*)0)
 #define invert MatrixInvert
 
+
 #define mul(a, b) _Generic(((a)),                              \
     Vector3: _Generic(((b)),                                   \
         int:     Vector3Scale,                                 \
@@ -94,29 +97,46 @@ void __invalid_generic();
         Vector3: Vector3Multiply,                              \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     ),                                                         \
+    Vector2: _Generic(((b)),                                   \
+        int:     Vector2Scale,                                 \
+        float:   Vector2Scale,                                 \
+        double:  Vector2Scale,                                 \
+        Vector2: Vector2Multiply,                              \
+        default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
+    ),                                                         \
     Matrix: _Generic(((b)),                                    \
         Matrix:  MatrixMultiplySwapped,                        \
         Vector3: MatrixMultiplyVector3,                        \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     ),                                                         \
     int: _Generic(((b)),                                       \
+        Vector2: Vector2ScaleSwapped,                          \
         Vector3: Vector3ScaleSwapped,                          \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     ),                                                         \
     float: _Generic(((b)),                                     \
+        Vector2: Vector2ScaleSwapped,                          \
         Vector3: Vector3ScaleSwapped,                          \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     ),                                                         \
     double: _Generic(((b)),                                    \
+        Vector2: Vector2ScaleSwapped,                          \
         Vector3: Vector3ScaleSwapped,                          \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     )                                                          \
 )(((a)), ((b)))
 
 
+#define length(a) _Generic((a), \
+    Vector2: Vector2Length, \
+    Vector3: Vector3Length \
+)((a))
+
+
 #define dot(a, b) _Generic((a), \
     Vector3: Vector3DotProduct \
 )((a), (b))
+
 
 #define cross(a, ...) \
     _Generic(((a)), Vector3: Vector3CrossProduct)(((a)), ((__VA_ARGS__)))
@@ -125,7 +145,8 @@ void __invalid_generic();
 // #define normalize(a) Vector3Normalize(a)
 
 #define normalize(a) _Generic((a), \
-    Vector3: Vector3Normalize \
+    Vector3: Vector3Normalize, \
+    Vector2: Vector2Normalize \
 )((a))
 
 
@@ -136,6 +157,10 @@ static inline Matrix MatrixMultiplySwapped(Matrix a, Matrix b) {
 
 static inline Vector3 Vector3ScaleSwapped(double scalar, Vector3 vec) {
    return Vector3Scale(vec, scalar);
+}
+
+static inline Vector2 Vector2ScaleSwapped(double scalar, Vector2 vec) {
+   return Vector2Scale(vec, scalar);
 }
 
 

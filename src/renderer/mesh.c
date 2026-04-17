@@ -124,7 +124,7 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
    int index_count = rings * slices * 6;
 
    size_t vertex_array_size = vertex_count * (size_of(Vector3) + size_of(Vector3) + size_of(Vector2));
-   size_t index_array_size = index_count * size_of(unsigned int);
+   size_t index_array_size = index_count * size_of(uint);
    size_t surfaces_size = 1 * size_of(mesh.surfaces.items[0]);
 
    void *memory = malloc(vertex_array_size + index_array_size + surfaces_size);
@@ -136,7 +136,7 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
    ptr += vertex_count * size_of(Vector3);
    mesh.vertices.uvs = (Vector2 *)ptr;
    ptr += vertex_count * size_of(Vector2);
-   mesh.indices.items = (unsigned int *)ptr;
+   mesh.indices.items = (uint *)ptr;
    ptr += index_array_size;
    mesh.surfaces.items = (void*)ptr;
 
@@ -192,6 +192,105 @@ Mesh generate_sphere_mesh(float radius, int rings, int slices) {
    mesh.surfaces.items[0].indices_offset = 0;
    mesh.surfaces.items[0].indices_count  = index_count;
    mesh.surfaces.items[0].material_index = -1;
+   return mesh;
+}
+
+// From this:
+// center = (cos(u), 0, sin(u)) * major_radius
+// normal_circle = (cos(u), 0, sin(u))
+// vertex = center + normal_circle * (cos(v) * minor_radius) + up * (sin(v) * minor_radius)
+Mesh generate_torus_mesh(
+   float major_radius, // distance from center
+   float minor_radius, // radius of the tube
+   int rings, int sides
+) {
+   Mesh mesh = {0};
+
+   int vertex_count = (rings + 1) * (sides + 1);
+   int index_count = rings * sides * 6;
+
+   size_t vertex_array_size = vertex_count * (size_of(Vector3) + size_of(Vector3) + size_of(Vector2));
+
+   size_t index_array_size = index_count * size_of(unsigned int);
+   size_t surfaces_size = size_of(mesh.surfaces.items[0]);
+
+   void *memory = malloc(vertex_array_size + index_array_size + surfaces_size);
+   unsigned char *ptr = (unsigned char *)memory;
+
+   mesh.vertices.positions = (Vector3 *)ptr;
+   ptr += vertex_count * size_of(Vector3);
+
+   mesh.vertices.normals = (Vector3 *)ptr;
+   ptr += vertex_count * size_of(Vector3);
+
+   mesh.vertices.uvs = (Vector2 *)ptr;
+   ptr += vertex_count * size_of(Vector2);
+
+   mesh.indices.items = (unsigned int *)ptr;
+   ptr += index_array_size;
+
+   mesh.surfaces.items = (void *)ptr;
+
+   mesh.vertices.count = vertex_count;
+   mesh.indices.count = index_count;
+   mesh.surfaces.count = 1;
+
+   int vtx = 0;
+
+   for (int i = 0; i <= rings; i++) {
+      float u = (float)i / rings * 2.0f * M_PI;
+
+      float cos_u = cosf(u);
+      float sin_u = sinf(u);
+
+      Vector3 circle_center = {cos_u * major_radius, 0.0f, sin_u * major_radius};
+
+      Vector3 radial_dir = {cos_u, 0.0f, sin_u};
+
+      for (int j = 0; j <= sides; j++) {
+         float v = (float)j / sides * 2.0f * M_PI;
+
+         float cos_v = cosf(v);
+         float sin_v = sinf(v);
+
+         Vector3 offset = {radial_dir.x * (cos_v * minor_radius), sin_v * minor_radius, radial_dir.z * (cos_v * minor_radius)};
+
+         Vector3 pos = {circle_center.x + offset.x, circle_center.y + offset.y, circle_center.z + offset.z};
+
+         mesh.vertices.positions[vtx] = pos;
+
+         Vector3 normal = normalize(offset);
+         mesh.vertices.normals[vtx] = normal;
+
+         mesh.vertices.uvs[vtx] = (Vector2){(float)i / rings, (float)j / sides};
+
+         vtx++;
+      }
+   }
+
+   int k = 0;
+
+   for (int i = 0; i < rings; i++) {
+      for (int j = 0; j < sides; j++) {
+         int i0 = i * (sides + 1) + j;
+         int i1 = i0 + 1;
+         int i2 = i0 + (sides + 1);
+         int i3 = i2 + 1;
+
+         mesh.indices.items[k++] = i0;
+         mesh.indices.items[k++] = i2;
+         mesh.indices.items[k++] = i1;
+
+         mesh.indices.items[k++] = i1;
+         mesh.indices.items[k++] = i2;
+         mesh.indices.items[k++] = i3;
+      }
+   }
+
+   mesh.surfaces.items[0].indices_offset = 0;
+   mesh.surfaces.items[0].indices_count = index_count;
+   mesh.surfaces.items[0].material_index = -1;
+
    return mesh;
 }
 
