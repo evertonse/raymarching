@@ -137,6 +137,7 @@ typedef struct {
                   uint animation_number;
                   // isz animation_last_keyframe_index; // Read animation.c comment to get some insight of what we might need to do to speed up finding keypair
                   Transform transform;
+                  Vector4 color_tint;
                   Geometry_To_World_List geometry_to_world_matrices;
                   struct { // TODO: make it possible to have instances with differentes materials considering surfaces in a mesh
                      u32 base;
@@ -447,6 +448,7 @@ void update_manager_gpu_resources() {
                assert(linear_instance_index < instances_count);
                gpu_instances[linear_instance_index].model_matrix = MatrixToFloatV(MatrixCompose(instance.transform));
                gpu_instances[linear_instance_index].geometry_to_model_offset = linear_matrices_offset;
+               gpu_instances[linear_instance_index].color_tint = instance.color_tint;
                linear_instance_index  += 1;
                // NOTE: Either make geometry_to_world_matrices always instance available (rn is lazy from play_animation) or use joint_list from renderable
                // linear_matrices_offset += instance.geometry_to_world_matrices.count;
@@ -1147,7 +1149,7 @@ Scene_Node internal create_scene_node_from_renderable(isz renderable_index, cons
 
    isz instance_index = renderable->instances.count;
    da_append(&renderable->instances,
-      { .transform = transform, .animation_speed = 1. }
+      { .transform = transform, .animation_speed = 1., .color_tint = {1.f, 1.f, 1.f, 1.f} }
    );
 
    isz scene_node_index = manager.scene.nodes.count;
@@ -1251,6 +1253,19 @@ void overload update_transform(Scene_Node node, Quaternion rotation) {
    return;
 }
 
+void overload update_color_tint(Scene_Node node, Vector4 color_tint) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto instance  = &renderable->instances.items[instance_index];
+
+   if (!Vector4Equals(instance->color_tint, color_tint)) {
+      manager.scene.instances_dirty = true;
+      instance->color_tint = color_tint;
+      trace_debug("color_tint = {%f, %f, %f, %f}", color_tint.x, color_tint.y, color_tint.z, color_tint.w);
+   }
+   return;
+}
 
 Transform get_transform(Scene_Node node) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;

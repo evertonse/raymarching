@@ -22,6 +22,7 @@ struct Draw_Command {
 struct Instance {
    mat4 model_matrix;
    uint geometry_to_model_offset, pad1, pad2, pad3;
+   vec4 color_tint;
 };
 
 struct Material {

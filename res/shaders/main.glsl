@@ -94,6 +94,7 @@ void main() {
    vec4 tangent = vertex_tangents2[draw_command.tangents_offset + gl_VertexID - gl_BaseVertex];
 
    highp mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
+   color_tint = instances[gl_BaseInstance + gl_InstanceID].color_tint;
    if (draw_command.has_joints == 1) {
       uint geometry_to_model_offset = instances[gl_BaseInstance + gl_InstanceID].geometry_to_model_offset;
 
@@ -1132,6 +1133,10 @@ void main() {
    FragColor.xyz = gamma_correct(FragColor.xyz);
    // FragColor.xyz = apply_contrast(FragColor.xyz, 1.079);
    FragColor.w = alpha_channel;
+
+   FragColor *= color_tint;
+   // FragColor *= vec4(1., 0., 0., 0.75);
+
    // FragColor.w = max(alpha_channel, 0.9);
    // FragColor.w = max(pow(alpha_channel, 1/2.2), 0.1);
    // FragColor.w = 1.0;

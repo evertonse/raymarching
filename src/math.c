@@ -305,6 +305,9 @@ Matrix FloatsToMatrix(float floats[16]) {
 Vector3 overload vector3(float v) { return (Vector3){v, v, v}; }
 Vector3 overload vector3(float x, float y, float z) { return (Vector3){x, y, z}; }
 
+Vector4 overload vector4(float v) { return (Vector4){v, v, v, v}; }
+Vector4 overload vector4(float x, float y, float z, float w) { return (Vector4){x, y, z, w}; }
+
 Vector3 camera_forward(Vector2 spherical) {
    float theta = -spherical.x;
    float phi   = -spherical.y + (PI / 2.0f);

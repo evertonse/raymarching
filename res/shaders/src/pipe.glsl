@@ -12,4 +12,5 @@ Varying {
 
    flat uint material_index;
    flat uint has_tangents;
+   flat vec4 color_tint;
 }

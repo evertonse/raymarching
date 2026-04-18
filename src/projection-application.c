@@ -749,13 +749,16 @@ void draw_scene_league(Projection_Application *app) {
       }
 
       update_projectile(&projectile, time_delta());
-
+      static Vector4 projectile_color_tint = {1.f, 1.f,1.f,1.f};
+      projectile_color_tint = vector4(1.f, 1.f, 1.f, 0.75f);
       if (projectile.active) {
          if (projectile_hits_unit(&projectile, &vayne)) {
             trace_info("HIT!");
             projectile.active = true;
             vayne.health.current -= 50.0f;
+            projectile_color_tint = vector4(1.f, 0.f, 0.f, 0.75f);
          }
+
          Transform t = transform_identity;
          t.scale = vector3(projectile.radius);
          t.position = vector3(
@@ -765,6 +768,8 @@ void draw_scene_league(Projection_Application *app) {
          );
          update_transform(projectile_node, t);
       }
+
+      update_color_tint(hitbox_node, projectile_color_tint);
 
       if (is_button_held(BUTTON_C)) {
          // vayne.transform.position = add(mouse_ray.origin, mul(scale, mouse_ray.direction));
