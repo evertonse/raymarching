@@ -27,6 +27,8 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 - [Graphics Snippets](https://github.com/Rabbid76/graphics-snippets/blob/master/documentation/normal_parallax_relief.md#relief-parallax-mapping)
 - [A collection of tone mapping functions](https://github.com/dmnsgn/glsl-tone-map)
 - [League of Legends champions 3D models + animations](https://modelviewer.lol/)
+- [Game Programming Patterns Book](https://gameprogrammingpatterns.com/introduction.html)
+
 
 
 

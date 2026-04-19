@@ -18,7 +18,7 @@
 
 ## General
 
-[ ] New tonemap taken from that video about outdated unreal engine tonemap
+[ ] New tonemap taken from that video about how outdated unreal engine's Tonemap is
 
 [ ] Investigate why auto reload is not working sometimes
 

@@ -134,6 +134,7 @@ void __invalid_generic();
 
 
 #define dot(a, b) _Generic((a), \
+    Vector2: Vector2DotProduct, \
     Vector3: Vector3DotProduct \
 )((a), (b))
 
@@ -301,6 +302,9 @@ Matrix FloatsToMatrix(float floats[16]) {
    mat.m15 = floats[15];
    return mat;
 }
+
+Vector2 overload vector2(float v) { return (Vector2){v, v}; }
+Vector2 overload vector2(float x, float y) { return (Vector2){x, y}; }
 
 Vector3 overload vector3(float v) { return (Vector3){v, v, v}; }
 Vector3 overload vector3(float x, float y, float z) { return (Vector3){x, y, z}; }

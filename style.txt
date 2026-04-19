@@ -1,0 +1,55 @@
+Coding "style":
+
+3 space indentation, 4 is too much, 2 seems to little. 3 is not a nice 2 to the power of whatevs but it'll do.
+
+Prefer full name such as `distance` instand of `dist`, `time_since_last_attack` is a good name, `direction` instead of `dir`.
+There are some exceptions as everything in life. Since C doesn't have operator overloading I use `sub`, `add`, `mul` and so on abbreviation because it's used so much and so ubiquitous in their meaning. Also dt for delta time. Some parameter such as (Projectile *p) is fine because p is very clearly just a generic projectile in this case if it were not then the name should not be `p` and instead the name should point at what some information about that specific projectile.
+
+
+This:
+   if (var) {
+      return;
+   }
+is often better than this:
+   if (var) return;
+Because it's easier to spot the return and easier to step in the debugger.
+
+Type are more readable as `Type_Of_Something` instead of `TypeOfSomething`.
+Variables and functions with `full_name_snake_case` are great.
+
+I actually prefer two newlines separating each function, because I often put 1 newline separating groups of related statements within a single function.
+So this:
+
+void foo () {
+}
+
+
+void bar () {
+}
+
+
+instead of this:
+
+void foo () {
+}
+
+void bar () {
+}
+
+
+I make use of anonymous struct to make accessing as position.current and position.previous instead of position_current and position_previous. If the the fields are related I don't see a harm into grouping them into anonymous structs, it looks cleaner and shows unanimously that those fields are related.
+
+
+Related field setting should prefereably have aligned = sign.
+
+So this:
+      Transform t = transform_identity;
+      t.scale     = vector3(p->radius);
+      t.position  = vector3(p->position.current.x, 0.0f, p->position.current.y);
+      update_transform(v->node, t);
+
+Instead of this:
+      Transform t = transform_identity;
+      t.scale = vector3(p->radius);
+      t.position = vector3(p->position.current.x, 0.0f, p->position.current.y);
+      update_transform(v->node, t);
