@@ -294,6 +294,68 @@ Mesh generate_torus_mesh(
    return mesh;
 }
 
+
+Mesh generate_quad_mesh(float width, float height) {
+   Mesh mesh = {0};
+
+   int vertex_count = 4;
+   int index_count  = 6;
+
+   size_t positions_size = vertex_count * size_of(Vector3);
+   size_t normals_size   = vertex_count * size_of(Vector3);
+   size_t uvs_size       = vertex_count * size_of(Vector2);
+   size_t indices_size   = index_count * size_of(u32);
+   size_t surfaces_size  = 1 * size_of(mesh.surfaces.items[0]);
+
+   void *memory = malloc(positions_size + normals_size + uvs_size + indices_size + surfaces_size);
+   u8 *ptr = memory;
+
+   mesh.vertices.positions =  (Vector3 *)ptr;
+   ptr += positions_size;
+   mesh.vertices.normals   =  (Vector3 *)ptr;
+   ptr += normals_size;
+   mesh.vertices.uvs       =  (Vector2 *)ptr;
+   ptr += uvs_size;
+   mesh.indices.items      =  (u32 *)ptr;
+   ptr += indices_size;
+   mesh.surfaces.items     =  (void *)ptr;
+   mesh.vertices.count     =  vertex_count;
+   mesh.indices.count      =  index_count;
+   mesh.surfaces.count     =  1;
+
+   float hw = width * 0.5f;
+   float hh = height * 0.5f;
+
+   // Centered on origin, facing +Z
+   mesh.vertices.positions[0] = (Vector3){-hw, -hh, 0};
+   mesh.vertices.positions[1] = (Vector3){hw, -hh, 0};
+   mesh.vertices.positions[2] = (Vector3){hw, hh, 0};
+   mesh.vertices.positions[3] = (Vector3){-hw, hh, 0};
+
+   for (int i = 0; i < 4; i++) {
+      mesh.vertices.normals[i] = (Vector3){0, 0, 1};
+   }
+
+   mesh.vertices.uvs[0] = (Vector2){0, 1};
+   mesh.vertices.uvs[1] = (Vector2){1, 1};
+   mesh.vertices.uvs[2] = (Vector2){1, 0};
+   mesh.vertices.uvs[3] = (Vector2){0, 0};
+
+   mesh.indices.items[0] = 0;
+   mesh.indices.items[1] = 1;
+   mesh.indices.items[2] = 2;
+   mesh.indices.items[3] = 0;
+   mesh.indices.items[4] = 2;
+   mesh.indices.items[5] = 3;
+
+   mesh.surfaces.items[0].indices_offset = 0;
+   mesh.surfaces.items[0].indices_count  = index_count;
+   mesh.surfaces.items[0].material_index = -1;
+
+   return mesh;
+}
+
+
 Mesh create_mesh_from_interleaved(const float *interleaved, usz count) {
    Mesh mesh = {0};
 

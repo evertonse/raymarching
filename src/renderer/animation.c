@@ -34,8 +34,7 @@ typedef struct {
 
 } Joint_Animation;
 
-#include "ufbx.h" // @REMOVEME
-
+#include "ufbx.h" // @REMOVEME when animation is debugged enough
 
 typedef struct {
    ZString name;
@@ -46,10 +45,11 @@ typedef struct {
       u32 count; // Must be the same amount as joints in Joint_List and in turn we have the same amount of scene->bones.count at the time of load from .fbx file.
    } joints_animation;
 
-   double time_begin;
+   double time_begin; // NOTE: I think this is always 0, so maybe we should remove, but for now this stems from fbx tho.
    double time_end;
    ufbx_scene *scene;
 } Animation;
+
 
 static bool is_valid_keyframe_order(
    const typeof(((Joint_Animation *)0)->translation_keyframes.items) keys,
@@ -95,6 +95,7 @@ bool is_valid_joint_animation(const Joint_Animation *joint) {
 
    return ok;
 }
+
 
 bool is_valid_animation(const Animation *anim) {
    if (!anim) {
@@ -152,7 +153,6 @@ bool is_valid_animation(const Animation *anim) {
 
 ///-------------------------- Copies --------------------------///
 
-
 Joint_List joint_list_deep_copy(const Joint_List *src) {
    Joint_List dst = zero_of(Joint_List);
 
@@ -193,7 +193,7 @@ Joint_List joint_list_deep_copy(const Joint_List *src) {
    dst.names = (ZString *)ptr;
    ptr += src->count * sizeof(ZString);
 
-   // New we copy each name string
+   // Now we copy each name string
    for (u32 i = 0; i < src->count; i++) {
       if (src->names[i] != nullptr) {
          size_t name_len = strlen(src->names[i]) + 1;
@@ -221,8 +221,8 @@ Animation animation_deep_copy(const Animation *src) {
    Animation dst = {0};
 
    // Copy timing fields
-   dst.time_begin   = src->time_begin;
-   dst.time_end     = src->time_end;
+   dst.time_begin = src->time_begin;
+   dst.time_end   = src->time_end;
 
    usz total_bytes = 0;
 
@@ -353,16 +353,16 @@ static inline isz find_keyframe_interval(
          // We are after this interval, move right
          low = mid + 1;
       } else {
-         // time ∈ [t0, t1]
+         // time in [t0, t1]
          return mid;
       }
    }
 
-   // Fell out of the loop → clamp
+   // Fell out of the loop so clamp it
    return (time < keys[0].time) ? 0 : (count - 2);
 }
 
-// @REMOVEME change comments
+// @REMOVEME after debugging animation
 static inline isz find_keyframe_interval2(const typeof(((Joint_Animation *)0)->translation_keyframes.items) keys, u32 count, double time) {
    assert_msg(count >= 2, "The caller should have checked this");
 
@@ -392,6 +392,7 @@ static inline isz find_keyframe_interval2(const typeof(((Joint_Animation *)0)->t
    // Should never reach here with proper input, but just in case
    return count - 2;
 }
+
 
 static isz inline find_keyframe_interval_linear(
    const typeof(((Joint_Animation *)0)->translation_keyframes.items) keys,

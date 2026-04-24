@@ -138,6 +138,8 @@ typedef struct {
                   // isz animation_last_keyframe_index; // Read animation.c comment to get some insight of what we might need to do to speed up finding keypair
                   Transform transform;
                   Vector4 color_tint;
+                  uint instance_rendering_mode; // Default 0, but SDF texture or custom extra rendering for an model will be handled by this flag
+                  Vector4 custom_1, custom_2;
                   Geometry_To_World_List geometry_to_world_matrices;
                   struct { // TODO: make it possible to have instances with differentes materials considering surfaces in a mesh
                      u32 base;
@@ -449,6 +451,9 @@ void update_manager_gpu_resources() {
                gpu_instances[linear_instance_index].model_matrix = MatrixToFloatV(MatrixCompose(instance.transform));
                gpu_instances[linear_instance_index].geometry_to_model_offset = linear_matrices_offset;
                gpu_instances[linear_instance_index].color_tint = instance.color_tint;
+               gpu_instances[linear_instance_index].instance_rendering_mode = instance.instance_rendering_mode;
+               gpu_instances[linear_instance_index].custom_1 = instance.custom_1;
+               gpu_instances[linear_instance_index].custom_2 = instance.custom_2;
                linear_instance_index  += 1;
                // NOTE: Either make geometry_to_world_matrices always instance available (rn is lazy from play_animation) or use joint_list from renderable
                // linear_matrices_offset += instance.geometry_to_world_matrices.count;
@@ -1253,7 +1258,7 @@ void overload update_transform(Scene_Node node, Quaternion rotation) {
    return;
 }
 
-void overload update_color_tint(Scene_Node node, Vector4 color_tint) {
+void update_color_tint(Scene_Node node, Vector4 color_tint) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
    auto renderable = &manager.scene.renderables.items[renderable_index];
@@ -1263,6 +1268,35 @@ void overload update_color_tint(Scene_Node node, Vector4 color_tint) {
       manager.scene.instances_dirty = true;
       instance->color_tint = color_tint;
       trace_debug("color_tint = {%f, %f, %f, %f}", color_tint.x, color_tint.y, color_tint.z, color_tint.w);
+   }
+   return;
+}
+
+
+void update_rendering_mode(Scene_Node node, Instance_Rendering_Mode instance_rendering_mode) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto instance  = &renderable->instances.items[instance_index];
+
+   if (instance_rendering_mode != instance->instance_rendering_mode) {
+      manager.scene.instances_dirty = true;
+      instance->instance_rendering_mode = instance_rendering_mode;
+   }
+   return;
+}
+
+
+void update_custom_data(Scene_Node node, Vector4 custom_1, Vector4 custom_2) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto instance  = &renderable->instances.items[instance_index];
+
+   if (!Vector4Equals(instance->custom_1, custom_1) || !Vector4Equals(instance->custom_2, custom_2)) {
+      manager.scene.instances_dirty = true;
+      instance->custom_1 = custom_1;
+      instance->custom_2 = custom_2;
    }
    return;
 }

@@ -13,4 +13,8 @@ Varying {
    flat uint material_index;
    flat uint has_tangents;
    flat vec4 color_tint;
+   flat uint instance_rendering_mode;
+   flat vec4 custom_1;
+   flat vec4 custom_2;
+
 }

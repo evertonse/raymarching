@@ -18,11 +18,19 @@ struct Draw_Command {
 };
 
 
+// NOTE: This way of doing thing imply uber shaders instead of creating a shader changing api from the manager.c
+//       Will just get this working and see if it explodes in types or even if it lags later on.
+#define Instance_Rendering_Mode uint
+#define INSTANCE_RENDERING_MODE_NORMAL 0
+#define INSTANCE_RENDERING_MODE_CUSTOM 1 // NOTE: Anything bigger than 0 will be treated as custom which you can use to identify a specific way that you may wanna render.
+
+
 // TODO: Migrate to material_index for instance instead of the full draw command
 struct Instance {
    mat4 model_matrix;
-   uint geometry_to_model_offset, pad1, pad2, pad3;
+   uint geometry_to_model_offset; Instance_Rendering_Mode instance_rendering_mode; uint pad_1, pad_2;
    vec4 color_tint;
+   vec4 custom_1, custom_2; // You get 2 custom vec4 to use as data any sorta data, simple.
 };
 
 struct Material {

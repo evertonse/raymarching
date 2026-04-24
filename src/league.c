@@ -14,19 +14,25 @@ typedef struct {
    Unit_Action action;
 
    struct {
-      float cast_time;
-      float duration;
-      float cooldown;
-      float elapsed;
-      float cooldown_elapsed;
+      float cast_time;        // delay from pressing attack until the attack actually spawns, the wind-up.
+      float duration;         // how long the attack animation plays before returning to idle. cast_time < duration always.
+      float cooldown;         // how long you must wait after spawning before you can press E again
+      float elapsed;          // how long we have been in UNIT_ACTION_ATTACKING this swing
+      float cooldown_elapsed; // counts down from cooldown to 0 when <= 0 you can attack again
    } attack;
 } Unit;
+
+typedef struct {
+   Scene_Node node;       // filled by sdf shader
+   Model model;           // shared quad model
+} Health_Bar_Visual;
 
 typedef struct {
    Scene_Node node;
    Scene_Node hitbox_node;
    Model model;
    Model hitbox_model;
+   Health_Bar_Visual health_bar;
 } Unit_Visual;
 
 typedef struct {
@@ -45,6 +51,7 @@ typedef struct {
    Scene_Node node;
 } Projectile_Visual;
 
+
 #define MAX_PROJECTILES 16
 
 typedef struct {
@@ -53,11 +60,19 @@ typedef struct {
    int count;
 } Projectile_Pool;
 
+// Can just increate + 0 to + 1 and create another if for custom_fragment_shader.glsl
+#define INSTANCE_RENDERING_MODE_HEALTH INSTANCE_RENDERING_MODE_CUSTOM + 0
+void update_health_rendering(Scene_Node node, f32 health_current, f32 health_max) {
+   Vector4 custom_1 = {health_current, health_max}, custom_2 = {0};
+   update_rendering_mode(node, INSTANCE_RENDERING_MODE_HEALTH);
+   update_custom_data(node, custom_1, custom_2);
+}
+
 
 void update_unit(Unit *u, float dt, Projectile_Pool *pool) {
    u->attack.cooldown_elapsed -= dt;
 
-   if (u->action == UNIT_ACTION_ATTACKING) {
+   if (UNIT_ACTION_ATTACKING == u->action) {
       float previous = u->attack.elapsed;
       u->attack.elapsed += dt;
 
@@ -87,7 +102,7 @@ void update_unit(Unit *u, float dt, Projectile_Pool *pool) {
       return;
    }
 
-   if (u->action == UNIT_ACTION_IDLE) {
+   if (UNIT_ACTION_IDLE == u->action) {
       return;
    }
 
@@ -98,6 +113,7 @@ void update_unit(Unit *u, float dt, Projectile_Pool *pool) {
       u->action = UNIT_ACTION_IDLE;
       return;
    }
+   
 
    Vector2 direction = normalize(to_target);
    u->position = add(u->position, mul(min(u->move_speed * dt, distance), direction));
@@ -169,6 +185,7 @@ void render_unit(const Unit *u, Unit_Visual *v) {
    }
 }
 
+
 void render_projectile_pool(const Projectile_Pool *pool) {
    for (int i = 0; i < MAX_PROJECTILES; i++) {
       const Projectile *p = &pool->items[i];
@@ -190,25 +207,66 @@ void render_projectile_pool(const Projectile_Pool *pool) {
    }
 }
 
+void render_health_bar(const Unit *u, Health_Bar_Visual *v, Vector3 camera_pos, Vector3 camera_forward) {
+   float ratio = clamp(u->health.current / u->health.max, 0.0f, 1.0f);
+   float bar_width = u->radius * 2.5f; // slightly wider than unit
+   float bar_height = bar_width * 0.12f;
+   float bar_y = 25.f;
+
+   Vector3 bar_position = vector3(u->position.x, bar_y, u->position.y);
+
+   // Quaternion facing = billboard_rotation(bar_position, camera_pos);
+
+   Quaternion facing = QuaternionFromAxisAngle(camera_forward, 0);
+   
+
+   
+
+   Transform transform = transform_identity;
+   transform.position = bar_position;
+   transform.rotation = facing;
+   transform.scale = vector3(bar_width, bar_height, 1.0f);
+   update_transform(v->node, transform);
+   // update_color_tint(v->background, (Vector4){0.15f, 0.15f, 0.15f, 0.9f});
+
+   Vector4 fill_color;
+   if (ratio > 0.5f) {
+      float t = (ratio - 0.5f) * 2.0f;
+      fill_color = vector4(1.0f - t, 1.0f, 0.0f, 1.0f);
+   } else {
+      float t = ratio * 2.0f;
+      fill_color = vector4(1.0f, t, 0.0f, 1.0f);
+   }
+
+   update_color_tint(v->node, fill_color);
+   update_health_rendering(v->node, u->health.current, u->health.max);
+   // update_color_tint(v->background, (Vector4){0.15f, 0.15f, 0.15f, 0.9f});
+}
+
+
+
 
 void draw_scene_league(Projection_Application *app) {
    static bool loaded = false;
    static Unit vayne = {0};
    static Unit_Visual vayne_v = {0};
    static Projectile_Pool bolt_pool = {0};
+   static Model health_bar_model = {0};
 
    auto per_frame = app->per_frame;
    Vector2 spherical = {per_frame.camera.phi, per_frame.camera.theta};
    Ray mouse_ray = compute_mouse_ray(cursor_position().x, cursor_position().y, get_window_size().x, get_window_size().y, PI / 3.f, per_frame.camera.aspect, per_frame.camera.position, spherical);
+
 
    if (!loaded) {
       loaded = true;
       minimize_window();
 
       // Game state
-      vayne.move_speed = 39.5f;
-      vayne.health     = (typeof(vayne.health)){600.f, 600.f};
-      vayne.radius     = 10.f;
+      vayne.move_speed     = 39.5f;
+      vayne.health.max     = 1200.;
+      vayne.health.current = 600.;
+      vayne.radius         = 10.f;
       vayne.direction  = (Vector2){0, 1};
       vayne.attack     = (typeof(vayne.attack)){
           .cast_time   = .3f,
@@ -223,6 +281,12 @@ void draw_scene_league(Projection_Application *app) {
       vayne_v.node         = create_scene_node(&vayne_v.model, transform_identity);
       vayne_v.hitbox_node  = create_scene_node(&vayne_v.hitbox_model, transform_identity);
 
+      health_bar_model = create_model_from_mesh(generate_quad_mesh(1.0f, 1.0f)); // unit scale, actual size set via transform.scale
+
+      vayne_v.health_bar.model      = health_bar_model;
+      vayne_v.health_bar.node = create_scene_node(&health_bar_model, transform_identity);
+      update_rendering_mode(vayne_v.health_bar.node, INSTANCE_RENDERING_MODE_HEALTH);
+
       for (int i = 0; i < MAX_PROJECTILES; i++) {
          bolt_pool.visuals[i].node = create_scene_node(vayne_v.hitbox_node);
       }
@@ -235,6 +299,7 @@ void draw_scene_league(Projection_Application *app) {
    Vector3 ground_hit = {0};
    if (is_button_pressed(BUTTON_MOUSE_RIGHT)) {
       if (raycast_ground(mouse_ray, &ground_hit)) {
+         // TODO: We could check if it was in the middle of atacking to make it the auto uncancellable after a certain percentage of aa cast time has been played out.
          vayne.target = vector2(ground_hit.x, ground_hit.z);
          vayne.action = UNIT_ACTION_MOVING;
       }
@@ -267,4 +332,6 @@ void draw_scene_league(Projection_Application *app) {
    // Render
    render_unit(&vayne, &vayne_v);
    render_projectile_pool(&bolt_pool);
+   render_health_bar(&vayne, &vayne_v.health_bar, per_frame.camera.position, camera_forward(spherical));
 }
+

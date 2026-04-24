@@ -64,7 +64,7 @@ static DString all_unique_paths = {0};
 //
 static struct {
    struct {
-      ZString path; // Which Paths does this shader include considering the first path that we pass when we create
+      isz unique_path_offset;    // Used to find path included by this shader
       isz line_start;  // First line of this file in full block
       isz line_end;    // Last line of this file in full block
    } *items;
@@ -73,6 +73,11 @@ static struct {
    isz fragment_line;  // Line where fragment shader starts (after #pragma fragment)
    isz vertex_line;    // Line where vertex shader starts (after #pragma vertex)
 } shaders_metadata[MAX_SHADERS] = {0};
+
+static inline ZString unique_path_offset_to_string(isz string_offset_in_buffer) {
+   const char *stored_path = (const char *)(all_unique_paths.items + string_offset_in_buffer);
+   return stored_path;
+}
 
 // Returns the start of added string or start of equal but already existing one.
 static isz append_unique_path(ZString path) {
@@ -108,8 +113,7 @@ static int index_shader_metadata(const char *path) {
    int free_slot = -1;
    for (int metadata_index = 0; metadata_index < count_of(shaders_metadata); metadata_index += 1) {
      auto metadata = shaders_metadata[metadata_index];
-     // if (metadata.count > 0 && (0 == strcmp(path, metadata.items[0].path))) {
-     if (metadata.count > 0 && path_equals(path, metadata.items[0].path)) {
+     if (metadata.count > 0 && path_equals(path, unique_path_offset_to_string(metadata.items[0].unique_path_offset))) {
        trace_debug("Found index %d metadata for %s", metadata_index, path);
        return metadata_index;
      }
@@ -122,23 +126,22 @@ static int index_shader_metadata(const char *path) {
 }
 
 
-static void append_shader_metadata(int shader_index, const char *path, isz line_number) {
-   if (shader_index >= MAX_SHADERS) {
-      return;
-   }
+
+static void append_shader_metadata(int shader_index, isz unique_path_offset, isz line_number) {
+   assert_msg(shader_index < MAX_SHADERS, tprintf("We've hit the %d maximum shader capacity", MAX_SHADERS));
 
    // Ensure we have space
    if (shaders_metadata[shader_index].count >= shaders_metadata[shader_index].capacity) {
       shaders_metadata[shader_index].capacity = shaders_metadata[shader_index].capacity ? shaders_metadata[shader_index].capacity * 2 : 16;
-      shaders_metadata[shader_index].items = (typeof(shaders_metadata[shader_index].items))realloc(shaders_metadata[shader_index].items, shaders_metadata[shader_index].capacity * size_of(*shaders_metadata[shader_index].items));
+      shaders_metadata[shader_index].items = realloc(shaders_metadata[shader_index].items, shaders_metadata[shader_index].capacity * size_of(*shaders_metadata[shader_index].items));
    }
 
    auto new_index = shaders_metadata[shader_index].count;
    auto new_item  = &shaders_metadata[shader_index].items[new_index];
    *new_item = (typeof(*new_item)) {
-      .path            = path,
-      .line_start      = line_number,
-      .line_end        = -1,
+      .unique_path_offset = unique_path_offset,
+      .line_start         = line_number,
+      .line_end           = -1,
    };
    shaders_metadata[shader_index].count += 1;
 }
@@ -173,10 +176,10 @@ static bool pre_process_shader_with_metadata(
    // Record this file's starting line
    isz file_start_line = *current_line_number;
    isz string_offset_in_buffer = append_unique_path(path);
-   const char *stored_path = (const char *)(all_unique_paths.items + string_offset_in_buffer);
+   const char *stored_path = unique_path_offset_to_string(string_offset_in_buffer);
 
    // Add metadata entry with start line
-   append_shader_metadata(shader_index, stored_path, file_start_line);
+   append_shader_metadata(shader_index, string_offset_in_buffer, file_start_line);
    da_append(path_offets, string_offset_in_buffer);
    isz metadata_index = shaders_metadata[shader_index].count - 1; // Last added entry
    auto *metadata = &shaders_metadata[shader_index].items[metadata_index];
@@ -336,6 +339,7 @@ static bool pre_process_shader(
    isz current_line = 1;
 
    // Clear existing metadata for this shader
+   // We'll reuse the .items given its .capacity
    shaders_metadata[shader_index].count = 0;
 
    return pre_process_shader_with_metadata(path, ds, path_offets, offset_compute, offset_fragment, offset_vertex, shader_index, &current_line);
@@ -364,7 +368,7 @@ static void print_shader_metadata(int shader_index) {
    for (int item_index = 0; item_index < meta.count; item_index += 1) {
       auto item = meta.items[item_index];
       ds_printf(&ds, "   path=%s line_number=%lld line_end=%lld\n",
-         item.path,
+         unique_path_offset_to_string(item.unique_path_offset),
          (usz)item.line_start,
          (usz)item.line_end
       );
@@ -434,7 +438,7 @@ static bool metadata_map_line_to_file_ground_truth(int shader_index, Shader_Type
    }
 
    auto parent = shaders_metadata[shader_index].items[meta_index_best];
-   *filepath = parent.path;
+   *filepath = unique_path_offset_to_string(parent.unique_path_offset);
 
    trace_info("Best! for %lld", (usz)global_line);
    trace_struct(parent);
@@ -553,7 +557,7 @@ static bool metadata_map_line_to_file_new(int shader_index, Shader_Type shader_t
          }
       }
    }
-   *filepath = best.path;
+   *filepath = unique_path_offset_to_string(best.unique_path_offset);
 
 
    // Now let's find the line number (the hard part)
@@ -1108,8 +1112,7 @@ int needs_rebuild_from_paths2(ZString output_path, ZString *input_paths, usz inp
 
 // TODO: Mark time of compilation in the shader struct itself on top of .time files
 // TODO: For shader that didn't come from path, we could based content and compare to something? Just seems more trouble than its worth it
-// Because if it didnt come from path, its usually hardcoded and constant during the program, no theres no reason to reload. it eighetr works or it doesnt
-// And if it comes from path, than it's fine
+// Because if it didnt come from path, its usually hardcoded and constant during the program, no theres no reason to reload. it eigher works or it doesnt.
 bool shader_needs_reload(Shader shader) {
    GLuint shader_handle = shader.handle;
    if (INVALID_SHADER_HANDLE == shader_handle) {
@@ -1134,9 +1137,9 @@ bool shader_needs_reload(Shader shader) {
 
    // We always save and .time files based on first_path
    ZString* resolved_paths = (ZString*)talloc(paths_count * size_of(ZString));
-   ZString first_path = meta.items[0].path;
+   ZString first_path = unique_path_offset_to_string(meta.items[0].unique_path_offset);
    for (int i = 0; i < paths_count; i += 1) {
-      resolved_paths[i] = meta.items[i].path;
+      resolved_paths[i] = unique_path_offset_to_string(meta.items[i].unique_path_offset);
    }
 
    TString time_path = tprintf("%s.time", path_stem(first_path));

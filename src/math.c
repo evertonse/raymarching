@@ -335,7 +335,7 @@ Vector3 ndc_to_world(
     Vector3 ndc,  // all three components, each in [-1, 1]
     float fov_y, float aspect,
     float z_near, float z_far,
-    Vector3 camera_pos, Vector3 camera_forward,  Vector3 camera_right, Vector3 camera_up
+    Vector3 camera_position, Vector3 camera_forward,  Vector3 camera_right, Vector3 camera_up
 ) {
    float view_z = z_near + (((ndc.z + 1.)*(z_far-z_near)) / 2.);
    float j = tanf(fov_y * 0.5f)*view_z;
@@ -348,13 +348,13 @@ Vector3 ndc_to_world(
 
    // This is how we do in shader but raymath uses a different coordinate the ours sad. Can't use their shit unless we change it alot.
    // Hence the explcit early return
-   Matrix look_at        = MatrixLookAt(camera_pos, add(camera_pos, camera_forward), camera_up);
+   Matrix look_at        = MatrixLookAt(camera_position, add(camera_position, camera_forward), camera_up);
    auto look_at_inverted = invert(look_at);
    Vector3 world_pos     = mul(look_at_inverted, view_position);
    return (Vector3){
-     right.x * view_x + up.x * view_y + forward.x * view_z + camera_pos.x,
-     right.y * view_x + up.y * view_y + forward.y * view_z + camera_pos.y,
-     right.z * view_x + up.z * view_y + forward.z * view_z + camera_pos.z,
+     right.x * view_x + up.x * view_y + forward.x * view_z + camera_position.x,
+     right.y * view_x + up.y * view_y + forward.y * view_z + camera_position.y,
+     right.z * view_x + up.z * view_y + forward.z * view_z + camera_position.z,
    };
    return world_pos;
 }
@@ -430,8 +430,60 @@ bool raycast_ground(Ray ray, Vector3 *hit) {
    }
    *hit = (Vector3){
       ray.origin.x + t * ray.direction.x,
-      0.0f, // exactly 0, avoid float drift
+      0.0f,
       ray.origin.z + t * ray.direction.z,
    };
    return true;
 }
+
+// Quaternion billboard_rotation(Vector3 pos, Vector3 camera_pos) {
+//    Vector3 forward = Vector3Normalize(Vector3Subtract(camera_pos, pos));
+//
+//    // Handle degenerate case (camera directly above/below)
+//    Vector3 world_up = {0, 1, 0};
+//
+//    // If forward is too close to up, pick another up
+//    if (fabsf(Vector3DotProduct(forward, world_up)) > 0.999f) {
+//       world_up = (Vector3){0, 0, 1};
+//    }
+//
+//    Vector3 right = Vector3Normalize(Vector3CrossProduct(world_up, forward));
+//    Vector3 up = Vector3CrossProduct(forward, right);
+//
+//    // Rotation matrix (columns = basis vectors)
+//    Matrix m = {right.x, right.y, right.z, 0, up.x, up.y, up.z, 0, forward.x, forward.y, forward.z, 0, 0, 0, 0, 1};
+//
+//    return QuaternionFromMatrix(m);
+// }
+
+Quaternion billboard_rotation(Vector3 pos, Vector3 camera_pos) {
+   Vector3 forward = Vector3Normalize(Vector3Subtract(camera_pos, pos));
+
+   Vector3 up = {0, 1, 0};
+
+   if (fabsf(Vector3DotProduct(forward, up)) > 0.999f) {
+      up = (Vector3){1, 0, 0};
+   }
+
+   Vector3 right = Vector3Normalize(Vector3CrossProduct(up, forward));
+   up = Vector3CrossProduct(forward, right);
+
+   Matrix m = {right.x, right.y, right.z, 0, up.x, up.y, up.z, 0, forward.x, forward.y, forward.z, 0, 0, 0, 0, 1};
+
+   return QuaternionFromMatrix(m);
+}
+
+// Quaternion billboard_rotation(Vector3 world_pos, Vector3 camera_position) {
+//    Vector3 to_cam   = normalize(sub(camera_position, world_pos));
+//    // Aligned to +Z toward camera
+//    Vector3 world_up = {0, 1, 0};
+//    Vector3 right    = normalize(cross(to_cam, world_up));
+//    Vector3 up       = cross(to_cam, right);
+//    Matrix m = {
+//       right.x,   right.y,   right.z,   0,
+//       up.x, up.y, up.z, 0,
+//       to_cam.x,  to_cam.y,  to_cam.z,  0,
+//       0,         0,         0,         1
+//    };
+//    return QuaternionFromMatrix(m);
+// }

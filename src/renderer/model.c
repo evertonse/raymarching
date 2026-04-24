@@ -1116,6 +1116,10 @@ Model create_model_from_mesh(Mesh mesh, const char *diffuse_path, const char *sp
    return model;
 }
 
+Model overload create_model_from_mesh(Mesh mesh) {
+   return create_model_from_mesh(mesh, nullptr, nullptr, nullptr, nullptr);
+}
+
 // NOTE: The textures strings gotta live as long as the model (static please)
 Model create_sphere_model(float radius, int rings, int slices,
       const char *diffuse_texture,

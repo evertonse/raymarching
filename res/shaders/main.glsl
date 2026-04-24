@@ -93,8 +93,15 @@ void main() {
 
    vec4 tangent = vertex_tangents2[draw_command.tangents_offset + gl_VertexID - gl_BaseVertex];
 
+   {
+      // Passing instance data to the fragment shader
+      color_tint = instances[gl_BaseInstance + gl_InstanceID].color_tint;
+      instance_rendering_mode = instances[gl_BaseInstance + gl_InstanceID].instance_rendering_mode;
+      custom_1 = instances[gl_BaseInstance + gl_InstanceID].custom_1;
+      custom_2 = instances[gl_BaseInstance + gl_InstanceID].custom_2;
+   }
+
    highp mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
-   color_tint = instances[gl_BaseInstance + gl_InstanceID].color_tint;
    if (draw_command.has_joints == 1) {
       uint geometry_to_model_offset = instances[gl_BaseInstance + gl_InstanceID].geometry_to_model_offset;
 
@@ -805,6 +812,9 @@ bool intersect_plane(vec3 ray_origin, vec3 ray_dir, vec3 plane_point, vec3 plane
 
 #include "./src/parallax.glsl"
 
+#include "./src/custom_instance_rendering.glsl"
+
+
 void main() {
    // vec3 color = vec3(gl_FragCoord.z);
 
@@ -821,6 +831,12 @@ void main() {
    vec3 camera_direction = camera_forward(spherical);
    vec3 camera_position = per_frame.camera.position;
    vec2 uv = TextureCoordinate;
+
+   if (instance_rendering_mode > 0) {
+      // TODO: Expand parameters
+      FragColor = custom(uv, custom_1, custom_2);
+      return;
+   }
 
    if (true) {
 

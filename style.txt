@@ -53,3 +53,8 @@ Instead of this:
       t.scale = vector3(p->radius);
       t.position = vector3(p->position.current.x, 0.0f, p->position.current.y);
       update_transform(v->node, t);
+
+This is prone to setting the u->action value instead of comparing:
+      u->action == UNIT_ACTION_IDLE
+Prefer this:
+      UNIT_ACTION_IDLE == u->action

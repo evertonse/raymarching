@@ -84,7 +84,10 @@ void init_window(void) {
    }
    auto window = __state.window.handle;
 
-   glfwSetWindowAttrib(window, GLFW_FLOATING, true); // sticky
+   const bool start_sticky = false;
+   if (start_sticky) {
+      glfwSetWindowAttrib(window, GLFW_FLOATING, true); // sticky
+   }
    glfwSetWindowPos(window, window_x, window_y);
 
    // GLFW_CURSOR_HIDDEN GLFW_CURSOR_NORMAL GLFW_CURSOR_DISABLED(fps style) GLFW_CURSOR_CAPTURED(Won't be able to leave window) GLFW_CURSOR_DISABLED
