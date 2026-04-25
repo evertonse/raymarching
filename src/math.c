@@ -320,7 +320,7 @@ Vector3 camera_forward(Vector2 spherical) {
    float y = cosf(phi);
    float z = sinf(phi) * cosf(theta);
 
-   return Vector3Normalize((Vector3){x, y, z});
+   return normalize(((Vector3){x, y, z}));
 }
 
 typedef struct {
@@ -436,54 +436,29 @@ bool raycast_ground(Ray ray, Vector3 *hit) {
    return true;
 }
 
-// Quaternion billboard_rotation(Vector3 pos, Vector3 camera_pos) {
-//    Vector3 forward = Vector3Normalize(Vector3Subtract(camera_pos, pos));
-//
-//    // Handle degenerate case (camera directly above/below)
-//    Vector3 world_up = {0, 1, 0};
-//
-//    // If forward is too close to up, pick another up
-//    if (fabsf(Vector3DotProduct(forward, world_up)) > 0.999f) {
-//       world_up = (Vector3){0, 0, 1};
-//    }
-//
-//    Vector3 right = Vector3Normalize(Vector3CrossProduct(world_up, forward));
-//    Vector3 up = Vector3CrossProduct(forward, right);
-//
-//    // Rotation matrix (columns = basis vectors)
-//    Matrix m = {right.x, right.y, right.z, 0, up.x, up.y, up.z, 0, forward.x, forward.y, forward.z, 0, 0, 0, 0, 1};
-//
-//    return QuaternionFromMatrix(m);
-// }
 
-Quaternion billboard_rotation(Vector3 pos, Vector3 camera_pos) {
-   Vector3 forward = Vector3Normalize(Vector3Subtract(camera_pos, pos));
-
-   Vector3 up = {0, 1, 0};
-
-   if (fabsf(Vector3DotProduct(forward, up)) > 0.999f) {
-      up = (Vector3){1, 0, 0};
+Quaternion billboard_rotation(bool point_aligned, Vector3 position,  Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
+   // View aligned is what Mobas (League) uses for UI elements i.e. health bars.
+   // Point aligned is used for things like particles or sprites that need to face the camera from any angle.
+   // TODO: Make it into different functions or paremeter, also all these paremeters aren't necessary we're just experiementing with it like
+   //       trying to align the billboard basis with the camera basis to see if a better billboard rotation could come out.
+   
+   const float threshold = 5.f;
+   if (point_aligned && length(sub(position, camera_position)) < threshold) {
+      point_aligned = false;
    }
 
-   Vector3 right = Vector3Normalize(Vector3CrossProduct(up, forward));
-   up = Vector3CrossProduct(forward, right);
+   // Using camera_foard makes it parallel to camera plane, uniform across viewport
+   Vector3 direction = point_aligned ? normalize(sub(position, camera_position)) : camera_forward;
 
-   Matrix m = {right.x, right.y, right.z, 0, up.x, up.y, up.z, 0, forward.x, forward.y, forward.z, 0, 0, 0, 0, 1};
+   // Yaw spin around world Y to face camera in XZ plane
+   float yaw = atan2f(direction.x, direction.z);
+   Quaternion qy = QuaternionFromAxisAngle((Vector3){0, 1, 0}, yaw);
 
-   return QuaternionFromMatrix(m);
+   // Pitch tilt around right axis to track camera elevation
+   float pitch = -asinf(direction.y);
+   Quaternion qx = QuaternionFromAxisAngle((Vector3){1, 0, 0}, pitch);
+
+   // Yaw first, then pitch
+   return QuaternionMultiply(qy, qx);
 }
-
-// Quaternion billboard_rotation(Vector3 world_pos, Vector3 camera_position) {
-//    Vector3 to_cam   = normalize(sub(camera_position, world_pos));
-//    // Aligned to +Z toward camera
-//    Vector3 world_up = {0, 1, 0};
-//    Vector3 right    = normalize(cross(to_cam, world_up));
-//    Vector3 up       = cross(to_cam, right);
-//    Matrix m = {
-//       right.x,   right.y,   right.z,   0,
-//       up.x, up.y, up.z, 0,
-//       to_cam.x,  to_cam.y,  to_cam.z,  0,
-//       0,         0,         0,         1
-//    };
-//    return QuaternionFromMatrix(m);
-// }

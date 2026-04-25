@@ -62,8 +62,8 @@ typedef struct {
 
 // Can just increate + 0 to + 1 and create another if for custom_fragment_shader.glsl
 #define INSTANCE_RENDERING_MODE_HEALTH INSTANCE_RENDERING_MODE_CUSTOM + 0
-void update_health_rendering(Scene_Node node, f32 health_current, f32 health_max) {
-   Vector4 custom_1 = {health_current, health_max}, custom_2 = {0};
+void update_health_rendering(Scene_Node node, f32 health_current, f32 health_max, f32 bar_aspect_ratio) {
+   Vector4 custom_1 = {health_current, health_max, bar_aspect_ratio}, custom_2 = {0};
    update_rendering_mode(node, INSTANCE_RENDERING_MODE_HEALTH);
    update_custom_data(node, custom_1, custom_2);
 }
@@ -207,18 +207,15 @@ void render_projectile_pool(const Projectile_Pool *pool) {
    }
 }
 
-void render_health_bar(const Unit *u, Health_Bar_Visual *v, Vector3 camera_pos, Vector3 camera_forward) {
+void render_health_bar(const Unit *u, Health_Bar_Visual *v, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
    float ratio = clamp(u->health.current / u->health.max, 0.0f, 1.0f);
    float bar_width = u->radius * 2.5f; // slightly wider than unit
-   float bar_height = bar_width * 0.12f;
-   float bar_y = 25.f;
+   float bar_height = bar_width * (1./8.23076 /* number taken from league aspectration from the health part of the status bar */);
+   float bar_y = 45.f;
 
    Vector3 bar_position = vector3(u->position.x, bar_y, u->position.y);
 
-   // Quaternion facing = billboard_rotation(bar_position, camera_pos);
-
-   Quaternion facing = QuaternionFromAxisAngle(camera_forward, 0);
-   
+   Quaternion facing = billboard_rotation(false, bar_position, camera_position, camera_forward, camera_right, camera_up);
 
    
 
@@ -239,10 +236,9 @@ void render_health_bar(const Unit *u, Health_Bar_Visual *v, Vector3 camera_pos, 
    }
 
    update_color_tint(v->node, fill_color);
-   update_health_rendering(v->node, u->health.current, u->health.max);
+   update_health_rendering(v->node, u->health.current, u->health.max, bar_width/bar_height);
    // update_color_tint(v->background, (Vector4){0.15f, 0.15f, 0.15f, 0.9f});
 }
-
 
 
 
@@ -285,7 +281,6 @@ void draw_scene_league(Projection_Application *app) {
 
       vayne_v.health_bar.model      = health_bar_model;
       vayne_v.health_bar.node = create_scene_node(&health_bar_model, transform_identity);
-      update_rendering_mode(vayne_v.health_bar.node, INSTANCE_RENDERING_MODE_HEALTH);
 
       for (int i = 0; i < MAX_PROJECTILES; i++) {
          bolt_pool.visuals[i].node = create_scene_node(vayne_v.hitbox_node);
@@ -322,7 +317,7 @@ void draw_scene_league(Projection_Application *app) {
    for (int i = 0; i < MAX_PROJECTILES; i++) {
       if (bolt_pool.items[i].active && projectile_hits_unit(&bolt_pool.items[i], &vayne)) {
          bolt_pool.items[i].hit = true;
-         vayne.health.current -= 50.f;
+         vayne.health.current -= .1f;
          bolt_pool.items[i].active = true;
       } else {
          bolt_pool.items[i].hit = false;
@@ -332,6 +327,9 @@ void draw_scene_league(Projection_Application *app) {
    // Render
    render_unit(&vayne, &vayne_v);
    render_projectile_pool(&bolt_pool);
-   render_health_bar(&vayne, &vayne_v.health_bar, per_frame.camera.position, camera_forward(spherical));
+   Vector3 forward, right, up;
+   camera_basis(spherical, &forward, &right,&up);
+   render_health_bar(&vayne, &vayne_v.health_bar, per_frame.camera.position, forward, right, up);
+
 }
 

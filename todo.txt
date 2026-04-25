@@ -4,6 +4,8 @@
 
 [ ] Fix __state management for subsystems. They prolly should be opaque pointers that only the subsystem knows what it is? Not dynamic tho, static allocation for the state.
 
+[ ] Refactor game into dll to be loaded by engine handmade hero style.
+
 [ ] Fix Vayne bug that some triangles seem to be loaded incorreclty and randomly as well. Put in wireframe to see it better on draw_scene_league.
    Might need to count mesh surface triangles and compare to other programs to debug this one.
 

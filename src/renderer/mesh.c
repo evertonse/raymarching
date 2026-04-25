@@ -323,13 +323,13 @@ Mesh generate_quad_mesh(float width, float height) {
    mesh.indices.count      =  index_count;
    mesh.surfaces.count     =  1;
 
-   float hw = width * 0.5f;
+   float hw = width  * 0.5f;
    float hh = height * 0.5f;
 
    // Centered on origin, facing +Z
-   mesh.vertices.positions[0] = (Vector3){-hw, -hh, 0};
-   mesh.vertices.positions[1] = (Vector3){hw, -hh, 0};
-   mesh.vertices.positions[2] = (Vector3){hw, hh, 0};
+   mesh.vertices.positions[0] = (Vector3){-hw,-hh, 0};
+   mesh.vertices.positions[1] = (Vector3){ hw,-hh, 0};
+   mesh.vertices.positions[2] = (Vector3){ hw, hh, 0};
    mesh.vertices.positions[3] = (Vector3){-hw, hh, 0};
 
    for (int i = 0; i < 4; i++) {

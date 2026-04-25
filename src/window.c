@@ -267,9 +267,10 @@ void update_on_button(void) {
    }
 }
 
-inline void update_window(void) {
+void update_window(void) {
    memcpy(__state.button.previous, __state.button.current, size_of(__state.button.current));
-   update_on_button();
    pool_window_events();
+   // NOTE: Any buttons checking has be performed after pool_window_events
+   update_on_button();
    swap_window_buffers();
 }
