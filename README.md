@@ -28,6 +28,8 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 - [A collection of tone mapping functions](https://github.com/dmnsgn/glsl-tone-map)
 - [League of Legends champions 3D models + animations](https://modelviewer.lol/)
 - [Game Programming Patterns Book](https://gameprogrammingpatterns.com/introduction.html)
+- [Exportable VFX file](https://effekseer.github.io/en/download.html)
+
 
 
 

@@ -448,7 +448,7 @@ Quaternion billboard_rotation(bool point_aligned, Vector3 position,  Vector3 cam
       point_aligned = false;
    }
 
-   // Using camera_foard makes it parallel to camera plane, uniform across viewport
+   // Using camera_forward makes it parallel to camera plane, uniform across viewport
    Vector3 direction = point_aligned ? normalize(sub(position, camera_position)) : camera_forward;
 
    // Yaw spin around world Y to face camera in XZ plane
