@@ -35,6 +35,7 @@ typedef struct {
    Health_Bar_Visual health_bar;
 } Unit_Visual;
 
+
 typedef struct {
    struct {
       Vector2 current;
@@ -47,10 +48,11 @@ typedef struct {
    bool hit;
 } Projectile;
 
+
 typedef struct {
    Scene_Node node;
+   Model model;
 } Projectile_Visual;
-
 
 #define MAX_PROJECTILES 16
 
@@ -240,6 +242,7 @@ void render_health_bar(const Unit *u, Health_Bar_Visual *v, Vector3 camera_posit
    // update_color_tint(v->background, (Vector4){0.15f, 0.15f, 0.15f, 0.9f});
 }
 
+#include "particle_system.c"
 
 
 void draw_scene_league(Projection_Application *app) {
@@ -331,5 +334,11 @@ void draw_scene_league(Projection_Application *app) {
    camera_basis(spherical, &forward, &right,&up);
    render_health_bar(&vayne, &vayne_v.health_bar, per_frame.camera.position, forward, right, up);
 
+
+
+   draw_vfx(
+      vector3(vayne.position.x, 0.0f, vayne.position.y),
+      per_frame.camera.position, forward, right, up
+   );
 }
 

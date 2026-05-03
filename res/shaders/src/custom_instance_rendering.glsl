@@ -77,7 +77,30 @@ vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_a
 }
 
 
-vec4 custom(vec2 uv, vec4 custom_1, vec4 custom_2) {
+vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
+
+   if (2 == instance_rendering_mode) {
+      const float thickness = 0.002;
+      if (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness)) {
+         // return vec4(1., 0., 0., 1.);
+      }
+
+      Material material = materials[material_index];
+      if (material.diffuse_handle != uvec2(0)) {
+         // TODO: Mode gamma_correction to after sbti loading
+         vec4 dtexture = vec4(1.);
+         dtexture = texture(sampler2D(material.diffuse_handle), uv);
+         if (false) {
+            const float gamma = 2.2;
+            dtexture = pow(dtexture, vec4(gamma));
+         }
+         // diffuse_color = gamma_correct_texture(diffuse_color);
+         // return dtexture * vec4(17/255., 24/255., 34/255., color_tint.w);
+         return vec4(dtexture.rgb * dtexture.a * color_tint.rgb, dtexture.a * color_tint.a);
+         // return dtexture * color_tint;
+      }
+   }
+
    float current = custom_1.x;
    float max     = custom_1.y;
    float aspect  = custom_1.z;

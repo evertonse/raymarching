@@ -834,7 +834,7 @@ void main() {
 
    if (instance_rendering_mode > 0) {
       // TODO: Expand parameters
-      FragColor = custom(uv, custom_1, custom_2);
+      FragColor = custom(uv, instance_rendering_mode, custom_1, custom_2);
       return;
    }
 

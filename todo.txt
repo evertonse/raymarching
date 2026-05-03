@@ -1,3 +1,9 @@
+[ ] Make manager allow custom shader api that includes depth and alpha 
+blending setting. This is because particles usually don't write to z-buffer but everything else does.
+
+[ ] Add some vfx via particle system (simplest one)
+[ ] Make custom data be just a uint index into another renderer managed array
+
 [x] Make debugging on Rad Debugger work again
 [ ] Remove Animation.scene field and make it work regardless
 [ ] Question: Should delta time be the same for the whole frame what the first instruction in frame has a certain delta time (dt) and takes a certain time which make it so the next instruction would have a different (bigger) dt or elapsed time. Would is preferred here?

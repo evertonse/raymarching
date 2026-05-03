@@ -1088,13 +1088,13 @@ void projection_update(Projection_Application *app, f64 dt) {
       glEnable(GL_BLEND);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       glBlendEquation(GL_FUNC_ADD);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
       glEnable(GL_DEPTH_TEST);
 
       glDisable(GL_CULL_FACE);
       glFrontFace (GL_CW);     // Instead of GL_CCW
       glCullFace  (GL_BACK);   // Instead of GL_BACK
+      glDepthMask(GL_TRUE);
 
       if (false) {
          glDepthFunc (GL_LESS);
@@ -1109,7 +1109,9 @@ void projection_update(Projection_Application *app, f64 dt) {
       glEnable(GL_POLYGON_OFFSET_FILL);
       glPolygonOffset(0.1f, 0.1f);
 
-      glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
+      // glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
+      static const Vector3 clear_color = {123./255, 123./255, 123./255};
+      glClearColor(clear_color.x, clear_color.y, clear_color.z, 1.);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
    }

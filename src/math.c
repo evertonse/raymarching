@@ -6,7 +6,7 @@ typedef float Matrix4 __attribute__((matrix_type(4, 4)));
 typedef float float4 __attribute__((ext_vector_type(4)));
 
 Vector3 spherical_to_cartesian(float theta, float phi) {
-  float x = sin(phi) * cos(theta);
+  float x = sin(phi)  * cos(theta);
   float y = -sin(phi) * sin(theta);
   float z = cos(phi);
   return (Vector3){x, y, z};
@@ -90,6 +90,13 @@ void __invalid_generic();
 
 
 #define mul(a, b) _Generic(((a)),                              \
+    Vector4: _Generic(((b)),                                   \
+        int:     Vector4Scale,                                 \
+        float:   Vector4Scale,                                 \
+        double:  Vector4Scale,                                 \
+        Vector4: Vector4Multiply,                              \
+        default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
+    ),                                                         \
     Vector3: _Generic(((b)),                                   \
         int:     Vector3Scale,                                 \
         float:   Vector3Scale,                                 \
@@ -112,16 +119,19 @@ void __invalid_generic();
     int: _Generic(((b)),                                       \
         Vector2: Vector2ScaleSwapped,                          \
         Vector3: Vector3ScaleSwapped,                          \
+        Vector4: Vector4ScaleSwapped,                          \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     ),                                                         \
     float: _Generic(((b)),                                     \
         Vector2: Vector2ScaleSwapped,                          \
         Vector3: Vector3ScaleSwapped,                          \
+        Vector4: Vector4ScaleSwapped,                          \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     ),                                                         \
     double: _Generic(((b)),                                    \
         Vector2: Vector2ScaleSwapped,                          \
         Vector3: Vector3ScaleSwapped,                          \
+        Vector4: Vector4ScaleSwapped,                          \
         default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
     )                                                          \
 )(((a)), ((b)))
@@ -154,6 +164,10 @@ void __invalid_generic();
 // Note: MatrixMultiply(a, b) returns b * a in raymath; we pass (b, a) to invert.
 static inline Matrix MatrixMultiplySwapped(Matrix a, Matrix b) {
    return MatrixMultiply(b, a);
+}
+
+static inline Vector4 Vector4ScaleSwapped(double scalar, Vector4 vec) {
+   return Vector4Scale(vec, scalar);
 }
 
 static inline Vector3 Vector3ScaleSwapped(double scalar, Vector3 vec) {
@@ -190,6 +204,7 @@ constexpr Transform transform_identity = {
        .z = 1.0f,
     }
 };
+
 // Calculate linear interpolation between two floats
 double Lerpf64(double start, double end, double amount) {
    double result = start + amount*(end - start);
@@ -369,9 +384,11 @@ void camera_basis(Vector2 spherical, Vector3 *forward, Vector3 *right,Vector3 *u
    *up    = normalize(cross(*forward, *right));
 }
 
+// TODO: THESE should go in shared or be changable
 const float near_plane = 0.005;
 const float far_plane = 256.000000;
 const float fov    = PI/3.;
+
 
 Ray compute_mouse_ray(
     float mouse_x, float mouse_y,
@@ -462,3 +479,10 @@ Quaternion billboard_rotation(bool point_aligned, Vector3 position,  Vector3 cam
    // Yaw first, then pitch
    return QuaternionMultiply(qy, qx);
 }
+
+
+
+float randf_range(float lo, float hi) { return lo + ((float)rand() / RAND_MAX) * (hi - lo); }
+
+typedef Vector4 Color;
+
