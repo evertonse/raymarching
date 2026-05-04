@@ -188,6 +188,7 @@ inline Texture create_shadow_texture(int width, int height) {
     return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_SHADOW, TEXTURE_TYPE_2D, 0);
 }
 
+
 Texture create_texture_from_filepath(const char *filepath) {
    if (!filepath) {
       trace_error("Trying to create texture from null path");
@@ -241,6 +242,7 @@ void destroy_texture(Texture *texture) {
    glDeleteTextures(1, &texture->handle);
    *texture = (Texture){0};
 }
+
 
 void update_texture(Texture* tex, int new_width, int new_height, const void* new_data) {
     assert(tex && tex->handle);

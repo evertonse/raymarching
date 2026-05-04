@@ -640,6 +640,7 @@ void bind_material_textures(u32 material_index, Shader shader) {
    }
 }
 
+
 // TODO: Should we just draw everything instead of calling this, or is there a point into choosing certain draw items to be draw and others not?
 //       We could do a begin_frame end_frame and collect the commands into a buffer and renders those. Or comabine draw_index into draw_index with bigger counts to make it faster. But idk tho
 // TODO: change to this instead https://docs.gl/gl4/glDrawElementsIndirect
@@ -881,6 +882,7 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
    return result_draw_index;
 }
 
+
 // Push entire model to buffer manager, handling all meshes and materials
 Draw_Index push_model_to_manager(const Model *model, Animation_Index *animation_index) {
    assert(model != nullptr);
@@ -977,6 +979,7 @@ isz current_animation(Scene_Node node) {
    auto instance  = &renderable->instances.items[instance_index];
    return instance->animation_number;
 }
+
 
 void play_animation(Scene_Node node, uint animation_number) {
    // TODO: Mark animation as dirty when we get around to setting up a dirty flag for it.
@@ -1209,6 +1212,7 @@ Scene_Node create_scene_node_new_cmd(Scene_Node node, const Transform transform)
    return new_node;
 }
 
+
 // TODO: Change C treesitter query to make overload be a keyword right before the the type instead of after
 Scene_Node create_scene_node(const Model *model, const Transform transform) {
    Animation_Index animation_index = {.base = 0, .count = 0};
@@ -1218,10 +1222,17 @@ Scene_Node create_scene_node(const Model *model, const Transform transform) {
    return create_scene_node_from_renderable(renderable_index, transform);
 }
 
+
+Scene_Node overload create_scene_node(const Model *model) {
+   return create_scene_node(model, transform_identity);
+}
+
+
 Scene_Node overload create_scene_node(Scene_Node node, const Transform transform) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    return create_scene_node_from_renderable(renderable_index, transform);
 }
+
 
 Scene_Node overload create_scene_node(Scene_Node node) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
@@ -1301,6 +1312,7 @@ void update_custom_data(Scene_Node node, Vector4 custom_1, Vector4 custom_2) {
    return;
 }
 
+
 Transform get_transform(Scene_Node node) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
@@ -1308,6 +1320,7 @@ Transform get_transform(Scene_Node node) {
    auto instance        = &renderable->instances.items[instance_index];
    return instance->transform;
 }
+
 
 void set_animation_time(Scene_Node node, f64 time) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
@@ -1318,6 +1331,7 @@ void set_animation_time(Scene_Node node, f64 time) {
    auto animation  = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
    instance->animation_current_time = clamp(time, animation->time_begin, animation->time_end);
 }
+
 
 // From 0 to 1.0
 void set_animation_time_percentage(Scene_Node node, f64 percentage) {
@@ -1343,7 +1357,6 @@ void set_animation_speed(Scene_Node node, f64 speed) {
    auto animation  = &manager.animations.items[renderable->animation_index.base + instance->animation_number];
    instance->animation_speed = clamp(speed, -F64_MAX, F64_MAX);
 }
-
 
 
 

@@ -1049,6 +1049,7 @@ Model create_model(const char *filepath) {
    return model;
 }
 
+
 Model create_model_from_mesh(Mesh mesh, const char *diffuse_path, const char *specular_path, const char *emissive_path, const char *normal_path) {
    Model model = {0};
    // Calculate total memory needed for paths

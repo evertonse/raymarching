@@ -75,7 +75,11 @@ vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_a
    vec3 color = (in_x && in_y) ? vec3(0., 0, 0) : background;
    return vec4(color, 1.0);
 }
-
+/* Gradient noise from Jorge Jimenez's presentation: */
+/* http://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare */
+float gradient_noise(in vec2 uv) {
+   return fract(52.9829189 * fract(dot(uv, vec2(0.06711056, 0.00583715))));
+}
 
 vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
 
@@ -90,14 +94,18 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
          // TODO: Mode gamma_correction to after sbti loading
          vec4 dtexture = vec4(1.);
          dtexture = texture(sampler2D(material.diffuse_handle), uv);
-         if (false) {
-            const float gamma = 2.2;
-            dtexture = pow(dtexture, vec4(gamma));
-         }
-         // diffuse_color = gamma_correct_texture(diffuse_color);
+         // gl_FragCoord.xy
+         dtexture += (1.0 / 255.0) * gradient_noise(uv) - (0.5 / 255.0);
+         // dtexture.rgb = gamma_correct_texture(dtexture.rgb);
          // return dtexture * vec4(17/255., 24/255., 34/255., color_tint.w);
-         return vec4(dtexture.rgb * dtexture.a * color_tint.rgb, dtexture.a * color_tint.a);
-         // return dtexture * color_tint;
+         // return vec4(dtexture.rgb * dtexture.a * color_tint.rgb, dtexture.a * color_tint.a);
+         // float noise = (1.0 / 255.0) * gradient_noise(gl_FragCoord.xy);
+         float noise = gradient_noise(gl_FragCoord.xy);
+         float a = dtexture.a + dtexture.a*noise;
+         return vec4(dtexture.rgb, a) * color_tint;
+         // return vec4(vec3(1.), pow(alpha, 2.2)  + gradient_noise(gl_FragCoord.xy));
+      } else {
+         return vec4(1., 0., 0., 1.);
       }
    }
 
