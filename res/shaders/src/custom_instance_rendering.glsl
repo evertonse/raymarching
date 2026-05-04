@@ -102,7 +102,7 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
          // float noise = (1.0 / 255.0) * gradient_noise(gl_FragCoord.xy);
          float noise = gradient_noise(gl_FragCoord.xy);
          float a = dtexture.a + dtexture.a*noise;
-         return vec4(dtexture.rgb, a) * color_tint;
+         return vec4(gamma_correct_texture(dtexture.rgb), a) * color_tint;
          // return vec4(vec3(1.), pow(alpha, 2.2)  + gradient_noise(gl_FragCoord.xy));
       } else {
          return vec4(1., 0., 0., 1.);

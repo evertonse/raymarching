@@ -22,7 +22,7 @@ typedef struct {
    bool alive;
 } Particle;
 
-#define MAX_PARTICLES 50
+#define MAX_PARTICLES 20
 
 typedef struct {
    float gravity;
@@ -102,7 +102,7 @@ Color overload lerp(Color a, Color b, float t) {
 }
 
 
-Color internal sample_color_gradient(Color *colors, float *timings, uint count, float t) {
+Color internal sample_color_gradient(const Color *colors, const float *timings, uint count, float t) {
    // before first key
    if (count < 1) {
       return vector4(1);
@@ -135,7 +135,7 @@ Color internal sample_color_gradient(Color *colors, float *timings, uint count, 
 }
 
 
-void internal spawn_particle(Particle_System *ps, Vector3 emitter_position, float starting_age) {
+Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float starting_age) {
    for (uint i = 0; i < MAX_PARTICLES; i++) {
       Particle *p = &ps->particles[i];
       if (p->alive) {
@@ -181,13 +181,14 @@ void internal spawn_particle(Particle_System *ps, Vector3 emitter_position, floa
       p->age = starting_age;
       p->lifetime = lifetime;
       p->alive = true;
-      return;
+      return p;
    }
+   return nullptr;
    // silently drop if full
 }
 
 
-void internal update_particle(Particle_System *ps, Particle *p, float dt) {
+void internal update_particle(Particle *p, const Particle_System *ps, float dt) {
    if (!p->alive) {
       return;
    }
@@ -225,37 +226,45 @@ void internal update_particle(Particle_System *ps, Particle *p, float dt) {
 
 
 void update_particle_system(Particle_System *ps, Vector3 emitter_position, float dt) {
-   // Simulate live particles
-   ps->particle_count = 0;
-
-   for (uint i = 0; i < MAX_PARTICLES; i++) {
-      Particle *p = &ps->particles[i];
-      if (!p->alive) {
-         continue;
+   // Simulate live particles. Do this first because if we spawn particles and then update
+   // Every new particle would start with at least 'dt' of age which would could synchronization problems.
+   {
+      ps->particle_count = 0;
+      for (uint i = 0; i < MAX_PARTICLES; i++) {
+         Particle *p = &ps->particles[i];
+         if (p->alive) {
+            update_particle(p, ps, dt);
+            ps->particle_count += 1;
+         }
       }
-      update_particle(ps, p, dt);
-      ps->particle_count++;
    }
 
    // Advance emitter clock
-   ps->emitter_age += dt;
-   if (ps->looping && ps->emitter_age >= ps->duration) {
-      ps->emitter_age -= ps->duration;
-      // -= instead of = 0 so we don't lose overshoot
-      // e.g. duration = 1s and dt pushed us to 1.003s then emitter_age becomes 0.003s
-      // keeping that tiny remainder means emission stays perfectly timed
+   {
+      ps->emitter_age += dt;
+      if (ps->looping && ps->emitter_age >= ps->duration) {
+         ps->emitter_age -= ps->duration;
+         // -= instead of = 0 so we don't lose overshoot
+         // e.g. duration = 1s and dt pushed us to 1.003s then emitter_age becomes 0.003s
+         // keeping that tiny remainder means emission stays perfectly timed
+      }
    }
 
-   bool emitting = ps->looping || (ps->emitter_age < ps->duration);
-
    // Emit new particles
-   if (emitting) {
-      // Accumulator is needed to avoid spawning 0 every frame
-      ps->spawn_accumulator += ps->spawn_rate * dt;
-      while (ps->spawn_accumulator >= 1.0f) {
-         ps->spawn_accumulator -= 1.0f;
-         float starting_age = ps->spawn_accumulator / ps->spawn_rate; // convert back to seconds
-         spawn_particle(ps, emitter_position, starting_age);
+   {
+      bool emitting = ps->looping || (ps->emitter_age < ps->duration);
+      if (emitting) {
+         // Accumulator is needed to avoid spawning 0 every frame
+         ps->spawn_accumulator += ps->spawn_rate * dt;
+         while (ps->spawn_accumulator >= 1.0f) {
+            ps->spawn_accumulator -= 1.0f;
+            float starting_age = ps->spawn_accumulator / ps->spawn_rate; // convert back to seconds
+            Particle *p = spawn_particle(ps, emitter_position, starting_age);
+            assert_msg(p, "If this triggers we probably hit max capacity on particles per particle_system");
+            // Not updating when just spawned will cause popping related to over_lifetime fields.
+            // Also, we update with no time passed(dt=0) because it was just born.
+            update_particle(p, ps, 0);
+         }
       }
    }
 
@@ -396,12 +405,6 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
 
       update_color_tint(node, p->color.current);
    }
-
-   static u64 all_dead_count = 0;
-   if (0 == ps->particle_count) {
-      all_dead_count += 1;
-      trace_info("All dead particles %u", all_dead_count);
-   }
 }
 
 
@@ -443,6 +446,7 @@ void draw_quad_test(Vector3 unit_position, Vector3 camera_position, Vector3 came
    }
 
 }
+
 
 void draw_vfx(Vector3 unit_position, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
 
@@ -568,6 +572,7 @@ void draw_vfx(Vector3 unit_position, Vector3 camera_position, Vector3 camera_for
             },
             .size = vector3(1.f),
          },
+         .particles = {0},
          .is_billboard = true,
          .texture_path = "res/textures/vfx/Flare00.png",
       };
@@ -577,7 +582,7 @@ void draw_vfx(Vector3 unit_position, Vector3 camera_position, Vector3 camera_for
    glDisable(GL_CULL_FACE);
    for (int idx = 0; idx < count_of(vfx); idx++) {
       // @remove-me
-      if (true || 0 == idx) {
+      if (true || 1 == idx) {
          draw_particle_system(&vfx[idx].particle_system, &vfx[idx].render_resources, unit_position, camera_position, camera_forward, camera_right, camera_up);
       }
    }

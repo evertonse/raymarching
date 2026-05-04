@@ -28,7 +28,12 @@
 #define private __attribute__((visibility("hidden")))
 #define zero_of(x) ((typeof(x)) {0})
 
-
+void wait_for_enter_on_terminal(void) {
+   int c;
+   puts("Press Enter to continue...");
+   // Read until newline is consumed
+   while ((c = getchar()) != '\n' && c != EOF) { }
+}
 
 // NOTE: If not defined, nuklear will try to define itself BUT is crashes when freeing a null which is wrong since stb relies on that behaviour it seems.
 #define STBTT_malloc(x,u)  ((void)(u),malloc(x))
