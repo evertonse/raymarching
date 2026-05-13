@@ -66,17 +66,89 @@ Matrix MatrixViewFromSpherical(Vector3 position, float theta, float phi) {
 }
 
 
-#define add(a, b) _Generic((a), \
-   Vector2: Vector2Add, \
-   Vector3: Vector3Add, \
-   Matrix: MatrixAdd \
-)((a), (b))
+#define add(a, b) _Generic(((a)),                                   \
+   Vector4: _Generic(((b)),                                         \
+      int:     Vector4AddValue,                                     \
+      float:   Vector4AddValue,                                     \
+      double:  Vector4AddValue,                                     \
+      Vector4: Vector4Add,                                          \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   Vector3: _Generic(((b)),                                         \
+      int:     Vector3AddValue,                                     \
+      float:   Vector3AddValue,                                     \
+      double:  Vector3AddValue,                                     \
+      Vector3: Vector3Add,                                          \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   Vector2: _Generic(((b)),                                         \
+      int:     Vector2AddValue,                                     \
+      float:   Vector2AddValue,                                     \
+      double:  Vector2AddValue,                                     \
+      Vector2: Vector2Add,                                          \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   int: _Generic(((b)),                                             \
+      Vector2: Vector2AddValueSwapped,                              \
+      Vector3: Vector3AddValueSwapped,                              \
+      Vector4: Vector4AddValueSwapped,                              \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   float: _Generic(((b)),                                           \
+      Vector2: Vector2AddValueSwapped,                              \
+      Vector3: Vector3AddValueSwapped,                              \
+      Vector4: Vector4AddValueSwapped,                              \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   double: _Generic(((b)),                                          \
+      Vector2: Vector2AddValueSwapped,                              \
+      Vector3: Vector3AddValueSwapped,                              \
+      Vector4: Vector4AddValueSwapped,                              \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   )                                                                \
+)(((a)), ((b)))
 
-#define sub(a, b) _Generic((a), \
-   Vector2: Vector2Subtract, \
-   Vector3: Vector3Subtract, \
-   Matrix:  MatrixSubtract \
-)((a), (b))
+#define sub(a, b) _Generic(((a)),                                   \
+   Vector4: _Generic(((b)),                                         \
+      int:     Vector4SubtractValue,                                \
+      float:   Vector4SubtractValue,                                \
+      double:  Vector4SubtractValue,                                \
+      Vector4: Vector4Subtract,                                     \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   Vector3: _Generic(((b)),                                         \
+      int:     Vector3SubtractValue,                                \
+      float:   Vector3SubtractValue,                                \
+      double:  Vector3SubtractValue,                                \
+      Vector3: Vector3Subtract,                                     \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   Vector2: _Generic(((b)),                                         \
+      int:     Vector2SubtractValue,                                \
+      float:   Vector2SubtractValue,                                \
+      double:  Vector2SubtractValue,                                \
+      Vector2: Vector2Subtract,                                     \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   int: _Generic(((b)),                                             \
+      Vector2: Vector2SubtractValueSwapped,                         \
+      Vector3: Vector3SubtractValueSwapped,                         \
+      Vector4: Vector4SubtractValueSwapped,                         \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   float: _Generic(((b)),                                           \
+      Vector2: Vector2SubtractValueSwapped,                         \
+      Vector3: Vector3SubtractValueSwapped,                         \
+      Vector4: Vector4SubtractValueSwapped,                         \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   ),                                                               \
+   double: _Generic(((b)),                                          \
+      Vector2: Vector2SubtractValueSwapped,                         \
+      Vector3: Vector3SubtractValueSwapped,                         \
+      Vector4: Vector4SubtractValueSwapped,                         \
+      default: COMPILE_ERROR_TYPE_UNSUPPORTED                       \
+   )                                                                \
+)(((a)), ((b)))
 
 
 // NOTE: We're forced to use default in all cases from second deep generic because mingwgcc got confused
@@ -166,16 +238,40 @@ static inline Matrix MatrixMultiplySwapped(Matrix a, Matrix b) {
    return MatrixMultiply(b, a);
 }
 
-static inline Vector4 Vector4ScaleSwapped(double scalar, Vector4 vec) {
-   return Vector4Scale(vec, scalar);
+static inline Vector4 Vector4ScaleSwapped(float scalar, Vector4 vector) {
+   return Vector4Scale(vector, scalar);
 }
 
-static inline Vector3 Vector3ScaleSwapped(double scalar, Vector3 vec) {
-   return Vector3Scale(vec, scalar);
+static inline Vector3 Vector3ScaleSwapped(float scalar, Vector3 vector) {
+   return Vector3Scale(vector, scalar);
 }
 
-static inline Vector2 Vector2ScaleSwapped(double scalar, Vector2 vec) {
-   return Vector2Scale(vec, scalar);
+static inline Vector2 Vector2ScaleSwapped(float scalar, Vector2 vector) {
+   return Vector2Scale(vector, scalar);
+}
+
+static inline Vector2 Vector2AddValueSwapped(float scalar, Vector2 vector) {
+   return Vector2AddValue(vector, scalar);
+}
+
+static inline Vector3 Vector3AddValueSwapped(float scalar, Vector3 vector) {
+   return Vector3AddValue(vector, scalar);
+}
+
+static inline Vector4 Vector4AddValueSwapped(float scalar, Vector4 vector) {
+   return Vector4AddValue(vector, scalar);
+}
+
+static inline Vector2 Vector2SubtractValueSwapped(float scalar, Vector2 vector) {
+   return Vector2SubtractValue(vector, scalar);
+}
+
+static inline Vector3 Vector3SubtractValueSwapped(float scalar, Vector3 vector) {
+   return Vector3SubtractValue(vector, scalar);
+}
+
+static inline Vector4 Vector4SubtractValueSwapped(float scalar, Vector4 vector) {
+   return Vector4SubtractValue(vector, scalar);
 }
 
 
@@ -361,7 +457,8 @@ Vector3 ndc_to_world(
 
    Vector3 forward       = camera_forward, right = camera_right, up = camera_up;
 
-   // This is how we do in shader but raymath uses a different coordinate the ours sad. Can't use their shit unless we change it alot.
+   // This is how we do in shader but raymath uses a different coordinate the ours sad.
+   // Can't use their shit unless we change it alot.
    // Hence the explcit early return
    Matrix look_at        = MatrixLookAt(camera_position, add(camera_position, camera_forward), camera_up);
    auto look_at_inverted = invert(look_at);
@@ -383,6 +480,7 @@ void camera_basis(Vector2 spherical, Vector3 *forward, Vector3 *right,Vector3 *u
    *right = normalize(cross(world_up, *forward));
    *up    = normalize(cross(*forward, *right));
 }
+
 
 // TODO: THESE should go in shared or be changable
 const float near_plane = 0.005;
@@ -479,7 +577,6 @@ Quaternion billboard_rotation(bool point_aligned, Vector3 position,  Vector3 cam
    // Yaw first, then pitch
    return QuaternionMultiply(qy, qx);
 }
-
 
 
 float randf_range(float lo, float hi) { return lo + ((float)rand() / RAND_MAX) * (hi - lo); }

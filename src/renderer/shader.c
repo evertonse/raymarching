@@ -72,6 +72,7 @@ static struct {
    isz capacity;
    isz fragment_line;  // Line where fragment shader starts (after #pragma fragment)
    isz vertex_line;    // Line where vertex shader starts (after #pragma vertex)
+   isz compute_line;
 } shaders_metadata[MAX_SHADERS] = {0};
 
 static inline ZString unique_path_offset_to_string(isz string_offset_in_buffer) {
@@ -167,10 +168,11 @@ static bool pre_process_shader_with_metadata(
    // So even if you save a file with no new line at the end, this source will have a \n as the last char:
    // Remove it like this if you need: source[strlen(source)-1] = '\0';
    char *source = read_file(path);
-   usz source_length = strlen(source);
    if (!source) {
       return false;
    }
+
+   usz source_length = strlen(source);
    assert_msg(source[source_length-1] == '\n', "All offsets assumes the read_file behaviour is to append a new line always.");
 
    // Record this file's starting line
@@ -231,7 +233,7 @@ static bool pre_process_shader_with_metadata(
                }
 
                if (!pre_process_shader_with_metadata(resolved_path, ds, path_offets, offset_compute, offset_fragment, offset_vertex, shader_index, current_line_number)) {
-                  assert_msg(false, "TODO handle pre_process_shader failure");
+                  trace_info("pre-processing shader '%s' failed on include '%s'.", path, resolved_path);
                   return false;
                }
 
@@ -268,11 +270,15 @@ static bool pre_process_shader_with_metadata(
             if (stb_c_lexer_get_token(&lexer) && lexer.token == CLEX_id) {
                bool is_fragment = (strcmp(lexer.string, "fragment") == 0);
                bool is_vertex   = (strcmp(lexer.string, "vertex"  ) == 0);
+               bool is_compute  = (strcmp(lexer.string, "compute"  ) == 0);
 
                if (is_vertex   && (nullptr == offset_vertex   || -1 != *offset_vertex  )) {
                   return false;
                }
                if (is_fragment && (nullptr == offset_fragment || -1 != *offset_fragment)) {
+                  return false;
+               }
+               if (is_compute && (nullptr == offset_compute)) {
                   return false;
                }
 
@@ -303,6 +309,9 @@ static bool pre_process_shader_with_metadata(
                   } else if (is_vertex) {
                      shaders_metadata[shader_index].vertex_line = *current_line_number;
                      *offset_vertex   = shader_type_offset;
+                  } else if (is_compute) {
+                     shaders_metadata[shader_index].compute_line = *current_line_number;
+                     *offset_compute   = shader_type_offset;
                   } else {
                      assert_msg(0, "Implement other types");
                   }
@@ -659,6 +668,7 @@ static bool metadata_map_line_to_file(int shader_index, Shader_Type shader_type,
       return ok1;
    }
 }
+
 static void print_remapped_opengl_errors(const char *error_string, int shader_index, Shader_Type shader_type) {
    static DString ds = {0};
    ds.count = 0;
@@ -721,6 +731,8 @@ static void print_remapped_opengl_errors(const char *error_string, int shader_in
             global_line += shaders_metadata[shader_index].vertex_line - 1;
          } else if (shader_type == SHADER_TYPE_FRAGMENT) {
             global_line += shaders_metadata[shader_index].fragment_line - 1;
+         } else if (shader_type == SHADER_TYPE_COMPUTE) {
+            global_line += shaders_metadata[shader_index].compute_line - 1;
          }
          const char* filepath = nullptr;
          isz local_line = -1;
@@ -744,71 +756,6 @@ static void print_remapped_opengl_errors(const char *error_string, int shader_in
    return;
 }
 
-static void print_remapped_opengl_errors2(const char *error_string, int shader_index, Shader_Type shader_type) {
-   DString ds = {0};
-   stb_lexer lex = {0};
-   char store[8*1024];
-   isz error_string_length = strlen(error_string);
-   stb_c_lexer_init(&lex, error_string, error_string + error_string_length, store, count_of(store));
-
-   const char *line_start = error_string;
-   while (stb_c_lexer_get_token(&lex)) {
-      if (lex.token == CLEX_intlit) {
-         const char *before_num = line_start;
-         if (stb_c_lexer_get_token(&lex) && lex.token == '(' && stb_c_lexer_get_token(&lex) && lex.token == CLEX_intlit) {
-            long line_num = lex.int_number;
-            if (stb_c_lexer_get_token(&lex) && lex.token == ')' && stb_c_lexer_get_token(&lex) && lex.token == ':') {
-               ds_write_buf(&ds, before_num, lex.where_firstchar - before_num);
-
-               const char *filepath = nullptr;
-               isz local_line = -1;
-               isz global_line = line_num;
-               ZString inform_type_msg = "";
-
-
-               if (SHADER_TYPE_VERTEX == shader_type) {
-                  global_line += shaders_metadata[shader_index].vertex_line - 1;
-                  inform_type_msg = "Vertex shader";
-               } else if (SHADER_TYPE_FRAGMENT == shader_type) {
-                  global_line += shaders_metadata[shader_index].fragment_line - 1;
-                  inform_type_msg = "Fragment shader";
-               }
-               ds_printf(&ds, "%s\n", inform_type_msg);
-               if (metadata_map_line_to_file(shader_index, shader_type, global_line, &filepath, &local_line)) {
-                  ds_printf(&ds, "%s:%zu", filepath, local_line);
-               } else {
-                  ds_printf(&ds, "full_block:%ld", line_num);
-               }
-
-               const char *error_end = lex.parse_point;
-               while (*error_end && *error_end != '\n' && *error_end != '\r') {
-                  error_end++;
-               }
-               ds_printf(&ds, " %.*s\n", (int)(error_end - lex.parse_point), lex.parse_point);
-
-               while (*error_end && (*error_end == '\n' || *error_end == '\r')) {
-                  error_end++;
-               }
-               line_start = error_end;
-               if (*error_end) {
-                  stb_c_lexer_init(&lex, error_end, error_string + strlen(error_string), store, 512);
-               }
-            }
-         }
-      }
-   }
-
-   if (line_start < error_string + strlen(error_string)) {
-      ds_write_buf(&ds, line_start, (error_string + strlen(error_string)) - line_start);
-   }
-
-   if (ds.count) {
-      ds_write_zero(&ds);
-      trace_error("%s", ds.items);
-   }
-   ds_free(ds);
-}
-
 
 Shader create_shader_from_memory(const u8 **sources, const Shader_Type *types, usz count, const char *loaded_from_this_path) {
    Shader shader = shader_invalid;
@@ -829,6 +776,9 @@ Shader create_shader_from_memory(const u8 **sources, const Shader_Type *types, u
    for (usz i = 0; i < count; ++i) {
       const u8 *src = sources[i];
       Shader_Type type = types[i];
+      // This is paia because fragment + vertex shader will be set as fragment
+      // Compute shader will be set correctly but it's clunky and it isn't validating shit
+      shader.type = type;
 
       if (!src || type == INVALID_SHADER_TYPE) {
          trace_error("Null shader source or invalid type at index %zu.\n", i);
@@ -836,7 +786,7 @@ Shader create_shader_from_memory(const u8 **sources, const Shader_Type *types, u
       }
 
       GLuint shader_handle = glCreateShader(type);
-      if (!shader_handle) {
+      if (0 == shader_handle) {
          trace_error("glCreateShader failed at index %zu.\n", i);
          goto fail;
       }
@@ -899,7 +849,6 @@ Shader create_shader_from_memory(const u8 **sources, const Shader_Type *types, u
    }
 
    shader.handle = program;
-   shader.type = 0; // optional: store stage bitfield
    shader.path = loaded_from_this_path;
    return shader;
 
@@ -916,14 +865,64 @@ fail:
    return shader_invalid;
 }
 
-Shader create_shader_single_from_memory(u8* source, Shader_Type type) {
+
+Shader create_shader_single_from_memory(u8* source, Shader_Type type, ZString path) {
    const u8 *sources[] = {source};
    const Shader_Type types[] = {type};
    assert(count_of(sources) == count_of(types));
 
-   Shader result = create_shader_from_memory(sources, types, count_of(sources), nullptr);
+   Shader result = create_shader_from_memory(sources, types, count_of(sources), path);
    result.type = type;
    return result;
+}
+
+void destroy_shader(Shader *shader) {
+
+   if (!shader) {
+      trace_warn("%s: shader pointer is null.\n", __func__);
+      return;
+   }
+
+   // Already invalid
+   if (shader->handle == 0) {
+
+#if defined(RENDERER_DEBUG)
+      trace_warn("%s: shader already destroyed or invalid.\n", __func__);
+#endif
+      *shader = shader_invalid;
+      return;
+   }
+
+// Validate handle in debug builds
+#if defined(RENDERER_DEBUG)
+   {
+      if (!glIsProgram(shader->handle)) {
+         trace_error("%s: handle %u is not a valid OpenGL program.\n", __func__, shader->handle);
+
+         *shader = shader_invalid;
+         return;
+      }
+   }
+#endif
+
+   // If program is currently bound, unbind first.
+   // Avoid leaving GL state referencing deleted program.
+   GLint current_program = 0;
+   glGetIntegerv(GL_CURRENT_PROGRAM, &current_program);
+
+   if ((GLuint)current_program == shader->handle) {
+      glUseProgram(0);
+   }
+
+   // Delete object program
+   glDeleteProgram(shader->handle);
+
+   GLenum err = glGetError();
+   if (err != GL_NO_ERROR) {
+      trace_error("%s: glDeleteProgram(%u) failed with GL error 0x%X\n", __func__, shader->handle, err);
+   }
+
+   *shader = shader_invalid;
 }
 
 void create_or_overwrite_time_marker(ZString path) {
@@ -985,7 +984,9 @@ Shader create_shader(const char* path, Shader_Type type) {
 
       // No type detected from pre_process at all
       if (-1 == offset_compute && -1 == offset_fragment && -1 == offset_vertex) {
-         result = create_shader_single_from_memory(ds.data, type);
+         result = create_shader_single_from_memory(ds.data, type, path);
+      // } else if (-1 != offset_compute && -1 == offset_fragment && -1 == offset_vertex) {
+      //    result = create_shader_single_from_memory(ds.data, type, path);
       } else {
          for (size_t i = 0; i < count; i++) {
             make_dirs("src/assets/shaders/output/ignore/");
@@ -1017,6 +1018,10 @@ Shader create_shader(const char* path, Shader_Type type) {
    // Always free the dynamic string, under success or failure.
    ds_free(ds);
    return result;
+}
+
+Shader overload inline create_shader(const char* path) {
+   return create_shader(path, SHADER_TYPE_UNDEFINED);
 }
 
 // TODO: Move this faster implementation to cye.h
@@ -1181,13 +1186,65 @@ Shader reload_shader(Shader shader) {
    return new_shader;
 }
 
+
+bool reload_shader_if_needed(Shader *shader) {
+   if (!shader) {
+      trace_error("%s: shader pointer is null.\n", __func__);
+      return false;
+   }
+
+   const char *path = shader->path;
+
+   if (!path) {
+      trace_error("%s: shader has no source path.\n", __func__);
+      return false;
+   }
+
+   bool valid = is_valid_shader(*shader);
+
+   // Initial creation
+   if (!valid) {
+      trace_info("%s: creating shader %s", __func__, path);
+      *shader = create_shader(path, 0);
+
+      if (!is_valid_shader(*shader)) {
+         trace_error("%s: failed to create shader %s", __func__, path);
+         *shader = shader_invalid;
+         return false;
+      }
+
+      return true;
+   }
+
+   bool need_reload = shader_needs_reload(*shader);
+   if (!need_reload) {
+      return true;
+   }
+
+   trace_info("%s: reloading shader %s", __func__, path);
+   Shader reloaded = reload_shader(*shader);
+   *shader = reloaded;
+
+   return true;
+}
+
+
 void bind_shader(Shader shader) {
+   // This cache should avoid called the driver and triggering their own validation
+   // At the same time we must be the only ones ever to call opengl, no other library can, otherwise the cache obivously break.
+   static GLuint bound_program = 0;
+
+   if (shader.handle == bound_program) return;
+
    if (!is_valid_shader(shader)) {
       trace_error("Trying to bind an invalid shader!");
       return;
    }
+
    glUseProgram(shader.handle);
+   bound_program = shader.handle;
 }
+
 
 void dispatch_compute_shader(const Shader shader, u32 groups_x, u32 groups_y, u32 groups_z) {
     assert(is_valid_shader(shader));
@@ -1196,8 +1253,33 @@ void dispatch_compute_shader(const Shader shader, u32 groups_x, u32 groups_y, u3
     glDispatchCompute(groups_x, groups_y, groups_z);
 }
 
+
+inline void dispatch_compute_shader_2d(const Shader shader, int width, int height) {
+   const u32 groups_x = ((width + 7) / 8);
+   const u32 groups_y = ((height + 7) / 8);
+   const u32 groups_z = 1;
+   dispatch_compute_shader(shader, groups_x, groups_y, groups_z);
+}
+
+
+typedef enum {
+   SHADER_BARRIER_IMAGE_ACCESS  = 1 << 0,
+   SHADER_BARRIER_TEXTURE_FETCH = 1 << 1,
+   SHADER_BARRIER_UNIFORM_BUFFER = 1 << 2,
+} Shader_Barrier;
+
+
+void shader_memory_barrier(Shader_Barrier barrier_bits) {
+   GLbitfield bits = 0;
+   if (barrier_bits & SHADER_BARRIER_IMAGE_ACCESS)   bits |= GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
+   if (barrier_bits & SHADER_BARRIER_TEXTURE_FETCH)  bits |= GL_TEXTURE_FETCH_BARRIER_BIT;
+   if (barrier_bits & SHADER_BARRIER_UNIFORM_BUFFER) bits |= GL_UNIFORM_BARRIER_BIT;
+   glMemoryBarrier(bits);
+}
+
+
 void shader_image_acess_barrier() {
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+   shader_memory_barrier(SHADER_BARRIER_IMAGE_ACCESS);
 }
 
 
@@ -1263,12 +1345,27 @@ void upload_uniform_bool(const Shader shader, const char* name, bool value) {
     if (loc >= 0) glUniform1i(loc, value ? 1 : 0);
 }
 
-
 void upload_uniform_ivec2(const Shader shader, const char* name, int v1, int v2) {
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform2i(loc, v1, v2);
 }
+
+
 void upload_uniform_int(const Shader shader, const char* name, int value) {
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform1i(loc, value);
+}
+
+
+// NOTE: We're hoping that this is translated into command-buffer embedded data
+//       or it makes the data available in registers/constant cache instead of requiring memory fetch by using uniform buffers.
+//       Additionally, we're not getting the location, we're assuming it's on location 0 so no string nor location caching
+// NOTE: This call is only useful for the current shader
+void upload_push_constants(const void *data, isz size_in_bytes) {
+   assert(size_in_bytes % size_of(Vector4) == 0);
+   if (size_in_bytes > 256) {
+      trace_warn("size_in_bytes=%d > 256 bytes, They say hardware has small fast constant storage, consider using something else.", size_in_bytes);
+   }
+   // Location 0, hardcoded reserved for "push constants", never a string lookup, one command stream entry
+   glUniform4fv(0, size_in_bytes / size_of(Vector4), (const float *)data);
 }

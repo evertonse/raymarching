@@ -37,46 +37,44 @@ typedef struct {
 } Vertex;
 
 
-
 typedef struct {
-    GLuint handle;
-    Vertex_Buffer vb;
-    Index_Buffer ib;
+   GLuint handle;
+   Vertex_Buffer vb;
+   Index_Buffer ib;
 } Vertex_Array;
 
 
 typedef struct {
-    i32 x;                // Rectangle top-left corner position x
-    i32 y;                // Rectangle top-left corner position y
-    i32 width;            // Rectangle width
-    i32 height;           // Rectangle height
+   i32 x;                // Rectangle top-left corner position x
+   i32 y;                // Rectangle top-left corner position y
+   i32 width;            // Rectangle width
+   i32 height;           // Rectangle height
 } Rectangle_I32;
 
 
-
 inline bool is_valid_vertex_array(Vertex_Array va) {
-    if (0 == va.handle) {
-       trace_info("Vertex Array has zero handle");
-       return false;
-    }
+   if (0 == va.handle) {
+      trace_info("Vertex Array has zero handle");
+      return false;
+   }
 
-    if (!is_valid_vertex_buffer(va.vb)) {
-       trace_info("Vertex Array has bad vertex buffer");
-       return false;
-    }
+   if (!is_valid_vertex_buffer(va.vb)) {
+      trace_info("Vertex Array has bad vertex buffer");
+      return false;
+   }
 
-    if (!is_valid_index_buffer(va.ib)) {
-       trace_info("Vertex Array has bad index buffer");
-       return false;
-    }
+   if (!is_valid_index_buffer(va.ib)) {
+      trace_info("Vertex Array has bad index buffer");
+      return false;
+   }
 
 #ifdef RENDERER_DEBUG
-    if (!glIsVertexArray(va.handle)) {
-        trace_info("Vertex Array handle is not valid");
-        return false;
-    }
+   if (!glIsVertexArray(va.handle)) {
+      trace_info("Vertex Array handle is not valid");
+      return false;
+   }
 #endif
-    return true;
+   return true;
 }
 
 
@@ -116,6 +114,8 @@ Vertex_Array create_vertex_array(const Vertex *vertices, usz vertex_count, const
 
 
 void set_redererer_mode(Renderer_Mode mode) {
+   // WARN: We gotta make sure the actuall state and our's aren't desync.
+   //       Sometimes we might be using a lib that changes the gl state.
    if (mode == __state.renderer.mode) {
       return;
    }
@@ -128,6 +128,7 @@ void set_redererer_mode(Renderer_Mode mode) {
    }
    __state.renderer.mode = mode;
 }
+
 
 Vertex_Array create_vertex_array_from_arrays(Vector3 *positions, Vector3 *normals, Vector2* uvs, isz count, u32* indices, isz indices_count) {
    Vertex_Array va = {0};
@@ -229,6 +230,7 @@ Vertex_Array create_vertex_array_from_mesh(const Mesh *mesh) {
    return va;
 }
 
+
 Vertex_Array create_cube_vertex_array(void) {
    constexpr float interleaved[] = {
       // positions          // normals           // texture coords
@@ -288,19 +290,27 @@ Vertex_Array create_cube_vertex_array(void) {
    return create_vertex_array_from_mesh(&mesh);
 }
 
+
 void bind_vertex_array(const Vertex_Array va) {
    glBindVertexArray(va.handle);
 }
 
+
 #include "framebuffer.c"
+#include "bloom.c"
+// #include "bloom_2.c"
+// #include "bloom_3.c"
+#include "postprocess.c"
+
 
 void update_renderer(void) {
    // TODO: Check is window_height/width correspond to actual framebuffer
-   auto samples = default_framebuffer_samples();
+   int samples = default_framebuffer_samples();
+   assert_msg(samples <= 0, "We're not ready to deal with multisampled default framebuffer (swapchain)");
 
    static bool first_time = false;
    bool inform_change = false;
-   if (first_time || samples != default_framebuffer.color.samples) {
+   if (first_time || samples >= 1) {
       first_time = true;
       inform_change = true;
    }
@@ -309,12 +319,10 @@ void update_renderer(void) {
       .color = {
          .width  = get_window_width(),
          .height = get_window_height(),
-         .samples = samples,
       },
       .depth = {
          .width  = get_window_width(),
          .height = get_window_height(),
-         .samples = samples,
       },
       .is_default_framebuffer = true,
    };
@@ -323,65 +331,66 @@ void update_renderer(void) {
       trace_okay("Here's some fucking news about the default framebuffer:");
       trace_struct(default_framebuffer);
    }
-
 }
+
 
 void print_default_framebuffer_info(void) {
    GLint viewport[4]; // Need array for 4 values: x, y, width, height
 
    // Bind the default framebuffer (0)
    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-   printf("=== Default Framebuffer Info ===\n");
+   trace_info("=== Default Framebuffer Info ===\n");
 
    // Resolution (viewport size, not FBO size)
    glGetIntegerv(GL_VIEWPORT, viewport);
-   printf("Viewport: %d x %d (x = %d, y = %d)\n", viewport[2], viewport[3], viewport[0], viewport[1]); // width, height, x, y
+   trace_info("Viewport: %d x %d (x = %d, y = %d)\n", viewport[2], viewport[3], viewport[0], viewport[1]); // width, height, x, y
 
    // Samples (MSAA)
    GLint samples;
    glGetIntegerv(GL_SAMPLES, &samples);
-   printf("Samples: %d\n", samples);
+   trace_info("Samples: %d\n", samples);
 
    // Color attachment - check both front and back buffers
    GLint red, green, blue, alpha;
 
-   printf("Back buffer format:\n");
+   trace_info("Back buffer format:\n");
    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_BACK_LEFT, GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE, &red);
    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_BACK_LEFT, GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE, &green);
    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_BACK_LEFT, GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE, &blue);
    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_BACK_LEFT, GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &alpha);
-   printf("  Color format: R%d G%d B%d A%d\n", red, green, blue, alpha);
+   trace_info("  Color format: R%d G%d B%d A%d\n", red, green, blue, alpha);
 
    // Check if we have a front buffer (only in double-buffered contexts)
    GLint doublebuf = 0;
    glGetIntegerv(GL_DOUBLEBUFFER, &doublebuf);
-   printf("Double-buffered: %s\n", doublebuf ? "yes" : "no");
+   trace_info("Double-buffered: %s\n", doublebuf ? "yes" : "no");
 
    if (doublebuf) {
-      printf("Front buffer format:\n");
+      trace_info("Front buffer format:\n");
       glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_FRONT_LEFT, GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE, &red);
       glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_FRONT_LEFT, GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE, &green);
       glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_FRONT_LEFT, GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE, &blue);
       glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_FRONT_LEFT, GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &alpha);
-      printf("  Color format: R%d G%d B%d A%d\n", red, green, blue, alpha);
+      trace_info("  Color format: R%d G%d B%d A%d\n", red, green, blue, alpha);
    }
 
    // Depth buffer
    GLint depth_size = 0;
    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_DEPTH, GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE, &depth_size);
-   printf("Depth bits: %d\n", depth_size);
+   trace_info("Depth bits: %d\n", depth_size);
 
    // Stencil buffer
    GLint stencil_size = 0;
    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_STENCIL, GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE, &stencil_size);
-   printf("Stencil bits: %d\n", stencil_size);
+   trace_info("Stencil bits: %d\n", stencil_size);
 
    // Check for errors
    GLenum error = glGetError();
    if (error != GL_NO_ERROR) {
-      printf("OpenGL error occurred: 0x%X\n", error);
+      trace_info("OpenGL error occurred: 0x%X\n", error);
    }
 }
+
 
 void print_opengl_resource_limits(void) {
    GLint value;
@@ -390,101 +399,101 @@ void print_opengl_resource_limits(void) {
 
    // TEXTURES
    glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &value);
-   printf("Max texture image units per fragment shader: %d\n", value);
+   trace_info("Max texture image units per fragment shader: %d\n", value);
 
    glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &value);
-   printf("Max combined texture image units (all shader stages): %d\n", value);
+   trace_info("Max combined texture image units (all shader stages): %d\n", value);
 
    glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &value);
-   printf("Max texture units in vertex shader: %d\n", value);
+   trace_info("Max texture units in vertex shader: %d\n", value);
 
    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &value);
-   printf("Max 2D texture size: %dx%d\n", value, value);
+   trace_info("Max 2D texture size: %dx%d\n", value, value);
 
    glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &value);
-   printf("Max 3D texture size: %dx%dx%d\n", value, value, value);
+   trace_info("Max 3D texture size: %dx%dx%d\n", value, value, value);
 
    glGetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE, &value);
-   printf("Max cube map size: %dx%d\n", value, value);
+   trace_info("Max cube map size: %dx%d\n", value, value);
 
    glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &value);
-   printf("Max array texture layers: %d\n", value);
+   trace_info("Max array texture layers: %d\n", value);
 
    // UNIFORMS
    glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &value);
-   printf("Max vertex shader uniforms (floats): %d\n", value);
+   trace_info("Max vertex shader uniforms (floats): %d\n", value);
 
    glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, &value);
-   printf("Max fragment shader uniforms (floats): %d\n", value);
+   trace_info("Max fragment shader uniforms (floats): %d\n", value);
 
    glGetIntegerv(GL_MAX_COMBINED_UNIFORM_BLOCKS, &value);
-   printf("Max combined uniform blocks across all stages: %d\n", value);
+   trace_info("Max combined uniform blocks across all stages: %d\n", value);
 
    glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &value);
-   printf("Max uniform buffer binding points: %d\n", value);
+   trace_info("Max uniform buffer binding points: %d\n", value);
 
    glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &value);
-   printf("Max size of a single UBO: %s\n", human_readable_size(value));
+   trace_info("Max size of a single UBO: %s\n", human_readable_size(value));
 
    // SHADER STORAGE BUFFERS (SSBOs)
    glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &value);
-   printf("Max SSBO binding points: %d\n", value);
+   trace_info("Max SSBO binding points: %d\n", value);
 
    glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &value);
-   printf("Max SSBO block size: %s\n", human_readable_size(value));
+   trace_info("Max SSBO block size: %s\n", human_readable_size(value));
 
    // ATTRIBUTES & VARYINGS
    glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &value);
-   printf("Max vertex attributes (vec3 pos, vec3 normal, etc): %d\n", value);
+   trace_info("Max vertex attributes (vec3 pos, vec3 normal, etc): %d\n", value);
 
    glGetIntegerv(GL_MAX_VARYING_COMPONENTS, &value);
-   printf("Max varying components between vertex & fragment shaders: %d\n", value);
+   trace_info("Max varying components between vertex & fragment shaders: %d\n", value);
 
    // FRAMEBUFFERS
    glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &value);
-   printf("Max framebuffer color attachments: %d\n", value);
+   trace_info("Max framebuffer color attachments: %d\n", value);
 
    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &value);
-   printf("Max draw buffers (MRT): %d\n", value);
+   trace_info("Max draw buffers (MRT): %d\n", value);
 
    // IMAGE UNITS
    glGetIntegerv(GL_MAX_IMAGE_UNITS, &value);
-   printf("Max image units for shaders: %d\n", value);
+   trace_info("Max image units for shaders: %d\n", value);
 
    // COMPUTE SHADER
    glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &value);
-   printf("Max compute work group invocations: %d\n", value);
+   trace_info("Max compute work group invocations: %d\n", value);
 
    GLint wg_size[3];
    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &wg_size[0]);
    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &wg_size[1]);
    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &wg_size[2]);
-   printf("Max compute work group sizes: [%d, %d, %d]\n", wg_size[0], wg_size[1], wg_size[2]);
+   trace_info("Max compute work group sizes: [%d, %d, %d]\n", wg_size[0], wg_size[1], wg_size[2]);
 
    // TRANSFORM FEEDBACK
    glGetIntegerv(GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS, &value);
-   printf("Max transform feedback separate attribs: %d\n", value);
+   trace_info("Max transform feedback separate attribs: %d\n", value);
 
    glGetIntegerv(GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS, &value);
-   printf("Max transform feedback components: %d\n", value);
+   trace_info("Max transform feedback components: %d\n", value);
 
    // RECOMMENDED DRAW COUNTS
    glGetIntegerv(GL_MAX_ELEMENTS_VERTICES, &value);
-   printf("Max recommended glDrawElements vertices: %d\n", value);
+   trace_info("Max recommended glDrawElements vertices: %d\n", value);
 
    glGetIntegerv(GL_MAX_ELEMENTS_INDICES, &value);
-   printf("Max recommended glDrawElements indices: %d\n", value);
+   trace_info("Max recommended glDrawElements indices: %d\n", value);
 
    // VIEWPORT
    GLint dims[2];
    glGetIntegerv(GL_MAX_VIEWPORT_DIMS, dims);
-   printf("Max viewport dimensions: %d x %d\n", dims[0], dims[1]);
+   trace_info("Max viewport dimensions: %d x %d\n", dims[0], dims[1]);
 
-   printf("\n=================================\n\n");
+   trace_info("\n=================================\n\n");
 }
 
 // https://learnopengl.com/In-Practice/Debugging
-void glDebugOutput(GLenum source,
+void debug_opengl_output(GLenum source,
 	GLenum type,
 	unsigned int id,
 	GLenum severity,
@@ -493,12 +502,12 @@ void glDebugOutput(GLenum source,
 	const void* userParam)
 {
    if (
-       // id == 131169 || // Framebuffer detailed info: The driver allocated storage for renderbuffer [X].
-       id == 131185 || // Buffer detailed info: The driver is using video memory for buffer [X].
-       // id == 131218 || // Program/shader state performance warning: Fragment shader in program [X] is being recompiled based on state.
-       // id == 131204 || // Texture state usage warning: Texture [X] is base level inconsistent. Level [0] has inconsistent dimensions or formats.
-       // id == 131154 ||    // Pixel-path performance warning: Pixel transfer is synchronized with 3D rendering.
-       0
+      // id == 131169 || // Framebuffer detailed info: The driver allocated storage for renderbuffer [X].
+      id == 131185 || // Buffer detailed info: The driver is using video memory for buffer [X].
+      // id == 131218 || // Program/shader state performance warning: Fragment shader in program [X] is being recompiled based on state.
+      // id == 131204 || // Texture state usage warning: Texture [X] is base level inconsistent. Level [0] has inconsistent dimensions or formats.
+      // id == 131154 ||    // Pixel-path performance warning: Pixel transfer is synchronized with 3D rendering.
+      0
    ) {
       return;
    }
@@ -544,93 +553,79 @@ void glDebugOutput(GLenum source,
    );
 }
 
+
 void enable_error_report() {
    trace_info("=== OpenGL error reporting enable ===\n");
    glEnable(GL_DEBUG_OUTPUT);
    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-   glDebugMessageCallback(glDebugOutput, nullptr);
+   glDebugMessageCallback(debug_opengl_output, nullptr);
    // glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
    // glDebugMessageCallback(0, nullptr);
 }
 
-void initialize_opengl_opts() {
-   { // Some expected settings
-      glEnable(GL_BLEND);
+void initialize_opengl_options(void) {
 
-      // NOTE: Enabling GL_MULTISAMPLE might break raymarching because you can't bind a texture as image with multisample
-      glEnable(GL_MULTISAMPLE);
-      glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glEnable(GL_DEPTH_TEST);
-      glDisable(GL_CULL_FACE);
-      // glCullFace(GL_BACK);          // Cull back faces
-      glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
-   }
+   glDisable(GL_FRAMEBUFFER_SRGB);
+   // glEnable(GL_DITHER);
+   glDisable(GL_DITHER);
 
    {
-      /* setup global state */
-      glDisable(GL_FRAMEBUFFER_SRGB);
-      // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE).
-      glEnable(GL_BLEND);
-      // glBlendEquation(GL_FUNC_ADD);
-      // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-      glEnable(GL_CULL_FACE);
-      glEnable(GL_DEPTH_TEST);
-      glDisable(GL_SCISSOR_TEST);
-      glEnable(GL_STENCIL_TEST);
-
-
       // https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMinSampleShading.xhtml
+      // NOTE: Enabling GL_MULTISAMPLE might break raymarching because you can't bind a texture as image with multisample
       glEnable(GL_MULTISAMPLE);
+      // IMPORTANT NOTE (May-06-2026):
+      //    Disabling these are critical for MSAA + transparency.
+      //    Somehow we see severe banding when using samples for framebuffer. Disabling these brings back the alpha smoothness.
+      //    This is clear when developing vfx where lots of blending are required.
+      //    At the same time, hair that is foliage-like ("sophia doll victory dance.fbx") depends on GL_SAMPLE_ALPHA_TO_COVERAGE enabled, otherwise it's rendererd completely wrong.
+      //
+      glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+      glDisable(GL_SAMPLE_ALPHA_TO_ONE);
       // Enable Supersampling with GL_SAMPLE_SHADING and glMinSampleShading set to 1
       // glEnable(GL_SAMPLE_SHADING);
       // glMinSampleShading(1.0):
+
+      glEnable(GL_BLEND);
+      glBlendEquation(GL_FUNC_ADD);
+      // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
    }
 
+   { // Some expected settings
+      glEnable(GL_DEPTH_TEST);
+      glDisable(GL_CULL_FACE);
+      glCullFace(GL_BACK); // GL_BACK to Cull back faces
+      glFrontFace(GL_CCW); // GL_CCW to define front faces as counter-clockwise
+   }
+
+   {
+      glDisable(GL_SCISSOR_TEST);
+      glEnable(GL_STENCIL_TEST);
+   }
 }
 
 void init_renderer(void) {
    assert_msg(__state.renderer.initialized == false, "Renderer initialized twice?");
+
    int flags;
    glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
-   assert(flags & GL_CONTEXT_FLAG_DEBUG_BIT);
+   bool has_debug_support = (flags & GL_CONTEXT_FLAG_DEBUG_BIT);
+   if (!has_debug_support) {
+      trace_warn("% OpenGL Context Debug is not set.");
+   }
    enable_error_report();
+
+   trace_info("GL_VENDOR   : %s\n", glGetString(GL_VENDOR));
+   trace_info("GL_RENDERER : %s\n", glGetString(GL_RENDERER));
+   trace_info("GL_VERSION  : %s\n", glGetString(GL_VERSION));
 
    print_opengl_resource_limits();
    print_default_framebuffer_info();
-   initialize_opengl_opts();
-   if (false) { // Some expected settings
-      glEnable(GL_BLEND);
-      // glBlendEquation(GL_FUNC_ADD);
-
-      // NOTE: Enabling GL_MULTISAMPLE might break raymarching because you can't bind a texture as image with multisample
-      // https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMinSampleShading.xhtml
-      glEnable(GL_MULTISAMPLE);
-      // Enable Supersampling with GL_SAMPLE_SHADING and glMinSampleShading set to 1
-      // glEnable(GL_SAMPLE_SHADING);
-      // glMinSampleShading(1.0):
-      // glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-
-      glEnable(GL_DEPTH_TEST);
-      glDisable(GL_CULL_FACE);
-      // glCullFace(GL_BACK);          // Cull back faces
-      // glFrontFace(GL_CCW);             // GL_CCW to define front faces as counter-clockwise
-   }
-
-   if (false) {
-      /* setup global state */
-      glDisable(GL_FRAMEBUFFER_SRGB);
-
-      // glEnable(GL_CULL_FACE);
-      glEnable(GL_DEPTH_TEST);
-      glDisable(GL_SCISSOR_TEST);
-      glEnable(GL_STENCIL_TEST);
-   }
+   initialize_opengl_options();
    __state.renderer.initialized = true;
    __state.renderer.mode = RENDERER_MODE_FILL;
 }
+
 
 void debug_depth_testing() {
    printf("=== Depth Testing Debug ===\n");

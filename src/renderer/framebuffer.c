@@ -9,11 +9,11 @@ typedef struct {
    bool is_default_framebuffer; // hacky
 } Framebuffer;
 
+
 // Gets updated in renderer
 Framebuffer default_framebuffer = {
-   .is_default_framebuffer = true,
+    .is_default_framebuffer = true,
 };
-
 
 bool inline is_valid_framebuffer(Framebuffer fb) {
    if (fb.is_default_framebuffer) {
@@ -29,8 +29,8 @@ bool inline is_valid_framebuffer(Framebuffer fb) {
    for (int i = 0; i < 8; i++) {
       if (is_valid_texture(fb.colors[i])) {
          if (expected_samples < 0) {
-            expected_samples = fb.colors[i].samples;
-         } else if (expected_samples != fb.colors[i].samples) {
+            expected_samples = texture_multisamples(fb.colors[i]);
+         } else if (expected_samples != texture_multisamples(fb.colors[i])) {
             return false; // mismatch
          }
       }
@@ -39,8 +39,8 @@ bool inline is_valid_framebuffer(Framebuffer fb) {
    // Depth attachment must match samples
    if (is_valid_texture(fb.depth)) {
       if (expected_samples < 0) {
-         expected_samples = fb.depth.samples;
-      } else if (expected_samples != fb.depth.samples) {
+         expected_samples = texture_multisamples(fb.depth);
+      } else if (expected_samples != texture_multisamples(fb.depth)) {
          return false; // mismatch
       }
    }
@@ -61,6 +61,7 @@ bool inline is_valid_framebuffer(Framebuffer fb) {
    return true;
 }
 
+
 bool inline is_blit_compatible(
    Framebuffer src, Framebuffer dst,
    int src_width, int src_height,
@@ -70,8 +71,8 @@ bool inline is_blit_compatible(
       return false;
    }
 
-   int src_samples = src.color.samples;
-   int dst_samples = dst.color.samples;
+   int src_samples = texture_multisamples(src.color);
+   int dst_samples = texture_multisamples(dst.color);
 
    // Multisample compatibility
    // Allowed if:
@@ -79,8 +80,9 @@ bool inline is_blit_compatible(
    //   One is 0 (single-sample) and the other > 0
    bool allowed =
          (src_samples == dst_samples)
-      || ((src_samples == 0) && (dst_samples > 0))
-      || ((src_samples > 0) && (dst_samples == 0));
+      || ((src_samples == 0) && (dst_samples >  0))
+      || ((src_samples >  0) && (dst_samples == 0))
+      ;
 
    if (!allowed) {
       return false;
@@ -94,6 +96,7 @@ bool inline is_blit_compatible(
 
    return true;
 }
+
 
 // This call is probably sorta expensive
 inline bool is_framebuffer_missing_attachment(Framebuffer fb) {
@@ -279,29 +282,29 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
    GLenum attachment = GL_COLOR_ATTACHMENT0;
 
    switch (texture.format) {
-      case TEXTURE_FORMAT_RGBA32F:
-      case TEXTURE_FORMAT_RGBA8:
-      case TEXTURE_FORMAT_RGB8:
-      case TEXTURE_FORMAT_RG8:
-      case TEXTURE_FORMAT_R8: {
-         attachment = GL_COLOR_ATTACHMENT0;
-         framebuffer->color = texture;
-         break;
-      }
-      case TEXTURE_FORMAT_DEPTH24: {
-         attachment = GL_DEPTH_ATTACHMENT;
-         framebuffer->depth = texture;
-         break;
-      }
-      case TEXTURE_FORMAT_SHADOW: {
-         attachment = GL_DEPTH_ATTACHMENT;
-         framebuffer->depth = texture;
-         break;
-      }
-      default: {
-         assert_msg(false, "Unsupported texture format for framebuffer attachment\n");
-         return false;
-      }
+   case TEXTURE_FORMAT_RGBA32F:
+   case TEXTURE_FORMAT_RGBA8:
+   case TEXTURE_FORMAT_RGB8:
+   case TEXTURE_FORMAT_RG8:
+   case TEXTURE_FORMAT_R8: {
+      attachment = GL_COLOR_ATTACHMENT0;
+      framebuffer->color = texture;
+      break;
+   }
+   case TEXTURE_FORMAT_DEPTH24: {
+      attachment = GL_DEPTH_ATTACHMENT;
+      framebuffer->depth = texture;
+      break;
+   }
+   case TEXTURE_FORMAT_SHADOW: {
+      attachment = GL_DEPTH_ATTACHMENT;
+      framebuffer->depth = texture;
+      break;
+   }
+   default: {
+      assert_msg(false, "Unsupported texture format for framebuffer attachment\n");
+      return false;
+   }
    }
 
    // TODO: Assert that all attachments have the same amount of samples; also check that on is_valid_framebuffer
@@ -320,151 +323,93 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
    }
 #endif
 
-
    return true;
 }
 
-
 Framebuffer create_framebuffer_from_textures(Texture color, Texture depth) {
-    Framebuffer fb = {0};
+   Framebuffer fb = {0};
 
-    glCreateFramebuffers(1, &fb.handle);
+   glCreateFramebuffers(1, &fb.handle);
 
-    if (is_valid_texture(color) && TEXTURE_FORMAT_DEPTH24 != color.format) {
-        if (!attach_texture_to_framebuffer(&fb, color)) {
-            trace_error("Couldn't attach color texture %d to framebuffer %d", color.handle, fb.handle);
-            glDeleteFramebuffers(1, &fb.handle);
-            return (Framebuffer){0};
-        }
-    }
+   if (is_valid_texture(color) && TEXTURE_FORMAT_DEPTH24 != color.format) {
+      if (!attach_texture_to_framebuffer(&fb, color)) {
+         trace_error("Couldn't attach color texture %d to framebuffer %d", color.handle, fb.handle);
+         glDeleteFramebuffers(1, &fb.handle);
+         return (Framebuffer){0};
+      }
+   }
 
-    if (is_valid_texture(depth) && TEXTURE_FORMAT_DEPTH24 == depth.format) {
-        if (!attach_texture_to_framebuffer(&fb, depth)) {
-            glDeleteFramebuffers(1, &fb.handle);
-            trace_error("Couldn't attach depth buffer %d to framebuffer %d", depth.handle, fb.handle);
-            return (Framebuffer){0};
-        }
-    }
+   if (is_valid_texture(depth) && TEXTURE_FORMAT_DEPTH24 == depth.format) {
+      if (!attach_texture_to_framebuffer(&fb, depth)) {
+         glDeleteFramebuffers(1, &fb.handle);
+         trace_error("Couldn't attach depth buffer %d to framebuffer %d", depth.handle, fb.handle);
+         return (Framebuffer){0};
+      }
+   }
 
-    GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
-    if (GL_FRAMEBUFFER_COMPLETE != status) {
-        trace_error("Framebuffer not complete: 0x%X\n", status);
-        glDeleteFramebuffers(1, &fb.handle);
-        return (Framebuffer){0};
-    }
+   GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
+   if (GL_FRAMEBUFFER_COMPLETE != status) {
+      trace_error("Framebuffer not complete: 0x%X\n", status);
+      glDeleteFramebuffers(1, &fb.handle);
+      return (Framebuffer){0};
+   }
 
-    return fb;
+   return fb;
 }
 
 Framebuffer create_framebuffer(int width, int height) {
-    Texture color = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 0);
-    Texture depth = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 0);
-    return create_framebuffer_from_textures(color, depth);
+   Texture color = create_texture(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+   Texture depth = create_texture(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+   return create_framebuffer_from_textures(color, depth);
 }
 
 Framebuffer create_framebuffer_multisample(int width, int height, int samples) {
-    Texture_Type type = TEXTURE_TYPE_2D;
-    Texture color = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, type, samples);
-    Texture depth = create_texture_extended(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, type, samples);
-    return create_framebuffer_from_textures(color, depth);
+   Texture_Type type = TEXTURE_TYPE_2D;
+   if (samples >= 2)  type = TEXTURE_TYPE_2D_MULTISAMPLED_2X;
+   if (samples >= 4)  type = TEXTURE_TYPE_2D_MULTISAMPLED_4X;
+   if (samples >= 8)  type = TEXTURE_TYPE_2D_MULTISAMPLED_8X;
+   if (samples >= 16) type = TEXTURE_TYPE_2D_MULTISAMPLED_16X;
+   if (samples > 16) trace_warn("%s: More than 16 samples are not supported", __func__);
+   Texture color = create_texture(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, type, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+   Texture depth = create_texture(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, type, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+   return create_framebuffer_from_textures(color, depth);
 }
 
 Framebuffer create_framebuffer_multisample_with_renderbuffers(int width, int height, int samples) {
-    Framebuffer fb = {0};
+   Framebuffer fb = {0};
 
-    glCreateFramebuffers(1, &fb.handle);
+   glCreateFramebuffers(1, &fb.handle);
 
-    // Color renderbuffer
-    GLuint color_rb;
-    glCreateRenderbuffers(1, &color_rb);
-    glNamedRenderbufferStorageMultisample(color_rb, (samples == 1 ? 0 : samples), GL_RGBA32F, width, height);
-    glNamedFramebufferRenderbuffer(fb.handle, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color_rb);
+   // Color renderbuffer
+   GLuint color_rb;
+   glCreateRenderbuffers(1, &color_rb);
+   glNamedRenderbufferStorageMultisample(color_rb, (samples == 1 ? 0 : samples), GL_RGBA32F, width, height);
+   glNamedFramebufferRenderbuffer(fb.handle, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color_rb);
 
-    // Depth renderbuffer
-    GLuint depth_rb;
-    glCreateRenderbuffers(1, &depth_rb);
-    glNamedRenderbufferStorageMultisample(depth_rb, (samples == 1 ? 0 : samples), GL_DEPTH_COMPONENT24, width, height);
-    glNamedFramebufferRenderbuffer(fb.handle, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_rb);
+   // Depth renderbuffer
+   GLuint depth_rb;
+   glCreateRenderbuffers(1, &depth_rb);
+   glNamedRenderbufferStorageMultisample(depth_rb, (samples == 1 ? 0 : samples), GL_DEPTH_COMPONENT24, width, height);
+   glNamedFramebufferRenderbuffer(fb.handle, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_rb);
 
-    // Use dummy textures for compatibility with framebuffer struct
-    fb.color = (Texture){
-        .handle  = color_rb,
-        .width   = width,
-        .height  = height,
-        .format  = TEXTURE_FORMAT_RGBA32F,
-        .type    = TEXTURE_TYPE_2D,
-        .samples = samples
-    };
+   // Use dummy textures for compatibility with framebuffer struct
+   fb.color = (Texture){.handle = color_rb, .width = width, .height = height, .format = TEXTURE_FORMAT_RGBA32F, .type = TEXTURE_TYPE_2D};
 
-    fb.depth = (Texture){
-        .handle  = depth_rb,
-        .width   = width,
-        .height  = height,
-        .format  = TEXTURE_FORMAT_DEPTH24,
-        .type    = TEXTURE_TYPE_2D,
-        .samples = samples
-    };
+   fb.depth = (Texture){.handle = depth_rb, .width = width, .height = height, .format = TEXTURE_FORMAT_DEPTH24, .type = TEXTURE_TYPE_2D};
 
-    GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
-    if (GL_FRAMEBUFFER_COMPLETE !=  status) {
-        fprintf(stderr, "[ERROR] Multisample framebuffer incomplete: 0x%X\n", status);
-        glDeleteFramebuffers(1, &fb.handle);
-        fb.handle = 0;
-    }
+   GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
+   if (GL_FRAMEBUFFER_COMPLETE != status) {
+      fprintf(stderr, "[ERROR] Multisample framebuffer incomplete: 0x%X\n", status);
+      glDeleteFramebuffers(1, &fb.handle);
+      fb.handle = 0;
+   }
 
-    return fb;
+   return fb;
 }
-
-Framebuffer create_framebuffer_multisample_with_renderbuffers_8bpp(int width, int height, int samples) {
-    Framebuffer fb = {0};
-
-    glCreateFramebuffers(1, &fb.handle);
-
-    // Color renderbuffer
-    GLuint color_rb;
-    glCreateRenderbuffers(1, &color_rb);
-    glNamedRenderbufferStorageMultisample(color_rb, (samples == 1 ? 0 : samples), GL_RGBA8, width, height);
-    glNamedFramebufferRenderbuffer(fb.handle, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color_rb);
-
-    // Depth renderbuffer
-    GLuint depth_rb;
-    glCreateRenderbuffers(1, &depth_rb);
-    glNamedRenderbufferStorageMultisample(depth_rb, (samples == 1 ? 0 : samples), GL_DEPTH_COMPONENT24, width, height);
-    glNamedFramebufferRenderbuffer(fb.handle, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_rb);
-
-    // Use dummy textures for compatibility with framebuffer struct
-    fb.color = (Texture){
-        .handle  = color_rb,
-        .width   = width,
-        .height  = height,
-        .format  = TEXTURE_FORMAT_RGBA8,
-        .type    = TEXTURE_TYPE_2D,
-        .samples = samples
-    };
-
-    fb.depth = (Texture){
-        .handle  = depth_rb,
-        .width   = width,
-        .height  = height,
-        .format  = TEXTURE_FORMAT_DEPTH24,
-        .type    = TEXTURE_TYPE_2D,
-        .samples = samples
-    };
-
-    GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
-    if (GL_FRAMEBUFFER_COMPLETE !=  status) {
-        fprintf(stderr, "[ERROR] Multisample framebuffer incomplete: 0x%X\n", status);
-        glDeleteFramebuffers(1, &fb.handle);
-        fb.handle = 0;
-    }
-
-    return fb;
-}
-
 
 
 Framebuffer create_framebuffer_from_texture(const Texture texture) {
-   Framebuffer result  = {0};
+   Framebuffer result = {0};
 
    glCreateFramebuffers(1, &result.handle);
 
@@ -476,6 +421,7 @@ Framebuffer create_framebuffer_from_texture(const Texture texture) {
    return result;
 }
 
+
 void destroy_framebuffer(Framebuffer *fb) {
    glDeleteFramebuffers(1, &fb->handle);
    destroy_texture(&fb->color);
@@ -483,11 +429,13 @@ void destroy_framebuffer(Framebuffer *fb) {
    *fb = (Framebuffer){0};
 }
 
+
 i32 current_framebuffer_handle(void) {
    GLint fb_handle;
    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb_handle);
    return fb_handle;
 }
+
 
 int inline default_framebuffer_samples(void) {
    // Query swapchain (default framebuffer) sample count
@@ -510,16 +458,15 @@ void inline blit_framebuffer(
    int src_x0, int src_y0, int src_x1, int src_y1
 ) {
    // Validate framebuffers
-   assert_msg(is_valid_framebuffer(src_fb), "Invalid source framebuffer: format=%d, samples=%d\n",      src_fb.color.format, src_fb.color.samples);
-   assert_msg(is_valid_framebuffer(dst_fb), "Invalid destination framebuffer: format=%d, samples=%d\n", dst_fb.color.format, dst_fb.color.samples);
+   int src_samples = texture_multisamples(src_fb.color);
+   int dst_samples = texture_multisamples(dst_fb.color);
+   assert_msg(is_valid_framebuffer(src_fb), "Invalid source framebuffer: format=%d, samples=%d\n",      src_fb.color.format, src_samples);
+   assert_msg(is_valid_framebuffer(dst_fb), "Invalid destination framebuffer: format=%d, samples=%d\n", dst_fb.color.format, dst_samples);
 
    int src_width  = src_x1 - src_x0;
    int src_height = src_y1 - src_y0;
    int dst_width  = dst_x1 - dst_x0;
    int dst_height = dst_y1 - dst_y0;
-
-   int src_samples = src_fb.color.samples;
-   int dst_samples = dst_fb.color.samples;
 
    // Handle MSAA rules
    if (src_samples > 0 || dst_samples > 0) {
@@ -558,7 +505,7 @@ void inline blit_framebuffer(
       }
    }
 
-   // NOTE: exntesion will probably be needed
+   // NOTE: Extension will probably be needed
    const bool want_depth = false;
    if (want_depth) {
       trace_error("Blitting depth/stencil not supported in this function");
@@ -602,6 +549,7 @@ void inline blit_framebuffer_to_swapchain(const Framebuffer framebuffer) {
    );
 }
 
+
 Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
    static Framebuffer static_resolve_fb = {0};
    if (!is_valid_framebuffer(msaa_fb)) {
@@ -612,7 +560,7 @@ Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
    const Texture *src = &msaa_fb.color;
 
    // Not multisampled? Return original
-   if (src->samples <= 1) {
+   if (texture_multisamples(*src) <= 1) {
       return msaa_fb;
    }
 
@@ -637,11 +585,8 @@ Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
          destroy_framebuffer(&static_resolve_fb);
       }
 
-      Texture resolved_color = create_texture_extended(
-            src->width, src->height, nullptr,
-            src->format,
-            TEXTURE_TYPE_2D, 0 // single-sample resolve target
-      );
+
+      Texture resolved_color = create_texture(src->width, src->height, nullptr, src->format, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
 
       static_resolve_fb = create_framebuffer_from_texture(resolved_color);
 
@@ -655,10 +600,10 @@ Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
 
    // Blit color only, no depth.
    glBlitNamedFramebuffer(msaa_fb.handle, static_resolve_fb.handle,
-         0, 0, src->width, src->height,
-         0, 0, src->width, src->height,
-         GL_COLOR_BUFFER_BIT,
-         GL_NEAREST
+      0, 0, src->width, src->height,
+      0, 0, src->width, src->height,
+      GL_COLOR_BUFFER_BIT,
+      GL_NEAREST
    );
 
    GLenum err = glGetError();
@@ -670,134 +615,6 @@ Framebuffer resolve_multisample_framebuffer(Framebuffer msaa_fb) {
    return static_resolve_fb;
 }
 
-Framebuffer resolve_multisample_framebuffer_old(const Framebuffer msaa_fb) {
-   static Framebuffer static_resolve_fb = {0};
-
-   // Validate input framebuffer
-   if (!is_valid_framebuffer(msaa_fb)) {
-      printf("[Error] resolve_multisample_framebuffer: input framebuffer is not valid.\n");
-      return (Framebuffer){0};
-   }
-
-   const Texture* src = &msaa_fb.color;
-
-   // Not multisampled? Just return the input framebuffer
-   if (src->samples <= 1) {
-      return msaa_fb;
-   }
-
-   // Create the static resolve framebuffer if not yet done or size mismatch
-   if (!is_valid_framebuffer(static_resolve_fb) ||
-      static_resolve_fb.color.width != src->width ||
-      static_resolve_fb.color.height != src->height) {
-
-      if (is_valid_framebuffer(static_resolve_fb)) {
-         destroy_framebuffer(&static_resolve_fb);
-      }
-
-      Texture resolved_color = create_texture_extended(
-         src->width, src->height,
-         nullptr, src->format,
-         TEXTURE_TYPE_2D, 0
-      );
-
-      Texture resolved_depth = create_texture_extended(
-         src->width, src->height,
-         nullptr, TEXTURE_FORMAT_DEPTH24,
-         TEXTURE_TYPE_2D, 0
-      );
-
-      static_resolve_fb = create_framebuffer_from_textures(resolved_color, resolved_depth);
-
-      if (!is_valid_framebuffer(static_resolve_fb)) {
-         printf("[Error] resolve_multisample_framebuffer: failed to create resolve framebuffer.\n");
-         return (Framebuffer){0};
-      }
-   }
-
-   // Blit from MSAA framebuffer to resolved framebuffer
-   glBlitNamedFramebuffer(
-      msaa_fb.handle,
-      static_resolve_fb.handle,
-      0, 0, src->width, src->height,
-      0, 0, src->width, src->height,
-      // TODO: Only blit color
-      // GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT,
-      GL_COLOR_BUFFER_BIT,
-      // GL_NEAREST
-      GL_LINEAR
-   );
-
-   GLenum err = glGetError();
-   if (err != GL_NO_ERROR) {
-      printf("[Error] glBlitNamedFramebuffer failed during resolve: GL error 0x%X\n", err);
-      return (Framebuffer){0};
-   }
-
-   return static_resolve_fb;
-}
-
-// NOTE: UNUSED function and untested for realsies
-void blend_framebuffers(const Framebuffer *a, const Framebuffer *b, Framebuffer *out) {
-   assert(is_valid_framebuffer(*a));
-   assert(is_valid_framebuffer(*b));
-   assert(a->color.width == b->color.width && a->color.height == b->color.height);
-
-   static Framebuffer blend_fb = {0};
-   static Shader blend_shader = {0};
-
-   // Lazy init output framebuffer if `out` is nullptr
-   if (!out) {
-      if (!is_valid_framebuffer(blend_fb)) {
-         Texture out_color = create_texture_extended(a->color.width, a->color.height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 0);
-         Texture out_depth = create_texture_extended(a->color.width, a->color.height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 0);
-         blend_fb = create_framebuffer_from_textures(out_color, out_depth);
-      }
-      out = &blend_fb;
-   }
-
-   // Shader creation (only once)
-   if (!is_valid_shader(blend_shader)) {
-      const u8 *srcs[] = {
-         (u8 *)
-         "#version 450 core\n"
-         "out vec2 uv;\n"
-         "void main() {\n"
-         "   const vec2 pos[3] = vec2[3](vec2(-1, -1), vec2(3, -1), vec2(-1, 3));\n"
-         "   gl_Position = vec4(pos[gl_VertexID], 0, 1);\n"
-         "   uv = (gl_Position.xy + 1.0) * 0.5;\n"
-         "}",
-
-
-         (u8 *)
-         "#version 450 core\n"
-         "in vec2 uv;\n"
-         "layout(location = 0) out vec4 fragColor;\n"
-         "layout(binding = 0) uniform sampler2D texA;\n"
-         "layout(binding = 1) uniform sampler2D texB;\n"
-         "void main() {\n"
-         "    vec4 a = texture(texA, uv);\n"
-         "    vec4 b = texture(texB, uv);\n"
-         "    fragColor = mix(a, b, b.a); // Blend based on texB alpha\n"
-         "}"
-      };
-      Shader_Type types[] = {SHADER_TYPE_VERTEX, SHADER_TYPE_FRAGMENT};
-      blend_shader = create_shader_from_memory(srcs, types, count_of(types), nullptr);
-   }
-
-   // Set output framebuffer
-   glBindFramebuffer(GL_FRAMEBUFFER, out->handle);
-   glViewport(0, 0, out->color.width, out->color.height);
-
-   glUseProgram(blend_shader.handle);
-
-   // Bind inputs
-   glBindTextureUnit(0, a->color.handle);
-   glBindTextureUnit(1, b->color.handle);
-
-   // Render fullscreen triangle
-   glDrawArrays(GL_TRIANGLES, 0, 3);
-}
 
 // Auto sets the view port, maybe we should make that clear? maybe it doesnt matter we kinda mostly want that.
 void bind_framebuffer(Framebuffer fb) {
@@ -805,32 +622,37 @@ void bind_framebuffer(Framebuffer fb) {
    glViewport(0, 0, fb.color.width, fb.color.height);
 }
 
+
 void clear_framebuffer_color_indexed(Framebuffer fb, int draw_buffer_index, const float color[4]) {
-    glClearNamedFramebufferfv(fb.handle, GL_COLOR, draw_buffer_index, color);
+   glClearNamedFramebufferfv(fb.handle, GL_COLOR, draw_buffer_index, color);
 }
+
 
 void clear_framebuffer_color(Framebuffer fb, const float color[4]) {
-    clear_framebuffer_color_indexed(fb, 0, color);
+   clear_framebuffer_color_indexed(fb, 0, color);
 }
+
 
 void clear_framebuffer_depth(Framebuffer fb, float depth_value) {
-    glClearNamedFramebufferfv(fb.handle, GL_DEPTH, 0, &depth_value);
+   glClearNamedFramebufferfv(fb.handle, GL_DEPTH, 0, &depth_value);
 }
+
 
 void clear_framebuffer(Framebuffer fb) {
-    bool color_valid = is_valid_texture(fb.color);
-    bool depth_valid = is_valid_texture(fb.color);
+   bool color_valid = is_valid_texture(fb.color);
+   bool depth_valid = is_valid_texture(fb.depth);
 
-    assert_msg(is_valid_framebuffer(fb), "Tried to clear a framebuffer that is not valid");
-    assert_msg(color_valid || depth_valid , "Tried to clear a framebuffer that has no textures attached");
+   assert_msg(is_valid_framebuffer(fb), "Tried to clear a framebuffer that is not valid");
+   assert_msg(color_valid || depth_valid, "Tried to clear a framebuffer that has no textures attached");
 
-    if (depth_valid) {
-        clear_framebuffer_depth(fb, 0);
-    }
+   const f32 depth_value = 0;
+   if (depth_valid) {
+      clear_framebuffer_depth(fb, depth_value);
+   }
 
-    if (color_valid) {
-        clear_framebuffer_color(fb, (float[4]){.1, .1, .1, .5});
-    }
+   const f32 alpha_value = 1.0f;
+   if (color_valid) {
+      clear_framebuffer_color(fb, (float[4]){.1, .1, .1, alpha_value});
+   }
 }
-
 

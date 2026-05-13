@@ -244,8 +244,24 @@ void render_health_bar(const Unit *u, Health_Bar_Visual *v, Vector3 camera_posit
 
 #include "particle_system.c"
 
+Scene_Node draw_cube(void) {
+   static bool loaded = false;
+   static Model cube_model = {0};
+   static Scene_Node node = {0};
+
+   if (!loaded) {
+      loaded = true;
+      cube_model        = create_cube_model();
+      node = create_scene_node(&cube_model);
+      update_rendering_mode(node, 3);
+      update_color_tint(node, vector4(.98, .01, .23, 1));
+   }
+
+   return node;
+}
 
 void draw_scene_league(Projection_Application *app) {
+
    static bool loaded = false;
    static Unit vayne = {0};
    static Unit_Visual vayne_v = {0};
@@ -334,11 +350,15 @@ void draw_scene_league(Projection_Application *app) {
    camera_basis(spherical, &forward, &right,&up);
    render_health_bar(&vayne, &vayne_v.health_bar, per_frame.camera.position, forward, right, up);
 
-
-
+   Vector3 vayne_position_vector3 = vector3(vayne.position.x, 0.0f, vayne.position.y);
    draw_vfx(
-      vector3(vayne.position.x, 0.0f, vayne.position.y),
+      vayne_position_vector3,
       per_frame.camera.position, forward, right, up
    );
+
+   auto cube_node = draw_cube();
+   update_position(cube_node, add(25, vayne_position_vector3));
+   update_scale(cube_node, 10);
+
 }
 

@@ -24,12 +24,18 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 - [Surface Gradient for bump/normal mapping](https://github.com/mmikk/surfgrad-bump-standalone-demo.git)
 - [Bullet Continuous Collision Detection and Physics Library](http://bulletphysics.org)
 - [Doom 3 Engine Article](https://fabiensanglard.net/doom3/index.php)
-- [Graphics Snippets](https://github.com/Rabbid76/graphics-snippets/blob/master/documentation/normal_parallax_relief.md#relief-parallax-mapping)
+- [Graphics Snippets](https://github.com/Rabbid76/graphics-snippets/blob/masTer/documentation/normal_parallax_relief.md#relief-parallax-mapping)
 - [A collection of tone mapping functions](https://github.com/dmnsgn/glsl-tone-map)
 - [League of Legends champions 3D models + animations](https://modelviewer.lol/)
 - [Game Programming Patterns Book](https://gameprogrammingpatterns.com/introduction.html)
 - [Exportable VFX file](https://effekseer.github.io/en/download.html)
+- [WickedEngine](https://github.com/turanszkij/WickedEngine)
+- [RapidGL Bloom and other effects to read code from](https://github.com/tgalaj/RapidGL#bloom)
+ 
 
+- https://github.com/JimmyLefevre/kb/
+
+- https://github.com/EricLengyel/Slug
 
 
 

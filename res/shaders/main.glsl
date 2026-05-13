@@ -235,21 +235,16 @@ float point_light_light_attenuation(vec3 light_position, vec3 fragment_position)
    return clamp(1./denominator, min_attenuation, max_attenuation);
 }
 
-vec3 gamma_correct(vec3 colour) {
-   const float gamma = 2.2;
-   return pow(colour, vec3(1. / gamma));
-}
-
 vec3 gamma_correct_texture(vec3 colour) {
    const float gamma = 2.2;
    return pow(colour, vec3(gamma));
 }
 
+
 vec3 apply_contrast(vec3 colour, float contrast) {
    return (colour - 0.5) * contrast + 0.5;
 }
 
-#include "./src/tonemapping.glsl"
 
 #ifdef FIX
 vec3 spot_light_smooth(vec3 frag_to_light_direction) {
@@ -333,8 +328,9 @@ struct Fragment {
 
 // Calculate color as if light is a point light but doesn't do any attenuation
 vec3 calculate_color(
-      in Light light, in vec3 light_direction,
-      in Fragment fragment, in vec3 view_position) {
+   in Light light, in vec3 light_direction,
+   in Fragment fragment, in vec3 view_position
+) {
 
    vec3 position = fragment.position;
    vec3 normal = normalize(fragment.normal);
@@ -797,17 +793,18 @@ vec2 parallax_offset_from_gradient(mat3 TBN, vec3 world_space_view_dir, vec3 tag
 
 // return true if intersection found (t >= 0), out 'hit' is the intersection point
 bool intersect_plane(vec3 ray_origin, vec3 ray_dir, vec3 plane_point, vec3 plane_normal, out vec3 hit) {
-    float denom = dot(ray_dir, plane_normal);
-    const float EPS = 1e-6;
-    if (abs(denom) < EPS) {
-        // parallel: no reliable intersection
-        return false;
-    }
-    float t = dot(plane_point - ray_origin, plane_normal) / denom;
-    // we might want t >= 0 if ray only forward
-    if (t < 0.0) return false;
-    hit = ray_origin + t * ray_dir;
-    return true;
+   float denom = dot(ray_dir, plane_normal);
+   const float EPS = 1e-6;
+   if (abs(denom) < EPS) {
+      // parallel: no reliable intersection
+      return false;
+   }
+   float t = dot(plane_point - ray_origin, plane_normal) / denom;
+   // we might want t >= 0 if ray only forward
+   if (t < 0.0)
+      return false;
+   hit = ray_origin + t * ray_dir;
+   return true;
 }
 
 #include "./src/parallax.glsl"
@@ -981,7 +978,7 @@ void main() {
       // discard;
    }
 
-   if (false && material.specular_handle != uvec2(0)) {
+   if (true && material.specular_handle != uvec2(0)) {
       vec4 stexture   = texture(sampler2D(material.specular_handle), uv);
       specular_color = stexture.xyz;
       has_specular = true;
@@ -1132,31 +1129,6 @@ void main() {
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
    float attenuation_alpha = clamp(distance_to_view/distance_to_view, 0.2, 1.0);
    FragColor = vec4(color, attenuation_alpha);
-
-   // Gamma correction should come later?
-   // FragColor.xyz = tonemap_aces(FragColor.xyz);
-   // FragColor.xyz = tonemap_aces_unity(FragColor.xyz);
-   // FragColor.xyz = tonemap_gt7(FragColor.xyz);
-   FragColor.xyz = tonemap_uchimura(FragColor.xyz);
-   // FragColor.xyz = tonemap_ace_unreal(FragColor.xyz);
-
-
-   // FragColor.xyz = tonemap_filmic(FragColor.xyz, 1.0);
-   // FragColor.xyz = tonemap_reinhard(FragColor.xyz);
-   // const float exposure = 0.8;
-   // FragColor.xyz = tonemap_reinhard(FragColor.xyz, exposure);
-
-   FragColor.xyz = gamma_correct(FragColor.xyz);
-   // FragColor.xyz = apply_contrast(FragColor.xyz, 1.079);
    FragColor.w = alpha_channel;
-
    FragColor *= color_tint;
-   // FragColor *= vec4(1., 0., 0., 0.75);
-
-   // FragColor.w = max(alpha_channel, 0.9);
-   // FragColor.w = max(pow(alpha_channel, 1/2.2), 0.1);
-   // FragColor.w = 1.0;
-
-   // @remove-me
-   // FragColor = vec4(1., 0., 0., 1.);
 }

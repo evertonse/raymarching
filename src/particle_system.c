@@ -85,6 +85,7 @@ typedef struct {
 
 } Particle_System;
 
+
 typedef struct {
    bool loaded;
    Model model;
@@ -221,7 +222,7 @@ void internal update_particle(Particle *p, const Particle_System *ps, float dt) 
    // over_lifetime.rotation is degrees per second, additive per frame
    p->rotation.current = add(p->rotation.current, mul(ps->over_lifetime.rotation, dt));
 
-   p->size.current     = lerp(p->size.start, mul(p->size.start, ps->over_lifetime.size), t);
+   p->size.current = lerp(p->size.start, mul(p->size.start, ps->over_lifetime.size), t);
 }
 
 
@@ -254,13 +255,15 @@ void update_particle_system(Particle_System *ps, Vector3 emitter_position, float
    {
       bool emitting = ps->looping || (ps->emitter_age < ps->duration);
       if (emitting) {
-         // Accumulator is needed to avoid spawning 0 every frame
+         // Accumulator is needed to avoid spawning 0 new particles every frame
          ps->spawn_accumulator += ps->spawn_rate * dt;
          while (ps->spawn_accumulator >= 1.0f) {
             ps->spawn_accumulator -= 1.0f;
+
             float starting_age = ps->spawn_accumulator / ps->spawn_rate; // convert back to seconds
             Particle *p = spawn_particle(ps, emitter_position, starting_age);
             assert_msg(p, "If this triggers we probably hit max capacity on particles per particle_system");
+
             // Not updating when just spawned will cause popping related to over_lifetime fields.
             // Also, we update with no time passed(dt=0) because it was just born.
             update_particle(p, ps, 0);
@@ -272,27 +275,31 @@ void update_particle_system(Particle_System *ps, Vector3 emitter_position, float
 
 
 void setup_particle_render_state(void) {
-   // Rendering Mode = Fade
-   // SrcAlpha, OneMinusSrcAlpha color AND alpha fade together
-   glEnable(GL_BLEND);
-   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-   glBlendEquation(GL_FUNC_ADD);
-   // glEnable(GL_FRAMEBUFFER_SRGB);
+   // true ? nullptr : glEnable(GL_FRAMEBUFFER_SRGB);
 
-   // ZWrite = Off particles don't write depth
-   glDepthMask(GL_FALSE);
-   glEnable(GL_DEPTH_TEST);
-   glDepthFunc(GL_LESS);
-
-   // no backface culling quads are single sided
+   // No backface culling quads are single sided
    // but we want both sides visible if camera goes behind
    glDisable(GL_CULL_FACE);
 
+   glEnable(GL_BLEND);
+   // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+   glBlendEquation(GL_FUNC_ADD); // GL_FUNC_SUBTRACT
+
+
+   // Particles don't write depth
+   const bool depth_fiddling = true;
+   if (depth_fiddling) {
+      glDepthMask(GL_FALSE);
+      glEnable(GL_DEPTH_TEST);
+      glDepthFunc(GL_LESS);
+   }
+
+
    // trace_info("simulation_speed = %f", simulation_speed);
-   // glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-   int values[] = {GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_CONSTANT_COLOR, GL_ONE_MINUS_CONSTANT_COLOR, GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA};
+   int values[]            = { GL_SRC_ALPHA,   GL_ONE_MINUS_SRC_ALPHA,   GL_ZERO,   GL_ONE,   GL_SRC_COLOR,   GL_ONE_MINUS_SRC_COLOR,   GL_DST_COLOR,   GL_ONE_MINUS_DST_COLOR,   GL_DST_ALPHA,   GL_ONE_MINUS_DST_ALPHA,   GL_CONSTANT_COLOR,   GL_ONE_MINUS_CONSTANT_COLOR,   GL_CONSTANT_ALPHA,   GL_ONE_MINUS_CONSTANT_ALPHA };
    ZString values_string[] = {"GL_SRC_ALPHA", "GL_ONE_MINUS_SRC_ALPHA", "GL_ZERO", "GL_ONE", "GL_SRC_COLOR", "GL_ONE_MINUS_SRC_COLOR", "GL_DST_COLOR", "GL_ONE_MINUS_DST_COLOR", "GL_DST_ALPHA", "GL_ONE_MINUS_DST_ALPHA", "GL_CONSTANT_COLOR", "GL_ONE_MINUS_CONSTANT_COLOR", "GL_CONSTANT_ALPHA", "GL_ONE_MINUS_CONSTANT_ALPHA"};
-   static int current_1 = 0;
+   static int current_1 = 3;
    static int current_2 = 1;
 
    if (is_button_pressed(BUTTON_1)) {
@@ -304,12 +311,8 @@ void setup_particle_render_state(void) {
       current_2 = (current_2 + 1) % count_of(values);
       trace_info("glBlendFunc(%s, %s)", values_string[current_1], values_string[current_2]);
    }
-   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
    glBlendFunc(values[current_1], values[current_2]);
 
-   // glBlendEquation(GL_FUNC_SUBTRACT);
-   glDepthMask(GL_FALSE);
-   // glEnable(GL_DITHER);
 }
 
 
@@ -318,7 +321,6 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
       trace_warn("Potentially uninitiated particle system. Refusing to render.");
       return;
    }
-
 
    if (!ps_resources->loaded) {
       ps_resources->loaded = true;
@@ -332,6 +334,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
       ps_resources->nodes[0] = create_scene_node(&ps_resources->model, transform_identity);
       // hide the first one too until a particle claims it
       update_color_tint(ps_resources->nodes[0], vector4(0.f));
+
 
       // rest share the same renderable, start invisible
       for (uint i = 1; i < MAX_PARTICLES; i++) {
@@ -370,6 +373,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
          }
       }
    }
+
    for (uint i = 0; i < MAX_PARTICLES; i++) {
       Particle *p = &ps->particles[i];
       Scene_Node node = ps_resources->nodes[i];
@@ -414,16 +418,28 @@ void draw_quad_test(Vector3 unit_position, Vector3 camera_position, Vector3 came
    static Scene_Node quad_node;
 
 
-   setup_particle_render_state();
-   glDisable(GL_CULL_FACE);
+
+   static Texture flare_texture = {0};
+   // Access like this: ``layout(binding = binding) uniform sampler2D texturename;``
+
    if (!loaded) {
       loaded = true;
       // quad = create_model_from_mesh(generate_quad_mesh(1.0f, 1.0f));
 
+      flare_texture = create_texture_from_filepath("res/textures/vfx/Flare00.PNG");
       quad = create_model_from_mesh(
          generate_quad_mesh(1.0f, 1.0f),
-         "res/textures/vfx/Flare00.png", nullptr, nullptr, nullptr
+         "res/textures/vfx/Flare00.PNG", nullptr, nullptr, nullptr
       );
+
+      quad = create_cube_model(
+         "res/textures/vfx/Flare00.PNG",
+         nullptr,
+         nullptr,
+         nullptr
+      );
+      
+
       quad_node = create_scene_node(&quad);
 
       update_color_tint(quad_node, vector4(1.f));
@@ -431,17 +447,19 @@ void draw_quad_test(Vector3 unit_position, Vector3 camera_position, Vector3 came
    }
 
 
+   bind_texture(flare_texture, 3);
+
    {
       // Rotation
       Quaternion face = billboard_rotation(true, unit_position, camera_position, camera_forward, camera_right, camera_up);
-      Quaternion rotation  = face;
 
       // Transform
       Transform t = {
          .translation = unit_position,
-         .rotation = rotation,
+         .rotation = transform_identity.rotation,
          .scale = vector3(100.),
       };
+      
       update_transform(quad_node, t);
    }
 
@@ -454,9 +472,6 @@ void draw_vfx(Vector3 unit_position, Vector3 camera_position, Vector3 camera_for
       Particle_System particle_system;
       Particle_System_Render_Resources render_resources;
    } vfx[3] = {0};
-
-   // draw_quad_test(unit_position, camera_position, camera_forward, camera_right, camera_up);
-   // return;
 
    static bool loaded = false;
    if (!loaded) {
@@ -579,7 +594,6 @@ void draw_vfx(Vector3 unit_position, Vector3 camera_position, Vector3 camera_for
    }
 
    setup_particle_render_state();
-   glDisable(GL_CULL_FACE);
    for (int idx = 0; idx < count_of(vfx); idx++) {
       // @remove-me
       if (true || 1 == idx) {

@@ -226,10 +226,10 @@ build() {
         -o $bin                            \
         -Isrc/deps/                        \
         -Isrc/deps/glfw/glfw/include/      \
-        -lm -lgdi32 -luser32
+        -lm -lgdi32 -luser32               \
+        -lkernel32 -lwinmm
 
     set +x
-    # -lkernel32 -lwinmm
 
     profile_end
 

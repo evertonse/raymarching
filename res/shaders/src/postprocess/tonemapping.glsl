@@ -21,6 +21,7 @@ vec3 tonemap_filmic_backend(vec3 x) {
    return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
 }
 
+
 vec3 tonemap_filmic(vec3 color, float exposure) {
    // Exposure bias tweak
    color = tonemap_filmic_backend(color * exposure);

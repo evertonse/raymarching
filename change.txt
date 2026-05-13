@@ -1,0 +1,1 @@
+Fix shader path string bug when loading compute shader from memory

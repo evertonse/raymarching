@@ -104,6 +104,7 @@ void projection_update_shaders(Projection_Application *app) {
 }
 
 
+
 static void draw_va(Projection_Application *app, Vertex_Array *va, Vector3 position, Vector3 scale, Vector4 rotation) {
    Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
    Matrix scale_matrix       = MatrixScale(scale.x, scale.y, scale.z);
@@ -211,9 +212,12 @@ void projection_init(Projection_Application *app) {
    // const struct {isz width, height;} resolution = {1600, 900};
    const struct {isz width, height;} resolution = {get_window_width(), get_window_height()};
 
-   const isz samples = 16;
-   // create_framebuffer_multisample,create_framebuffer
-   app->fb = create_framebuffer_multisample_with_renderbuffers(resolution.width, resolution.height, samples);
+
+   const isz samples = 4;
+   // options = create_framebuffer_multisample, create_framebuffer, create_framebuffer_multisample_with_renderbuffers
+   app->fb = create_framebuffer_multisample(resolution.width, resolution.height, samples);
+   // app->fb = create_framebuffer(resolution.width, resolution.height);
+
 
    // const f64 rectangle_shrink_factor = 0.45;
 
@@ -301,6 +305,7 @@ void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
          glDrawElements(GL_TRIANGLES, app->chosen_mesh_va.ib.count, GL_UNSIGNED_INT, NULL);
 
       }
+
       {
 
          const f32 scale_single    = 2.4;
@@ -1067,7 +1072,8 @@ void projection_update(Projection_Application *app, f64 dt) {
       trace_error("Framebuffer is not valid");
    }
    clear_framebuffer(app->fb);
-   {
+   
+   if (true) {
       assert_msg(is_valid_texture(app->fb.depth), "");
       //
       // TODO: use these and measure time
@@ -1078,7 +1084,6 @@ void projection_update(Projection_Application *app, f64 dt) {
       // NOTE: This are the usual culprits of weird, missing or outta order triangle redering.
 
 
-      glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
       if (false) { // Testing somethings
          // glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
          glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
@@ -1110,11 +1115,12 @@ void projection_update(Projection_Application *app, f64 dt) {
       glPolygonOffset(0.1f, 0.1f);
 
       // glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
-      static const Vector3 clear_color = {123./255, 123./255, 123./255};
-      glClearColor(clear_color.x, clear_color.y, clear_color.z, 1.);
-      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
    }
+
+   static const Vector3 clear_color = {123./255, 123./255, 123./255};
+   glClearColor(clear_color.x, clear_color.y, clear_color.z, 1.);
+   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
    Shader shader = app->shader;
    bind_shader(shader);
@@ -1139,7 +1145,7 @@ void projection_update(Projection_Application *app, f64 dt) {
       }
 
       {
-        GLint loc = glGetUniformLocation(shader.handle, "perspective");
+         GLint loc = glGetUniformLocation(shader.handle, "perspective");
          Matrix perspective = MatrixPerspective(PI/3., (f64)app->fb.color.width/app->fb.color.height, 0.1, 100.0);
          // perspective.m11 *= -1; // Force to be "left-handed" just like the NDC
          // Matrix perspective = MatrixFrustum(-5., 5.,  -5., 5.,  -5., 5.);
@@ -1186,11 +1192,12 @@ void projection_update(Projection_Application *app, f64 dt) {
 
    if (!is_window_minimized()) {
       Framebuffer final_fb = app->fb;
-      if (app->fb.color.samples > 1) {
+      if (texture_multisamples(app->fb.color) > 1) {
          // Framebuffer fb_resolved = resolve_multisample_framebuffer_old(&fb);
          final_fb = resolve_multisample_framebuffer(app->fb);
       }
 
+      Framebuffer bloomed  = apply_bloom(final_fb);
 
       Framebuffer dst_fb = default_framebuffer, src_fb = final_fb;
 
@@ -1205,17 +1212,20 @@ void projection_update(Projection_Application *app, f64 dt) {
       };
 
       Rectangle_I32 source = destination;
-      blit_framebuffer(dst_fb, src_fb,
-         destination,
-         source
-      );
-      // glBlitNamedFramebuffer(
-      //       final_fb.handle, 0,
-      //       0, 0, 800, 675,
-      //       0, 0, 800, 675,
-      //       GL_COLOR_BUFFER_BIT,
-      //       GL_NEAREST
-      // );
+
+      static bool please_bloom = false;
+      if (is_button_pressed(BUTTON_F1)) {
+         please_bloom = !please_bloom;
+         trace_info("\r\rHi we're %s gonna bloom your mother.", please_bloom ? "": "NOT");
+      }
+
+      Framebuffer ldr_fb = {0xCD};
+      if (please_bloom) {
+         ldr_fb = apply_postprocess(bloomed);
+      } else {
+         ldr_fb = apply_postprocess(src_fb);
+      }
+      blit_framebuffer_to_swapchain(ldr_fb);
    }
 }
 

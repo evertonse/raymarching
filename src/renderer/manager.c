@@ -178,6 +178,7 @@ typedef struct {
    GLuint vao; // TODO: Remove, the renderer should simply have one vertex array for everything and bind just the index buffer when needed
 } Manager;
 
+
 static Manager manager = {0};
 
 
@@ -1242,6 +1243,13 @@ Scene_Node overload create_scene_node(Scene_Node node) {
    return create_scene_node_from_renderable(renderable_index, instance.transform);
 }
 
+Transform get_transform(Scene_Node node) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable      = &manager.scene.renderables.items[renderable_index];
+   auto instance        = &renderable->instances.items[instance_index];
+   return instance->transform;
+}
 
 //
 // TODO: Updating the whole instances transform every time seems to be a bit slow
@@ -1257,6 +1265,21 @@ void update_transform(Scene_Node node, Transform transform) {
    instance->transform = transform;
    return;
 }
+
+void update_position(Scene_Node node, Vector3 position) {
+   Transform transform = get_transform(node);
+   transform.position = position;
+   update_transform(node, transform);
+   return;
+}
+
+void update_scale(Scene_Node node, float scale) {
+   Transform transform = get_transform(node);
+   transform.scale = vector3(scale);
+   update_transform(node, transform);
+   return;
+}
+
 
 void overload update_transform(Scene_Node node, Quaternion rotation) {
    manager.scene.instances_dirty = true;
@@ -1313,13 +1336,6 @@ void update_custom_data(Scene_Node node, Vector4 custom_1, Vector4 custom_2) {
 }
 
 
-Transform get_transform(Scene_Node node) {
-   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
-   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
-   auto renderable      = &manager.scene.renderables.items[renderable_index];
-   auto instance        = &renderable->instances.items[instance_index];
-   return instance->transform;
-}
 
 
 void set_animation_time(Scene_Node node, f64 time) {

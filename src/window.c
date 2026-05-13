@@ -51,6 +51,7 @@ void init_window(void) {
       const bool back_buffer_multisample = false;
       if (back_buffer_multisample) {
          glfwWindowHint(GLFW_SAMPLES, 32);
+
          glfwWindowHint(GLFW_RED_BITS, 32);
          glfwWindowHint(GLFW_GREEN_BITS, 32);
          glfwWindowHint(GLFW_BLUE_BITS, 32);
@@ -99,9 +100,17 @@ void init_window(void) {
 
 
    glfwMakeContextCurrent(window);
-   gladLoadGL(glfwGetProcAddress);
+
+   // gladLoadGL(glfwGetProcAddress);
+   if (!gladLoaderLoadGL()) {
+      trace_error("Failed to initialize GLAD.");
+      exit(EXIT_FAILURE);
+   }
+
+
+
    const bool cap_frame_rate = false;
-   glfwSwapInterval(cap_frame_rate);
+   glfwSwapInterval(cap_frame_rate ? 1 : 0);
    __state.window.initialized = true;
 }
 
@@ -266,6 +275,7 @@ void update_on_button(void) {
       glfwSetWindowAttrib(__state.window.handle, GLFW_FLOATING, !sticky);
    }
 }
+
 
 void update_window(void) {
    memcpy(__state.button.previous, __state.button.current, size_of(__state.button.current));

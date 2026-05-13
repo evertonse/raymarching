@@ -287,6 +287,7 @@ Buffer create_buffer_copy(const Buffer *source) {
    return result;
 }
 
+
 bool copy_from_buffer(
       Buffer *destination,  isz destination_offset,
       const Buffer *source, isz source_offset,
@@ -323,6 +324,7 @@ bool copy_from_buffer(
    return true;
 }
 
+
 // You do this by creating a fence object. This is a token in the command stream that you can test to see if it has been completed.
 // Since the stream is an ordered list, if the fence has completed, then every command issued before that fence was issued has also completed.
 // Sync objects have a specific type, which defines their signaling behavior. Currently, there is only one type: fences (since opengl is done being updated we're never gonna get another type xD).
@@ -336,6 +338,7 @@ GLsync sync_point(GLsync sync) {
    assert(glIsSync(sync) == GL_TRUE);
    return sync;
 }
+
 
 void wait_sync_point(GLsync sync) {
    if (sync == nullptr) {
@@ -379,6 +382,7 @@ bool is_valid_texture_buffer(const Texture_Buffer tb) {
 #endif
 }
 
+
 inline bool is_valid_index_buffer(const Index_Buffer ib) {
     return is_valid_buffer(ib.buffer) && ib.count > 0;
 }
@@ -389,7 +393,7 @@ inline bool is_valid_vertex_buffer(const Vertex_Buffer vb) {
 
 
 // Return the index of one position after the last byte written;
-isz update_buffer(const Buffer *buffer, const void *data, isz offset, isz size) {
+isz update_buffer(Buffer *buffer, const void *data, isz offset, isz size) {
    assert(buffer);
    if (!is_valid_buffer(*(Buffer*)buffer)) {
       trace_error("Buffer invalid, %s denied.", __func__);
@@ -432,11 +436,11 @@ isz update_buffer(const Buffer *buffer, const void *data, isz offset, isz size) 
 // Buffer growth using orphaning if resize is in its usage, otherwise destroy the earlier buffer
 // its destroyed and return a new buffer with same characteristics with the new required size
 bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
-    assert(buffer);
-    if (!is_valid_buffer(*buffer)) {
+   assert(buffer);
+   if (!is_valid_buffer(*buffer)) {
       trace_warn("Buffer can't weasel your way outta calling 'create_buffer' with a cheeky resize on a invalid buffer mate, nt tho.");
       return false;
-    }
+   }
 
    // Check for shrinking
    if (required_size < buffer->size) {
@@ -461,7 +465,7 @@ bool resize_buffer_if_needed(Buffer *buffer, isz required_size) {
 
       // Store the old buffer properties
       Buffer_Usage old_usage = buffer->usage;
-      Buffer_Type  old_type  = buffer->type;
+      Buffer_Type old_type   = buffer->type;
       u32 old_binding        = buffer->binding;
 
       // Destroy the old buffer
@@ -492,9 +496,11 @@ void bind_buffer(Buffer* buffer, Buffer_Type type, i64 binding) {
    buffer->type    = type;
 }
 
+
 void bind_buffer_draw_indirect(Buffer* buffer) {
    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer->handle);
 }
+
 
 void bind_buffer_view(Buffer *buffer, Buffer_Type type, isz binding, isz offset, isz size) {
    if (!buffer || buffer->handle == 0 || size <= 0) {
@@ -521,11 +527,13 @@ void bind_buffer_view(Buffer *buffer, Buffer_Type type, isz binding, isz offset,
    buffer->type = type;
 }
 
+
 inline void delete_texture_buffer(Texture_Buffer* buffer) {
     destroy_texture(&buffer->texture);
     destroy_buffer(&buffer->buffer);
     *buffer = (Texture_Buffer){0};
 }
+
 
 void attach_buffer_to_texture(const Texture* texture, const Buffer* buffer) {
    if (texture->type != TEXTURE_TYPE_BUFFER) return;
@@ -569,43 +577,6 @@ void attach_buffer_to_texture(const Texture* texture, const Buffer* buffer) {
    }
    glTextureBuffer(texture->handle, internal_format, buffer->handle);
 }
-
-Texture_Buffer create_texture_buffer(
-    isz size, const void* data,
-    Texture_Format format,
-    i64 binding // Not used in this case
-) {
-    Texture_Buffer result = {0};
-
-    result.buffer = create_buffer(
-        BUFFER_USAGE_STATIC,
-        data,
-        size
-    );
-
-    result.texture = create_texture_extended(
-        0, 0, nullptr,
-        format,
-        TEXTURE_TYPE_BUFFER,
-        0
-    );
-
-    // Associate the buffer with the texture
-    GLenum gl_internal_format = 0;
-    switch (format) {
-        case TEXTURE_FORMAT_RGBA32F: gl_internal_format = GL_RGBA32F; break;
-        case TEXTURE_FORMAT_RGBA8:   gl_internal_format = GL_RGBA8;   break;
-        case TEXTURE_FORMAT_RGB8:    gl_internal_format = GL_RGB8;    break;
-        case TEXTURE_FORMAT_RG8:     gl_internal_format = GL_RG8;     break;
-        case TEXTURE_FORMAT_R8:      gl_internal_format = GL_R8;      break;
-        default:
-            assert_msg(0, "Unsupported texture format for buffer");
-        }
-
-    glTextureBuffer(result.texture.handle, gl_internal_format, result.buffer.handle);
-    return result;
-}
-
 
 
 // Shit's unused and overengineering.

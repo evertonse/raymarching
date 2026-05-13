@@ -1232,6 +1232,7 @@ Model create_cube_model(
    return model;
 }
 
+Model overload create_cube_model(void) { return create_cube_model(nullptr, nullptr, nullptr, nullptr); }
 
 typedef struct {
    Vector3 *positions;

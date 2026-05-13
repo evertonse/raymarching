@@ -16,11 +16,35 @@ typedef enum {
    TEXTURE_TYPE_UNDEFINED,
    TEXTURE_TYPE_2D,
    TEXTURE_TYPE_2D_MIPMAPPED,
+   TEXTURE_TYPE_2D_MULTISAMPLED_2X,
+   TEXTURE_TYPE_2D_MULTISAMPLED_4X,
+   TEXTURE_TYPE_2D_MULTISAMPLED_8X,
+   TEXTURE_TYPE_2D_MULTISAMPLED_16X,
    TEXTURE_TYPE_BUFFER,
 } Texture_Type;
 
 typedef enum {
-   TEXTURE_ACCESS_READ =  1 << 0,
+   TEXTURE_FILTER_NONE = 0,
+
+   TEXTURE_FILTER_BILINEAR,
+
+   TEXTURE_FILTER_TRILINEAR,
+
+   TEXTURE_FILTER_ANISOTROPIC_4X,
+   TEXTURE_FILTER_ANISOTROPIC_8X,
+   TEXTURE_FILTER_ANISOTROPIC_16X,
+
+} Texture_Filter;
+
+typedef enum {
+   TEXTURE_WRAP_REPEAT = 0,
+   TEXTURE_WRAP_CLAMP_EDGE,
+   TEXTURE_WRAP_CLAMP_BORDER,
+   TEXTURE_WRAP_MIRRORED_REPEAT,
+} Texture_Wrap;
+
+typedef enum {
+   TEXTURE_ACCESS_READ  = 1 << 0,
    TEXTURE_ACCESS_WRITE = 1 << 1,
 } Texture_Access;
 
@@ -36,19 +60,21 @@ typedef struct {
 
    i32 width;
    i32 height;
-   i32 samples;
    // This line was purposefully left in blank
 
+   Texture_Filter filter;
+   Texture_Wrap   wrap;
    Texture_Format format;
    Texture_Type   type;
 } Texture;
 
 
 inline bool is_valid_texture(Texture texture) {
-    if (0 == texture.handle) return false;
-    if (texture.width <= 0 || texture.height <= 0) return false;
+    if (0 == texture.handle)                        return false;
+    if (texture.width <= 0 || texture.height <= 0)  return false;
     if (TEXTURE_FORMAT_UNDEFINED == texture.format) return false;
-    if (TEXTURE_TYPE_UNDEFINED == texture.type) return false;
+    if (TEXTURE_TYPE_UNDEFINED   == texture.type)   return false;
+
     // Actual OpenGL state check (costly, use only in debug)
     #if defined(RENDERER_DEBUG)
       return glIsTexture(texture.handle);
@@ -58,134 +84,302 @@ inline bool is_valid_texture(Texture texture) {
 }
 
 
-Texture create_texture_extended(int width, int height, void *data, Texture_Format format, Texture_Type type, int samples) {
+void destroy_texture(Texture *texture) {
+
+   if (!texture) {
+      trace_warn("destroy_texture: texture pointer is null.");
+      return;
+   }
+
+   if (!is_valid_texture(*texture)) {
+      trace_debug("Trying to destroy texture that isn't valid (%s)", texture->path ? texture->path : "null path");
+      return;
+   }
+
+#if defined(RENDERER_USING_BINDLESS)
+   // Make non-resident before deletion.
+   // Required by ARB_bindless_texture spec.
+   if (texture->bindless_handle != 0) {
+
+      GLboolean resident = glIsTextureHandleResidentARB(texture->bindless_handle);
+
+      if (resident) {
+         glMakeTextureHandleNonResidentARB(texture->bindless_handle);
+      }
+
+      texture->bindless_handle = 0;
+   }
+#endif
+
+#if defined(RENDERER_DEBUG)
+
+   // Validate before deletion to catch double-frees or corrupted handles
+   if (!glIsTexture(texture->handle)) {
+
+      trace_warn(
+         "%s: handle %u is not a valid OpenGL texture.", __func__,
+         texture->handle
+      );
+
+   } else {
+
+      trace_debug(
+         "%s: deleting texture %u (%dx%d)", __func__,
+         texture->handle,
+         texture->width,
+         texture->height
+      );
+   }
+
+#endif
+
+   glDeleteTextures(1, &texture->handle);
+
+   GLenum err = glGetError();
+
+   if (err != GL_NO_ERROR) {
+
+      trace_error(
+         "%s: glDeleteTextures failed for handle %u (0x%X)", __func__,
+         texture->handle,
+         err
+      );
+   }
+
+   *texture = (Texture){0};
+}
+
+Texture create_texture(int width, int height, void *data, Texture_Format format, Texture_Type type, Texture_Filter filter, Texture_Wrap wrap) {
    Texture result = {
-      .width   = width,
-      .height  = height,
-      .format  = format,
-      .type    = type,
-      .samples = samples
+       .width  = width,
+       .height = height,
+       .format = format,
+       .type   = type,
+       .filter = filter,
+       .wrap   = wrap,
    };
 
-   if (1 == samples) {
-      trace_warn("Are you sure you wanna create a multisample texture with %d sample? Why, I'm interested", samples);
-   }
-
-   GLenum data_type       = GL_UNSIGNED_BYTE;
-   GLenum internal_format = 0,         gl_format    = 0;
-   GLenum compare_mode    = 0,         compare_func = 0;
-   GLint  min_filter      = GL_LINEAR, mag_filter   = GL_LINEAR;
-   bool   buffer_backed   = false,     mipmapped    = false;
-
-   // Format decoding
-   switch (format) {
-      case TEXTURE_FORMAT_RGBA8:   internal_format = GL_RGBA8;             gl_format = GL_RGBA;            break;
-      case TEXTURE_FORMAT_RGB8:    internal_format = GL_RGB8;              gl_format = GL_RGB;             break;
-      case TEXTURE_FORMAT_RG8:     internal_format = GL_RG8;               gl_format = GL_RG;              break;
-      case TEXTURE_FORMAT_R8:      internal_format = GL_R8;                gl_format = GL_RED;             break;
-      case TEXTURE_FORMAT_RGBA32F: internal_format = GL_RGBA32F;           gl_format = GL_RGBA;            data_type = GL_FLOAT;        break;
-      case TEXTURE_FORMAT_R32F:    internal_format = GL_R32F;              gl_format = GL_RED;             data_type = GL_FLOAT;        break;
-      case TEXTURE_FORMAT_DEPTH24: internal_format = GL_DEPTH_COMPONENT24; gl_format = GL_DEPTH_COMPONENT; data_type = GL_UNSIGNED_INT; break;
-      case TEXTURE_FORMAT_SHADOW:  internal_format = GL_DEPTH_COMPONENT24; gl_format = GL_DEPTH_COMPONENT; data_type = GL_UNSIGNED_INT; compare_mode = GL_COMPARE_REF_TO_TEXTURE; compare_func = GL_LEQUAL; break;
-      default: assert_msg(false, "Unsupported texture format"); return result;
-   }
-
-   // Type decoding
-   switch (type) {
-      case  TEXTURE_TYPE_BUFFER:       buffer_backed = true; break;
-      case  TEXTURE_TYPE_2D_MIPMAPPED: mipmapped     = true; break;
-      case  TEXTURE_TYPE_2D:                                 break;
-
-      default: assert_msg(false,"Unsupported  texture type"); return result;
-   }
-
-   // Create handle
-   if (buffer_backed) {
-      glCreateTextures(GL_TEXTURE_BUFFER, 1, &result.handle);
-   } else if (samples >= 1) {
-      glCreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &result.handle);
-   } else {
-      glCreateTextures(GL_TEXTURE_2D, 1, &result.handle);
-   }
-
-   GLenum error = glGetError();
-   if (error != GL_NO_ERROR) {
-      const char *errorMessage;
-      switch (error) {
-         case GL_INVALID_ENUM:      errorMessage = "Invalid enum value."; break;
-         case GL_INVALID_VALUE:     errorMessage = "Invalid value.     "; break;
-         case GL_INVALID_OPERATION: errorMessage = "Invalid operation. "; break;
-         case GL_OUT_OF_MEMORY:     errorMessage = "Out of memory.     "; break;
-         default:                   errorMessage = "Unknown error.";      break;
-      }
-      trace_error("Error creating texture: %s\n", errorMessage);
+   if (width <= 0 || height <= 0) {
+      trace_error("%s: invalid texture size %dx%d", __func__, width, height);
       return (Texture){0};
    }
 
+   // Decode texture type
+   GLenum target  = GL_TEXTURE_2D;
+   bool is_mipmapped    = false;
+   bool is_multisampled = false;
+   int  samples = 0;
+
+   switch (type) {
+   case TEXTURE_TYPE_2D:                  target = GL_TEXTURE_2D;                                                   break;
+   case TEXTURE_TYPE_2D_MIPMAPPED:        target = GL_TEXTURE_2D; is_mipmapped = true;                              break;
+   case TEXTURE_TYPE_2D_MULTISAMPLED_2X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  2; break;
+   case TEXTURE_TYPE_2D_MULTISAMPLED_4X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  4; break;
+   case TEXTURE_TYPE_2D_MULTISAMPLED_8X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  8; break;
+   case TEXTURE_TYPE_2D_MULTISAMPLED_16X: target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples = 16; break;
+   default: {
+      trace_error("%s: unsupported texture type", __func__);
+      return (Texture){0};
+   }
+   }
+
+   // MSAA textures cannot use mipmapped filters
+   assert_msg(!(true == is_mipmapped && true == is_multisampled),"We should have caught that in the first switch on the type");
+
+   // Format
+   GLenum internal_format = 0, gl_format = 0, data_type = GL_UNSIGNED_BYTE;
+   bool is_depth  = false;
+   bool is_shadow = false;
+   switch (format) {
+   case TEXTURE_FORMAT_RGBA8: {
+      internal_format = GL_RGBA8;
+      gl_format       = GL_RGBA;
+      break;
+   }
+   case TEXTURE_FORMAT_RGB8: {
+      internal_format = GL_RGB8;
+      gl_format       = GL_RGB;
+      break;
+   }
+   case TEXTURE_FORMAT_RG8: {
+      internal_format = GL_RG8;
+      gl_format       = GL_RG;
+      break;
+   }
+   case TEXTURE_FORMAT_R8: {
+      internal_format = GL_R8;
+      gl_format       = GL_RED;
+      break;
+   }
+   case TEXTURE_FORMAT_RGBA32F: {
+      internal_format = GL_RGBA32F;
+      gl_format       = GL_RGBA;
+      data_type       = GL_FLOAT;
+      break;
+   }
+   case TEXTURE_FORMAT_R32F: {
+      internal_format = GL_R32F;
+      gl_format       = GL_RED;
+      data_type       = GL_FLOAT;
+      break;
+   }
+   case TEXTURE_FORMAT_DEPTH24: {
+      internal_format = GL_DEPTH_COMPONENT24;
+      gl_format       = GL_DEPTH_COMPONENT;
+      data_type       = GL_UNSIGNED_INT;
+      is_depth        = true;
+      break;
+   }
+   case TEXTURE_FORMAT_SHADOW: {
+      internal_format = GL_DEPTH_COMPONENT24;
+      gl_format       = GL_DEPTH_COMPONENT;
+      data_type       = GL_UNSIGNED_INT;
+      is_depth        = true;
+      is_shadow       = true;
+      break;
+   }
+   default: {
+      trace_error("create_texture: unsupported texture format");
+      return (Texture){0};
+   }
+   }
+
+   // Create texture object
+   glCreateTextures(target, 1, &result.handle);
+
+   if (!result.handle) {
+      trace_error("%s glCreateTextures failed", __func__);
+      return (Texture){0};
+   }
+
+
    // Allocate storage
-   if (buffer_backed) {
-      // This kinda of Texture has its storage associated via glTextureBuffer at some other point in the code
-   } else if (samples >= 1) {
+   if (is_multisampled) {
       glTextureStorage2DMultisample(result.handle, samples, internal_format, width, height, GL_TRUE);
    } else {
-      assert(0 != result.handle);
-      glTextureStorage2D(result.handle, 1, internal_format, width, height);
 
-      if (data && (format != TEXTURE_FORMAT_DEPTH24 && format != TEXTURE_FORMAT_SHADOW)) {
+      int mip_levels = 1;
+
+      if (is_mipmapped) {
+         mip_levels = (int)floorf(log2f((float)max(width, height))) + 1;
+      }
+
+      glTextureStorage2D(result.handle, mip_levels, internal_format, width, height);
+
+      if (data) {
+         assert_msg(!is_depth && !is_shadow && !is_multisampled, "Tell me is it possible to want to have starting data in a multisamples texture or depth/shadow texute?");
          glTextureSubImage2D(result.handle, 0, 0, 0, width, height, gl_format, data_type, data);
       }
 
-      if (mipmapped) {
+      if (is_mipmapped) {
          glGenerateTextureMipmap(result.handle);
-         min_filter = GL_LINEAR_MIPMAP_LINEAR;
       }
    }
 
-   // Apply comparison mode
-   if (compare_mode) {
-      glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_MODE, compare_mode);
-      glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_FUNC, compare_func);
-   }
+   if (!is_multisampled) {
+      GLenum  min_filter = GL_LINEAR;
+      GLenum  mag_filter = GL_LINEAR;
+      GLfloat anisotropy = 1.0f;
+      switch (result.filter) {
+      case TEXTURE_FILTER_NONE: {
+         min_filter = GL_NEAREST;
+         mag_filter = GL_NEAREST;
+         break;
+      }
+      case TEXTURE_FILTER_BILINEAR: {
+         min_filter = GL_LINEAR;
+         mag_filter = GL_LINEAR;
+         break;
+      }
+      case TEXTURE_FILTER_TRILINEAR:
+      case TEXTURE_FILTER_ANISOTROPIC_4X:
+      case TEXTURE_FILTER_ANISOTROPIC_8X:
+      case TEXTURE_FILTER_ANISOTROPIC_16X: {
+         min_filter = GL_LINEAR_MIPMAP_LINEAR;
+         mag_filter = GL_LINEAR;
+         break;
+      }
+      default: {
+         trace_error("%s unsupported filter", __func__);
+         glDeleteTextures(1, &result.handle);
+         return (Texture){0};
+      }
+      }
 
-   if (!buffer_backed && samples < 1) {
       glTextureParameteri(result.handle, GL_TEXTURE_MIN_FILTER, min_filter);
       glTextureParameteri(result.handle, GL_TEXTURE_MAG_FILTER, mag_filter);
 
-      // TODO: When loading certain models each texture has WRAP mode for u and v we need to make sure we set that shit correctly
-      // HACK: Set to REAPEAT as we know most models prefer that (Symmetry seems to play a role on that)
-      glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S, GL_REPEAT); // Before was this GL_CLAMP_TO_EDGE but didn't work with Alleya.fbx model.
-      glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T, GL_REPEAT);
+      if      (TEXTURE_FILTER_ANISOTROPIC_4X  == result.filter) anisotropy = 4.f;
+      else if (TEXTURE_FILTER_ANISOTROPIC_8X  == result.filter) anisotropy = 8.f;
+      else if (TEXTURE_FILTER_ANISOTROPIC_16X == result.filter) anisotropy = 16.f;
 
-      #if defined(RENDERER_USING_BINDLESS)
-         result.bindless_handle = glGetTextureHandleARB(result.handle);
-         glMakeTextureHandleResidentARB(result.bindless_handle);
-         assert_msg(0 != result.bindless_handle, "Texture bindless handle 0 is considered invalid. Is zero possibly valid? ", result.bindless_handle);
-      #endif
+      if (anisotropy > 1.0f) {
+         if (GLAD_GL_EXT_texture_filter_anisotropic || GLAD_GL_ARB_texture_filter_anisotropic) {
+            GLfloat max_supported = 1.0f;
+            glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &max_supported);
+            anisotropy = min(anisotropy, max_supported);
+            glTextureParameterf(result.handle, GL_TEXTURE_MAX_ANISOTROPY, anisotropy);
+         } else {
+            trace_warn("%s: Anisotropy filtering ain't supported", __func__);
+         }
+      }
+
+
+      GLenum gl_wrap = GL_REPEAT;
+      switch (wrap) {
+      case TEXTURE_WRAP_REPEAT:          gl_wrap = GL_REPEAT;          break;
+      case TEXTURE_WRAP_CLAMP_EDGE:      gl_wrap = GL_CLAMP_TO_EDGE;   break;
+      case TEXTURE_WRAP_CLAMP_BORDER:    gl_wrap = GL_CLAMP_TO_BORDER; break;
+      case TEXTURE_WRAP_MIRRORED_REPEAT: gl_wrap = GL_MIRRORED_REPEAT; break;
+      default: {
+         trace_error("%s: unsupported wrap mode", __func__);
+         glDeleteTextures(1, &result.handle);
+         return (Texture){0};
+      }
+      }
+      glTextureParameteri(result.handle, GL_TEXTURE_WRAP_S, gl_wrap);
+      glTextureParameteri(result.handle, GL_TEXTURE_WRAP_T, gl_wrap);
+
+      // Shadow compare mode
+      if (is_shadow) {
+         glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+         glTextureParameteri(result.handle, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+      }
+
+   }
+
+   // Bindless only is normalish 2D texture
+#if defined(RENDERER_USING_BINDLESS)
+   if (TEXTURE_TYPE_2D_MIPMAPPED == result.type || TEXTURE_TYPE_2D == result.type) {
+      result.bindless_handle = glGetTextureHandleARB(result.handle);
+      glMakeTextureHandleResidentARB(result.bindless_handle);
+   }
+#endif
+
+   // Validation
+   GLenum err = glGetError();
+   if (err != GL_NO_ERROR) {
+      trace_error("%s OpenGL error 0x%X", __func__, err);
+      destroy_texture(&result);
+      return (Texture){0};
    }
 
    return result;
 }
 
 
-
-inline Texture create_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, 0);
+inline Texture overload create_texture(int width, int height) {
+   return create_texture(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_TRILINEAR, TEXTURE_WRAP_REPEAT);
 }
 
-inline Texture create_texture_multisample(int width, int height, int samples) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, samples);
-}
-
-inline Texture create_depth_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, 0);
-}
-
-inline Texture create_depth_texture_multisample(int width, int height, int samples) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, samples);
-}
-
-inline Texture create_shadow_texture(int width, int height) {
-    return create_texture_extended(width, height, NULL, TEXTURE_FORMAT_SHADOW, TEXTURE_TYPE_2D, 0);
+// Returns 0 if not multisampled else returns samples count.
+int texture_multisamples(const Texture texture) {
+   int samples =  0;
+   if      (TEXTURE_TYPE_2D_MULTISAMPLED_2X  == texture.type) samples =  2;
+   else if (TEXTURE_TYPE_2D_MULTISAMPLED_4X  == texture.type) samples =  4;
+   else if (TEXTURE_TYPE_2D_MULTISAMPLED_8X  == texture.type) samples =  8;
+   else if (TEXTURE_TYPE_2D_MULTISAMPLED_16X == texture.type) samples = 16;
+   return samples;
 }
 
 
@@ -202,7 +396,17 @@ Texture create_texture_from_filepath(const char *filepath) {
 
    int width, height, channels;
    stbi_set_flip_vertically_on_load(true);
-   u8 *data = stbi_load(filepath, &width, &height, &channels, 0);
+   u8 *data = nullptr;
+   bool stbi_need_free = false;
+   Cye_DString ds = {0};
+   if (true) {
+      data = stbi_load(filepath, &width, &height, &channels, 0);
+      stbi_need_free = true;
+   } else {
+      ds_read_file(filepath, &ds);
+      data = ds.data;
+      stbi_load_from_memory(ds.data, ds.size, &width, &height, &channels, 0);
+   }
 
    if (!data) {
       trace_error("Failed to load texture from: %s\n", filepath);
@@ -220,7 +424,7 @@ Texture create_texture_from_filepath(const char *filepath) {
       break;
    }
 
-   Texture result = create_texture_extended(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, 0);
+   Texture result = create_texture(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, TEXTURE_FILTER_ANISOTROPIC_16X, TEXTURE_WRAP_REPEAT);
    // NOTE: I'm usure if the texture should hold this memory or not. A lota of times an externable memory is already alocatted idk.
    result.path = filepath;
 
@@ -228,140 +432,158 @@ Texture create_texture_from_filepath(const char *filepath) {
    trace_info("'%s' %dx%d handle = %d bindless_handle = 0x%x loaded.", result.path, result.width, result.height, result.handle, result.bindless_handle);
 #endif
 
-   stbi_image_free(data);
+   if (stbi_need_free) {
+      stbi_image_free(data);
+   } else {
+      ds_free(ds);
+   }
+
    return result;
 }
 
-void destroy_texture(Texture *texture) {
-   #if defined(RENDERER_USING_BINDLESS)
-      // NOTE: We're assuming it's always resident if there is a bindless handle
-      if (texture->bindless_handle) {
-         glMakeTextureHandleNonResidentARB(texture->bindless_handle);
-      }
-   #endif
-   glDeleteTextures(1, &texture->handle);
-   *texture = (Texture){0};
+
+inline Texture overload create_texture(const char *filepath) {
+   return create_texture_from_filepath(filepath);
 }
 
 
-void update_texture(Texture* tex, int new_width, int new_height, const void* new_data) {
-    assert(tex && tex->handle);
-    assert(new_width <= tex->width && new_height <= tex->height);
-
-    GLenum format = 0, type = GL_UNSIGNED_BYTE;
-    switch (tex->format) {
-        case TEXTURE_FORMAT_RGBA8:     format = GL_RGBA; break;
-        case TEXTURE_FORMAT_RGB8:      format = GL_RGB; break;
-        case TEXTURE_FORMAT_RG8:       format = GL_RG; break;
-        case TEXTURE_FORMAT_R8:        format = GL_RED; break;
-        case TEXTURE_FORMAT_RGBA32F:   format = GL_RGBA;            type = GL_FLOAT; break;
-        case TEXTURE_FORMAT_R32F:      format = GL_RED;             type = GL_FLOAT; break;
-        case TEXTURE_FORMAT_DEPTH24:   format = GL_DEPTH_COMPONENT; type = GL_UNSIGNED_INT; break;
-        default:
-            assert_msg(false, "Unsupported texture format for subimage update");
-            return;
-    }
-
-    // Only works for non-multisampled textures
-    if (tex->samples > 1) {
-        assert_msg(false, "Cannot use SubImage on multisampled textures");
-        return;
-    }
-
-    glTextureSubImage2D(
-        tex->handle,
-        0,    // mip level
-        0, 0, // xoffset, yoffset
-        new_width,
-        new_height,
-        format,
-        type,
-        new_data
-    );
+void update_texture(Texture* texture, int new_width, int new_height, const void* new_data) {
+   assert(texture && texture->handle);
+   assert(new_width <= texture->width && new_height <= texture->height);
+   
+   GLenum format = 0, type = GL_UNSIGNED_BYTE;
+   switch (texture->format) {
+      case TEXTURE_FORMAT_RGBA8:     format = GL_RGBA;                                    break;
+      case TEXTURE_FORMAT_RGB8:      format = GL_RGB;                                     break;
+      case TEXTURE_FORMAT_RG8:       format = GL_RG;                                      break;
+      case TEXTURE_FORMAT_R8:        format = GL_RED;                                     break;
+      case TEXTURE_FORMAT_RGBA32F:   format = GL_RGBA;            type = GL_FLOAT;        break;
+      case TEXTURE_FORMAT_R32F:      format = GL_RED;             type = GL_FLOAT;        break;
+      case TEXTURE_FORMAT_DEPTH24:   format = GL_DEPTH_COMPONENT; type = GL_UNSIGNED_INT; break;
+      default: assert_msg(false, "Unsupported texture format for subimage update");       return;
+   }
+   
+   // Only works for non-multisampled textures
+   if (texture_multisamples(*texture) > 1) {
+      assert_msg(false, "Cannot use SubImage on multisampled textures");
+      return;
+   }
+   
+   glTextureSubImage2D(
+      texture->handle,
+      0,    // mip level
+      0, 0, // xoffset, yoffset
+      new_width,
+      new_height,
+      format,
+      type,
+      new_data
+   );
 }
 
+
+void copy_texture(Texture dst, Texture src) {
+   if (!is_valid_texture(src) || !is_valid_texture(dst)) {
+      trace_error("%s: invalid texture(s)", __func__);
+      return;
+   }
+
+   if (TEXTURE_TYPE_2D != src.type || TEXTURE_TYPE_2D != dst.type) {
+      trace_error("%s: only 2D textures supported", __func__);
+      return;
+   }
+
+   if (src.width != dst.width || src.height != dst.height) {
+      trace_warn("%s: size mismatch, skipping copy", __func__);
+      return;
+   }
+
+   // Direct GPU side copy
+   glCopyImageSubData(src.handle, GL_TEXTURE_2D, 0, 0, 0, 0, dst.handle, GL_TEXTURE_2D, 0, 0, 0, 0, src.width, src.height, 1);
+}
+
+
+// Access like this: ``layout(binding = binding) uniform sampler2D texturename;``
 void bind_texture(const Texture texture, usz binding) {
    if (!is_valid_texture(texture)) {
       trace_warn("Trying to bind invalid texture handle = %lld, path %s", texture.handle, texture.path);
       return;
    }
 
-   // Access like this: ``layout(binding = binding) uniform sampler2D texturename;``
    glBindTextureUnit(binding, texture.handle);
 
    auto error_code = glGetError();
    if (error_code != GL_NO_ERROR) {
-      trace_error( "OpenGL Error (%d) in %s!\n", error_code, __func__);
+      trace_error("OpenGL Error (%d) in %s!\n", error_code, __func__);
       debug_break();
    }
 }
 
+
 void bind_texture_as_image(const Texture texture, usz binding, Texture_Access access) {
-    assert(texture.handle != 0);
+   assert(texture.handle != 0);
 
-    if (texture.type == TEXTURE_TYPE_BUFFER) {
-        trace_error("%s: Cannot bind buffer textures as images.\n", __func__);
-        return;
-    }
+   if (texture.type == TEXTURE_TYPE_BUFFER) {
+      trace_error("%s: Cannot bind buffer textures as images.\n", __func__);
+      return;
+   }
 
-    if (texture.samples > 1) {
-        trace_error("%s: Multisample textures cannot be bound as image units.\n", __func__);
-        return;
-    }
+   if (texture_multisamples(texture) > 1) {
+      trace_error("%s: Multisample textures cannot be bound as image units.\n", __func__);
+      return;
+   }
 
-    GLenum format = 0;
+   GLenum format = 0;
 
-    switch (texture.format) {
-        case TEXTURE_FORMAT_RGBA32F: format = GL_RGBA32F; break;
-        case TEXTURE_FORMAT_R32F:    format = GL_R32F;    break;
-        case TEXTURE_FORMAT_RGBA8:   format = GL_RGBA8;   break;
-        case TEXTURE_FORMAT_RGB8:    format = GL_RGB8;    break;
-        case TEXTURE_FORMAT_RG8:     format = GL_RG8;     break;
-        case TEXTURE_FORMAT_R8:      format = GL_R8;      break;
+   switch (texture.format) {
+   case TEXTURE_FORMAT_RGBA32F: format = GL_RGBA32F; break;
+   case TEXTURE_FORMAT_R32F: format = GL_R32F; break;
+   case TEXTURE_FORMAT_RGBA8: format = GL_RGBA8; break;
+   case TEXTURE_FORMAT_RGB8: format = GL_RGB8; break;
+   case TEXTURE_FORMAT_RG8: format = GL_RG8; break;
+   case TEXTURE_FORMAT_R8: format = GL_R8; break;
+   default:
+      trace_error("%s: Unsupported or invalid format for image binding (%d).\n", __func__, texture.format);
+      return;
+   }
 
-        default:
-            trace_error("%s: Unsupported or invalid format for image binding (%d).\n", __func__, texture.format);
-            return;
-    }
-    GLenum gl_access = GL_READ_ONLY; // default
-    if ((access & TEXTURE_ACCESS_READ) && (access & TEXTURE_ACCESS_WRITE)) {
-        gl_access = GL_READ_WRITE;
-    } else if (access & TEXTURE_ACCESS_WRITE) {
-        gl_access = GL_WRITE_ONLY;
-    } else if (access & TEXTURE_ACCESS_READ) {
-        gl_access = GL_READ_ONLY;
-    } else {
-        trace_warn("%s: No valid access flags set, defaulting to read only.\n", __func__);
-    }
+   GLenum gl_access = GL_READ_ONLY; // default
+   if ((access & TEXTURE_ACCESS_READ) && (access & TEXTURE_ACCESS_WRITE)) {
+      gl_access = GL_READ_WRITE;
+   } else if (access & TEXTURE_ACCESS_WRITE) {
+      gl_access = GL_WRITE_ONLY;
+   } else if (access & TEXTURE_ACCESS_READ) {
+      gl_access = GL_READ_ONLY;
+   } else {
+      trace_warn("%s: No valid access flags set, defaulting to read only.\n", __func__);
+   }
 
-    int level = 0, layer = 0;
-    bool is_layered = GL_FALSE;
-    glBindImageTexture(binding, texture.handle, level, is_layered, layer, gl_access, format);
+   int level = 0, layer = 0;
+   bool is_layered = GL_FALSE;
+   glBindImageTexture(binding, texture.handle, level, is_layered, layer, gl_access, format);
 
-    GLenum err = glGetError();
-    if (err != GL_NO_ERROR) {
-        trace_error("[OpenGL Error] glBindImageTexture failed (0x%X) for binding=%u, format=%d, access=%d\n", err, binding, texture.format, access);
-    }
+   GLenum err = glGetError();
+   if (err != GL_NO_ERROR) {
+      trace_error("[OpenGL Error] glBindImageTexture failed (0x%X) for binding=%u, format=%d, access=%d\n", err, binding, texture.format, access);
+   }
 }
 
-
 #define bind_texture_as_sampler bind_texture
-
 
 bool generate_max_mipmaps(Texture *texture) {
 
    if (texture == NULL) {
-      trace_error("generate_max_mipmaps: texture null");
+      trace_error("%s: texture null", __func__);
       return false;
    }
 
    if (!is_valid_texture(*texture)) {
-      trace_error("generate_max_mipmaps: invalid texture");
+      trace_error("%s: invalid texture", __func__);
       return false;
    }
 
-   if (texture->samples > 0) {
-      trace_error("generate_max_mipmaps: multisampled not supported");
+   if (texture_multisamples(*texture) > 0) {
+      trace_error("%s: multisampled not supported", __func__);
       return false;
    }
 
@@ -381,7 +603,7 @@ bool generate_max_mipmaps(Texture *texture) {
    int base_height = texture->height;
 
    if (base_width <= 0 || base_height <= 0) {
-      trace_error("generate_max_mipmaps: invalid size");
+      trace_error("%s: invalid size", __func__);
       return false;
    }
 
@@ -392,7 +614,7 @@ bool generate_max_mipmaps(Texture *texture) {
 
    float *base_level_data = malloc(base_pixel_count * size_of(float));
    if (base_level_data == NULL) {
-      trace_error("generate_max_mipmaps: malloc failed");
+      trace_error("%s: malloc failed", __func__);
       return false;
    }
 
@@ -407,7 +629,7 @@ bool generate_max_mipmaps(Texture *texture) {
    for (usize i = 0; i < base_pixel_count; i++) {
       float data = base_level_data[i];
       if (data > 1.0) {
-         trace_fatal(" givver than 1. %f", data);
+         trace_fatal("givver than 1. %f", data);
       }
    }
 
@@ -449,7 +671,7 @@ bool generate_max_mipmaps(Texture *texture) {
 
       if (next_level_data == NULL) {
          free(previous_level_data);
-         trace_error("generate_max_mipmaps: malloc failed");
+         trace_error("%s: malloc failed", __func__);
          return false;
       }
 
@@ -567,7 +789,7 @@ bool dump_texture_mips_png(Texture *texture, const char *filename) {
       h = (h > 1) ? h / 2 : 1;
    }
 
-   int out_width  = base_width;
+   int out_width = base_width;
    int out_height = total_height;
 
    u8 *png_pixels = malloc((usize)out_width * out_height * 3);

@@ -1,7 +1,11 @@
-[ ] Make manager allow custom shader api that includes depth and alpha 
-blending setting. This is because particles usually don't write to z-buffer but everything else does.
+[ ] Read more about these libs bgfx bimg noise soloud
+[x] Add support for anisotropic texture filter
+[ ] Add support for slug's algorithm text.
 
-[ ] Add some vfx via particle system (simplest one)
+[ ] Make manager allow custom shader api that includes depth and alpha
+    blending setting. This is because particles usually don't write to z-buffer but everything else does.
+
+[x] Add some vfx via particle system (simplest one)
 [ ] Make custom data be just a uint index into another renderer managed array
 
 [x] Make debugging on Rad Debugger work again

@@ -1,7 +1,7 @@
 #ifndef SHARED_DEFINES_HEADER
 #define SHARED_DEFINES_HEADER
 
-#define RENDERER_USING_BINDLESS 1
+#define RENDERER_USING_BINDLESS 1 // Nothing works without it
 
 #ifdef RELEASE
 // Define nothing
@@ -19,6 +19,7 @@
 #define BINDING_DRAW_COMMAND       18
 #define BINDING_MATERIAL           10
 #define BINDING_CAMERA             2
+#define BINDING_BLOOM              3
 #define BINDING_ANIMATION_MATRICES 12
 #define BINDING_JOINT_BUFFER       9
 

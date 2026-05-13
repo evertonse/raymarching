@@ -1,6 +1,7 @@
 
 #include "./remaps.glsl"
 
+
 vec3 health_background(vec2 uv, float health_percent) {
    vec3 background = vec3(0.15, 0.15, 0.15);
 
@@ -8,10 +9,19 @@ vec3 health_background(vec2 uv, float health_percent) {
       return background;
    }
 
-   const vec3 c0 = vec3(154., 38., 27.)  / 255.;
-   const vec3 c1 = vec3(170., 53., 38.)  / 255.;
-   const vec3 c2 = vec3(203., 106., 96.) / 255.;
-   const vec3 c3 = vec3(195.,110.,101.)  / 255.;
+   const float intensity = 4.;
+   const float c0_intensity = 1. + (intensity - 1.) * 14.14 ;
+   const vec3  c0 = vec3(154., 38., 27.)  / 255. * c0_intensity;
+
+   const float c1_intensity = 1. + (intensity - 1.) * 2.2;
+   const vec3  c1 = vec3(170., 53., 38.)  / 255. * c1_intensity;
+
+   const float c2_intensity = 1. + (intensity - 1.) * 10.1;
+   const vec3  c2 = vec3(203., 106., 96.) / 255. * c2_intensity;
+
+   // const float c3_intensity = 1. + (intensity - 1.) * (10. + 32. * ((1. + sin(per_frame.elapsed_time)/2.)));
+   const float c3_intensity = 1. + (intensity - 1.) * (10. + 32.);
+   const vec3  c3 = vec3(195.,110.,101.)  / 255. * c3_intensity;
 
    // The first 0.38 percent from top to bottom
    float power_n = 0.6;
@@ -44,6 +54,7 @@ vec3 health_background(vec2 uv, float health_percent) {
    return background;
 }
 
+
 // NOTE: Adapted from this https://www.shadertoy.com/view/mlXSzS and this https://www.shadertoy.com/view/dlXSzB
 vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_aspect_ratio) {
    uv.y = 1.f - uv.y; // quick remap to make y be the bottom of our quads and
@@ -57,6 +68,7 @@ vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_a
 
 
    vec3 background = health_background(uv, health_current/health_max);
+
 
    float slot_width = 1.0 / NUM_TICKS;
    float tick_index = round(uv.x / slot_width);
@@ -75,35 +87,74 @@ vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_a
    vec3 color = (in_x && in_y) ? vec3(0., 0, 0) : background;
    return vec4(color, 1.0);
 }
-/* Gradient noise from Jorge Jimenez's presentation: */
-/* http://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare */
+
+// Gradient noise from Jorge Jimenez's presentation:
+// http://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
+// Example of dithering: https://www.shadertoy.com/view/MlV3R1
 float gradient_noise(in vec2 uv) {
-   return fract(52.9829189 * fract(dot(uv, vec2(0.06711056, 0.00583715))));
+   float noise = fract(52.9829189 * fract(dot(uv, vec2(0.06711056, 0.00583715))));
+   if (false) {
+      noise = fract(sin(dot(uv, vec2(12.9898,78.233))) * 43758.5453);
+   }
+   return noise;
 }
+
 
 vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
 
+   if (3 == instance_rendering_mode) {
+      float intensity = 102.;
+      // return vec4(vec3(1.)*intensity, 1.) * color_tint;
+      return vec4(vec3(1.)*intensity, 1.) * color_tint;
+      // return vec4(1.);
+   }
    if (2 == instance_rendering_mode) {
+      uv.y = -uv.y;
       const float thickness = 0.002;
-      if (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness)) {
-         // return vec4(1., 0., 0., 1.);
+      const bool show_outline = false;
+      const bool in_border = (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness));
+      if (show_outline && in_border) {
+         return vec4(1., 0., 0., 1.);
       }
 
       Material material = materials[material_index];
       if (material.diffuse_handle != uvec2(0)) {
+
          // TODO: Mode gamma_correction to after sbti loading
-         vec4 dtexture = vec4(1.);
-         dtexture = texture(sampler2D(material.diffuse_handle), uv);
-         // gl_FragCoord.xy
-         dtexture += (1.0 / 255.0) * gradient_noise(uv) - (0.5 / 255.0);
-         // dtexture.rgb = gamma_correct_texture(dtexture.rgb);
-         // return dtexture * vec4(17/255., 24/255., 34/255., color_tint.w);
-         // return vec4(dtexture.rgb * dtexture.a * color_tint.rgb, dtexture.a * color_tint.a);
-         // float noise = (1.0 / 255.0) * gradient_noise(gl_FragCoord.xy);
-         float noise = gradient_noise(gl_FragCoord.xy);
-         float a = dtexture.a + dtexture.a*noise;
-         return vec4(gamma_correct_texture(dtexture.rgb), a) * color_tint;
-         // return vec4(vec3(1.), pow(alpha, 2.2)  + gradient_noise(gl_FragCoord.xy));
+         vec4 dtexture = texture(sampler2D(material.diffuse_handle), uv);
+         float noise = gradient_noise(gl_FragCoord.xy + vec2(gl_SampleID));
+         // float noise = 0;
+
+         const float scale = 1./255.;
+         const float added_noise = lerp(-0.5 * scale, 0.5 * scale, noise);
+
+         vec3 color = dtexture.rgb;
+         // Don't need to color_correct because is diffuse, in this function we're not gamma correcting the whole buffer
+         // So diffuse is already authored in sRGB
+         // I have to check tho.
+         color += added_noise;
+
+         float alpha = dtexture.a;
+         // alpha += added_noise;
+         // Correct EV stops, matches Unity intensity field
+         float intensity_ev  = 4.41;
+         const float intensity_linear = pow(2.0, intensity_ev); // approx 2.66
+         vec4 fragment_color = vec4(color.rgb * alpha * intensity_linear, alpha) * color_tint;
+         // vec4 fragment_color = vec4(color.rgb * intensity_linear, alpha) * color_tint;
+         // vec4 fragment_color = vec4(color.rgb * alpha * color_tint.rgb * color_tint.a * intensity_linear, alpha * color_tint.a * intensity_linear) * alpha * sin(per_frame.elapsed_time * 1.2);
+
+         // NOTE: Premultiply Alpha like this https://github.com/dtrebilco/PreMulAlpha
+         //       Needs glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+         // vec4 fragment_color = vec4(color.rgb * alpha, alpha) * color_tint * 1.41;
+         // const vec4 fragment_color = vec4(color.rgb * 191./255., alpha) * color_tint * 1.41;
+         if (material_index == 3) {
+            // return vec4(0.);
+            // fragment_color.rgb *= 4.41;
+            // fragment_color = vec4(color.rgb * alpha, alpha) * color_tint * 1.;
+            return fragment_color;
+         }
+         return fragment_color;
+
       } else {
          return vec4(1., 0., 0., 1.);
       }
@@ -115,5 +166,6 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
    if (gl_FrontFacing) {
       return vec4(1.);
    }
-   return health_bar_sdf(uv, current, max, aspect);
+   vec4 health = health_bar_sdf(uv, current, max, aspect);
+   return health;
 }

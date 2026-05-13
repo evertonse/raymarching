@@ -96,6 +96,7 @@ void update_fps() {
    __state.fps.last_frame_time = current_time;
 }
 
+
 char* get_fps_string() {
    static char str[512];
 
@@ -122,7 +123,6 @@ char* get_fps_string() {
    snprintf(str, 256, "fps: %.1f | frametime: %.7fms | min: %.1f | max: %.1f | frames: %d | consistency: %.1f%%",
       __state.fps.avg_fps, __state.fps.frame_times[__state.fps.sample_count-1], __state.fps.min_fps == 999999.0 ? 0.0 : __state.fps.min_fps, __state.fps.max_fps, __state.fps.total_frames, consistency
    );
-
 
    return str;
 }
@@ -188,6 +188,7 @@ constexpr static isz profile_timer_array_count = 200;
 static isz profile_timer_idx = 0;
 static Profile_Timer profile_timer_array[profile_timer_array_count] = {0};
 
+
 void begin_profile(void) {
    assert_msg(profile_timer_idx < profile_timer_array_count, "profile_timer_idx = %d profile_timer_array_count=%d", profile_timer_idx, profile_timer_array_count);
 
@@ -208,6 +209,7 @@ void begin_profile(void) {
       profiler->gpu_query = 0;
    }
 }
+
 
 void end_profile(const char *label) {
    assert(profile_timer_idx > 0);
@@ -234,7 +236,7 @@ void end_profile(const char *label) {
          glFinish(); // Is this necessary?
       }
 
-      while (!available && max_tries --> 0) {
+      while (!available && max_tries-- > 0) {
          glGetQueryObjectiv(profiler->gpu_query, GL_QUERY_RESULT_AVAILABLE, &available);
       }
 
