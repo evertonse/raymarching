@@ -1,30 +1,29 @@
 // #define BLOOM_MIP_COUNT 5
-#define BLOOM_MIP_COUNT 6 // for 1080p
+#define BLOOM_MIP_COUNT 7 // for 1080p
 
 #include "./shared/bloom_data.glsl"
 typedef struct Bloom_Data Bloom_Data;
 
-// static_assert(size_of(Bloom_Data) == 32);
+static_assert(size_of(Bloom_Data) == 32);
 
 typedef struct {
-   bool loaded;
-   Shader downsample_shader;
-   Shader upsample_shader;
-   Shader composite_shader;
-   Texture previous_bloom;
-   Texture mips[BLOOM_MIP_COUNT];
+   bool        loaded;
+   Shader      downsample_shader;
+   Shader      upsample_shader;
+   Shader      composite_shader;
+   Texture     previous_bloom;
+   Texture     mips[BLOOM_MIP_COUNT];
    Framebuffer output_framebuffer;
-   int width;
-   int height;
+   int         width;
+   int         height;
 } Bloom_State;
-
 
 
 Framebuffer apply_bloom(Framebuffer src_fb) {
    static Countdown shader_countdown_to_reload = {0};
    static Bloom_State s = {0};
    static float filter_radius = 0.005f;
-   static float bloom_strength = 0.04f;
+   static float bloom_strength = 0.055f;
 
    if (is_button_pressed(BUTTON_F2)) {
       bloom_strength += 0.02f;
@@ -89,8 +88,8 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
 
       // Build shaders
       s.downsample_shader = create_shader("res/shaders/src/bloom/downsample.glsl", COMPUTE_SHADER);
-      s.upsample_shader   = create_shader("res/shaders/src/bloom/upsample.glsl", COMPUTE_SHADER);
-      s.composite_shader  = create_shader("res/shaders/src/bloom/composite.glsl", COMPUTE_SHADER);
+      s.upsample_shader   = create_shader("res/shaders/src/bloom/upsample.glsl",   COMPUTE_SHADER);
+      s.composite_shader  = create_shader("res/shaders/src/bloom/composite.glsl",  COMPUTE_SHADER);
       if (!is_valid_shader(s.downsample_shader) || !is_valid_shader(s.upsample_shader) || !is_valid_shader(s.composite_shader)) {
          trace_error("%s: Failed to create shaders. Returning old framebuffer.", __func__);
          s.loaded = false;
@@ -98,11 +97,11 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
       }
 
       // Build mips
-      int mips_width = s.width;
+      int mips_width  = s.width;
       int mips_height = s.height;
 
       for (int i = 0; i < BLOOM_MIP_COUNT; i++) {
-         mips_width = max(1, mips_width / 2);
+         mips_width  = max(1, mips_width / 2);
          mips_height = max(1, mips_height / 2);
          s.mips[i] = create_texture(mips_width, mips_height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_BILINEAR, TEXTURE_WRAP_CLAMP_EDGE);
       }
@@ -133,8 +132,6 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
    Texture src_current = src_fb.color;
    int src_width  = w;
    int src_height = h;
-
-   const bool use_uniforms = false;
 
    Bloom_Data bloom_data = {
 
@@ -184,7 +181,6 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
 
       shader_memory_barrier(SHADER_BARRIER_IMAGE_ACCESS | SHADER_BARRIER_TEXTURE_FETCH);
    }
-
 
    // Pass 3: composite
    bind_shader(s.composite_shader);

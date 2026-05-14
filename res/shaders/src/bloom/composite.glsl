@@ -11,9 +11,11 @@ layout(rgba32f, binding = 2) writeonly uniform image2D out_img;
 
 #include "./bloom.h"
 
-const bool use_temporal_bloom = true;
-const bool see_only_bloom = false;
-const bool additive_blend = false;
+const bool  use_temporal_bloom    = true;
+const bool  see_only_bloom        = false;
+const bool  additive_blend        = true;
+const float bloom_scale           = 2.22;
+const float bloom_temporal_factor = 0.35;
 
 void main() {
 
@@ -33,7 +35,7 @@ void main() {
    vec3 bloom_scene    = bloom_current;
 
    if (use_temporal_bloom) {
-      const float t = 0.35;
+      const float t = bloom_temporal_factor;
       vec3 bloom_previous = texture(bloom_previous_texture, uv).rgb;
       bloom_scene = lerp(bloom_current, bloom_previous, t);
    }
@@ -43,9 +45,9 @@ void main() {
       return;
    }
 
-   vec3 result = lerp(hdr_scene, bloom_scene, bloom.strength);
+   vec3 result = lerp(hdr_scene, bloom_scene * bloom_scale, bloom.strength);
    if (additive_blend) {
-      result = hdr_scene + bloom_scene * bloom.strength;
+      result = hdr_scene + bloom_scene * bloom_scale * bloom.strength ;
    }
 
    imageStore(out_img, coordinate, vec4(result, 1.0));

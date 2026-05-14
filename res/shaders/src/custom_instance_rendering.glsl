@@ -1,6 +1,21 @@
 
 #include "./remaps.glsl"
 
+//
+// Fast approximation
+// From http://chilliant.blogspot.com/2012/08/srgb-approximations-for-hlsl.html
+//
+vec3 linear_to_srgb(vec3 linear_rgb) {
+   vec3 rgb = linear_rgb;
+   vec3 s1 = sqrt(rgb);
+   vec3 s2 = sqrt(s1);
+   vec3 s3 = sqrt(s2);
+   vec3 srgb = 0.662002687 * s1 + 0.684122060 * s2 - 0.323583601 * s3 - 0.0225411470 * rgb;
+   return srgb;
+}
+
+vec3 srgb_to_linear(vec3 srgb) { return srgb * (srgb * (srgb * 0.305306011 + 0.682171111) + 0.012522878); }
+
 
 vec3 health_background(vec2 uv, float health_percent) {
    vec3 background = vec3(0.15, 0.15, 0.15);
@@ -9,14 +24,14 @@ vec3 health_background(vec2 uv, float health_percent) {
       return background;
    }
 
-   const float intensity = 4.;
+   const float intensity = 4.2;
    const float c0_intensity = 1. + (intensity - 1.) * 14.14 ;
    const vec3  c0 = vec3(154., 38., 27.)  / 255. * c0_intensity;
 
    const float c1_intensity = 1. + (intensity - 1.) * 2.2;
    const vec3  c1 = vec3(170., 53., 38.)  / 255. * c1_intensity;
 
-   const float c2_intensity = 1. + (intensity - 1.) * 10.1;
+   const float c2_intensity = 1. + (intensity - 1.) * 4.1;
    const vec3  c2 = vec3(203., 106., 96.) / 255. * c2_intensity;
 
    // const float c3_intensity = 1. + (intensity - 1.) * (10. + 32. * ((1. + sin(per_frame.elapsed_time)/2.)));
@@ -103,7 +118,7 @@ float gradient_noise(in vec2 uv) {
 vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
 
    if (3 == instance_rendering_mode) {
-      float intensity = 102.;
+      float intensity = 99.;
       // return vec4(vec3(1.)*intensity, 1.) * color_tint;
       return vec4(vec3(1.)*intensity, 1.) * color_tint;
       // return vec4(1.);
@@ -127,31 +142,24 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
 
          const float scale = 1./255.;
          const float added_noise = lerp(-0.5 * scale, 0.5 * scale, noise);
+         const vec3 linear_color = srgb_to_linear(dtexture.rgb);
 
-         vec3 color = dtexture.rgb;
-         // Don't need to color_correct because is diffuse, in this function we're not gamma correcting the whole buffer
-         // So diffuse is already authored in sRGB
-         // I have to check tho.
-         color += added_noise;
+         const vec3 albedo = linear_color * color_tint.rgb;
+         const float alpha = dtexture.a * color_tint.a;
 
-         float alpha = dtexture.a;
-         // alpha += added_noise;
-         // Correct EV stops, matches Unity intensity field
-         float intensity_ev  = 4.41;
-         const float intensity_linear = pow(2.0, intensity_ev); // approx 2.66
-         vec4 fragment_color = vec4(color.rgb * alpha * intensity_linear, alpha) * color_tint;
-         // vec4 fragment_color = vec4(color.rgb * intensity_linear, alpha) * color_tint;
-         // vec4 fragment_color = vec4(color.rgb * alpha * color_tint.rgb * color_tint.a * intensity_linear, alpha * color_tint.a * intensity_linear) * alpha * sin(per_frame.elapsed_time * 1.2);
+         float intensity_ev = 2.616925;
+         if (material_index == 5) {
+            // intensity_ev = 4;
+         }
+         float intensity_linear = pow(2.0, intensity_ev); // approx 2.66
 
-         // NOTE: Premultiply Alpha like this https://github.com/dtrebilco/PreMulAlpha
-         //       Needs glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-         // vec4 fragment_color = vec4(color.rgb * alpha, alpha) * color_tint * 1.41;
-         // const vec4 fragment_color = vec4(color.rgb * 191./255., alpha) * color_tint * 1.41;
-         if (material_index == 3) {
+         const vec3 emission_color = srgb_to_linear(vec3(191., 191., 191.) / 255.0) * intensity_linear;
+         const vec3 emission = linear_color * emission_color;
+
+
+         vec4 fragment_color = vec4(albedo * emission, alpha);
+         if (material_index != 4) {
             // return vec4(0.);
-            // fragment_color.rgb *= 4.41;
-            // fragment_color = vec4(color.rgb * alpha, alpha) * color_tint * 1.;
-            return fragment_color;
          }
          return fragment_color;
 

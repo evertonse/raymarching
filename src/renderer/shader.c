@@ -1163,12 +1163,9 @@ defer:
 
 
 Shader reload_shader(Shader shader) {
-   // system("clear"); // HACK XXX: Trying to clear the whole terminal to not flood with erros
+   system("clear"); // HACK XXX: Trying to clear the whole terminal to not flood with erros
    trace_info("Trying to reload %s", shader.path);
    Shader new_shader = create_shader(shader.path, shader.type);
-
-   // return shader;
-
 
    // Keep current shader while errors in new shader
    if (!is_valid_shader(new_shader)) {
@@ -1255,7 +1252,7 @@ void dispatch_compute_shader(const Shader shader, u32 groups_x, u32 groups_y, u3
 
 
 inline void dispatch_compute_shader_2d(const Shader shader, int width, int height) {
-   const u32 groups_x = ((width + 7) / 8);
+   const u32 groups_x = ((width  + 7) / 8);
    const u32 groups_y = ((height + 7) / 8);
    const u32 groups_z = 1;
    dispatch_compute_shader(shader, groups_x, groups_y, groups_z);
@@ -1263,8 +1260,8 @@ inline void dispatch_compute_shader_2d(const Shader shader, int width, int heigh
 
 
 typedef enum {
-   SHADER_BARRIER_IMAGE_ACCESS  = 1 << 0,
-   SHADER_BARRIER_TEXTURE_FETCH = 1 << 1,
+   SHADER_BARRIER_IMAGE_ACCESS   = 1 << 0,
+   SHADER_BARRIER_TEXTURE_FETCH  = 1 << 1,
    SHADER_BARRIER_UNIFORM_BUFFER = 1 << 2,
 } Shader_Barrier;
 
@@ -1282,37 +1279,11 @@ void shader_image_acess_barrier() {
    shader_memory_barrier(SHADER_BARRIER_IMAGE_ACCESS);
 }
 
-
-static GLint get_cached_uniform_location(GLuint program, const char* name) {
-    // You can bump this up or make it dynamic if needed
-    #define MAX_UNIFORM_CACHE 512
-    typedef struct {
-        GLuint program;
-        const char* name;
-        GLint location;
-    } UniformCache;
-
-    static UniformCache cache[MAX_UNIFORM_CACHE];
-    static int count = 0;
-
-    for (int i = 0; i < count; ++i) {
-        if (cache[i].program == program && strcmp(cache[i].name, name) == 0) {
-            return cache[i].location;
-        }
-    }
-
-    GLint location = glGetUniformLocation(program, name);
-    if (count < MAX_UNIFORM_CACHE) {
-        cache[count++] = (UniformCache){ program, name, location };
-    }
-
-    return location;
-}
-
 void upload_uniform_mat4(const Shader shader, const char* name, const Matrix value) {
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniformMatrix4fv(loc, 1, GL_FALSE, MatrixToFloat(value));
 }
+
 
 void upload_uniform_vec2(const Shader shader, const char* name, const Vector2 value) {
     GLint loc = glGetUniformLocation(shader.handle, name);
@@ -1324,26 +1295,31 @@ void upload_uniform_vec3(const Shader shader, const char* name, const Vector3 va
     if (loc >= 0) glUniform3f(loc, value.x, value.y, value.z);
 }
 
+
 void upload_uniform_vec4(const Shader shader, const char* name, const Vector4 value) {
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform4f(loc, value.x, value.y, value.z, value.w);
 }
+
 
 void upload_uniform_float(const Shader shader, const char* name, float value) {
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform1f(loc, value);
 }
 
+
 void upload_uniform_sampler2D(const Shader shader, const char* name, int binding) {
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform1i(loc, binding);
 }
+
 
 void upload_uniform_bool(const Shader shader, const char* name, bool value) {
     // TODO: Make something like this work GLint loc = get_cached_uniform_location(shader.handle, name);
     GLint loc = glGetUniformLocation(shader.handle, name);
     if (loc >= 0) glUniform1i(loc, value ? 1 : 0);
 }
+
 
 void upload_uniform_ivec2(const Shader shader, const char* name, int v1, int v2) {
     GLint loc = glGetUniformLocation(shader.handle, name);
@@ -1364,7 +1340,7 @@ void upload_uniform_int(const Shader shader, const char* name, int value) {
 void upload_push_constants(const void *data, isz size_in_bytes) {
    assert(size_in_bytes % size_of(Vector4) == 0);
    if (size_in_bytes > 256) {
-      trace_warn("size_in_bytes=%d > 256 bytes, They say hardware has small fast constant storage, consider using something else.", size_in_bytes);
+      trace_warn("size_in_bytes=%d > 256 bytes, They say hardware has *small* fast constant storage, consider using something else for bigger data.", size_in_bytes);
    }
    // Location 0, hardcoded reserved for "push constants", never a string lookup, one command stream entry
    glUniform4fv(0, size_in_bytes / size_of(Vector4), (const float *)data);

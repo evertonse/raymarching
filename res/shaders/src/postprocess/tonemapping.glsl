@@ -1,3 +1,7 @@
+#include "./aces.glsl"
+#include "./agx.glsl"
+#include "./agx_minimal.glsl"
+
 // GT7-style tonemapping (approximation)
 // Based on Polyphony/GT publications and publicly available sample code.
 
@@ -30,14 +34,7 @@ vec3 tonemap_filmic(vec3 color, float exposure) {
    return color * white_scale;
 }
 
-vec3 tonemap_aces(const vec3 x) { // Narkowicz 2015, "ACES Filmic Tone Mapping Curve"
-   const float a = 2.51;
-   const float b = 0.03;
-   const float c = 2.43;
-   const float d = 0.59;
-   const float e = 0.14;
-   return (x * (a * x + b)) / (x * (c * x + d) + e);
-}
+
 
 vec3 tonemap_reinhard(const vec3 x) {
    // reinhard tone mapping

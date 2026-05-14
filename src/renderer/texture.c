@@ -520,6 +520,8 @@ void bind_texture(const Texture texture, usz binding) {
 }
 
 
+// Access like this: ``layout(rgba32f, binding = 1) writeonly uniform image2D dst_image;``
+// Change 'rgba32f' to the appropriate format and 'writeonly' to 'readonly' or empty for read only (so the shader compiler can make better assumptions) and read write respectively.
 void bind_texture_as_image(const Texture texture, usz binding, Texture_Access access) {
    assert(texture.handle != 0);
 
@@ -537,11 +539,11 @@ void bind_texture_as_image(const Texture texture, usz binding, Texture_Access ac
 
    switch (texture.format) {
    case TEXTURE_FORMAT_RGBA32F: format = GL_RGBA32F; break;
-   case TEXTURE_FORMAT_R32F: format = GL_R32F; break;
-   case TEXTURE_FORMAT_RGBA8: format = GL_RGBA8; break;
-   case TEXTURE_FORMAT_RGB8: format = GL_RGB8; break;
-   case TEXTURE_FORMAT_RG8: format = GL_RG8; break;
-   case TEXTURE_FORMAT_R8: format = GL_R8; break;
+   case TEXTURE_FORMAT_R32F:    format = GL_R32F;    break;
+   case TEXTURE_FORMAT_RGBA8:   format = GL_RGBA8;   break;
+   case TEXTURE_FORMAT_RGB8:    format = GL_RGB8;    break;
+   case TEXTURE_FORMAT_RG8:     format = GL_RG8;     break;
+   case TEXTURE_FORMAT_R8:      format = GL_R8;      break;
    default:
       trace_error("%s: Unsupported or invalid format for image binding (%d).\n", __func__, texture.format);
       return;

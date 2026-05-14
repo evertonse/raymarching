@@ -1,3 +1,6 @@
+[ ] Add bicubic filtering for bloom upsampler https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1?permalink_comment_id=1879143#file-tex2dcatmullrom-hlsl-L5
+
+[ ] Fix health bad line rendering.
 [ ] Read more about these libs bgfx bimg noise soloud
 [x] Add support for anisotropic texture filter
 [ ] Add support for slug's algorithm text.
@@ -172,7 +175,7 @@
 
 [ ] Model Animation Blending: support blending animation into another one smoothly. Example: from walk to idle
 
-[ ] Bloom
+[x] Bloom
 
 [ ] Cascading Shadows
 

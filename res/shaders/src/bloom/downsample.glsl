@@ -21,10 +21,11 @@ float luminance(vec3 linear_rgb) { return dot(linear_rgb, vec3(0.2126729, 0.7151
 
 // Intents to eliminate NaN propagation. max between NaN and 0 is defined to be 0.
 vec3 apply_clamp_max(vec3 c) {
-   // c = mix(vec3(0.0), c, vec3(equal(c, c))); // replace NaN with 0 (NaN != NaN)
-   if (any(isnan(c)) || any(isinf(c))) {
-      return vec3(0.0);
-   }
+   c = mix(vec3(0.0), c, vec3(equal(c, c))); // replace NaN with 0 (NaN != NaN)
+   // Next line is nice but branch and can't rely on isnan always
+   // if (any(isnan(c)) || any(isinf(c))) {
+   //    return vec3(0.0);
+   // }
    return min(c, vec3(bloom.prefilter_clamp_max));
 }
 
@@ -68,7 +69,7 @@ vec3 sample_box(vec2 uv, vec2 texel) {
 float karis_weight(vec3 color) {
    // TODO: Confirm: Maybe this 'luminance' function is working under sRGB
    return 1.0 / (1.0 + luminance(color));
-   // NOTE: Could we bright ness instead
+   // NOTE: Could we brightness instead
    //       https://github.com/github-linguist/linguist/blob/e535c9adf5306132e9df0b75ffe1ce2679873fe8/samples/HLSL/bloom.cginc#L46
    // return 1.0 / (1.0 + brightness(color));
 }
@@ -82,30 +83,34 @@ vec3 partial_average(vec3 c0, vec3 c1, vec3 c2, vec3 c3, float w0, float w1, flo
 vec3 sample_texture(sampler2D in_texture, vec2 uv) {
    vec4 c = texture(in_texture, uv);
 
-   // When alpha is enabled, regions with zero alpha should not generate any bloom / glow. Therefore we pre-multipy the color with the alpha channel here and the rest
-   // of the computations remain float3. Still, when bloom is applied to the final image, bloom will still be spread on regions with zero alpha (see UberPost.compute)
-   // Note that the alpha channel in the color target could be greater than 1.0 or NaN or negative. The alpha here is opacity so we clamp it to handle an unexpected input.
-   c.rgb *= clamp(c.a, 0.0, 1.0);
+   // From Unity:
+   //    When alpha is enabled, regions with zero alpha should not generate any bloom / glow. Therefore we pre-multipy the color with the alpha channel here and the rest
+   //    of the computations remain float3. Still, when bloom is applied to the final image, bloom will still be spread on regions with zero alpha (see UberPost.compute)
+   //    Note that the alpha channel in the color target could be greater than 1.0 or NaN or negative. The alpha here is opacity so we clamp it to handle an unexpected input.
+   //
+
+   // NOTE: Disabling this for now to test particle vfx bloom influence
+   // c.rgb *= clamp(c.a, 0.0, 1.0);
    return c.rgb;
 }
 
 // Unity HQ 13 tap pattern (URP FragPrefilter _BLOOM_HQ).
 // Half-pixel inner offsets exploit bilinear for free extra coverage.
 vec3 sample_unity(vec2 uv, vec2 texel) {
-   const float scale = 2.0;
-   vec3 A = texture(src_texture, uv + texel * (vec2(-1.0, -1.0) * scale)).rgb;
-   vec3 B = texture(src_texture, uv + texel * (vec2( 0.0, -1.0) * scale)).rgb;
-   vec3 C = texture(src_texture, uv + texel * (vec2( 1.0, -1.0) * scale)).rgb;
-   vec3 D = texture(src_texture, uv + texel * (vec2(-0.5, -0.5) * scale)).rgb;
-   vec3 E = texture(src_texture, uv + texel * (vec2( 0.5, -0.5) * scale)).rgb;
-   vec3 F = texture(src_texture, uv + texel * (vec2(-1.0,  0.0) * scale)).rgb;
-   vec3 G = texture(src_texture, uv         * (vec2(0)          * scale)).rgb;
-   vec3 H = texture(src_texture, uv + texel * (vec2( 1.0,  0.0) * scale)).rgb;
-   vec3 I = texture(src_texture, uv + texel * (vec2(-0.5,  0.5) * scale)).rgb;
-   vec3 J = texture(src_texture, uv + texel * (vec2( 0.5,  0.5) * scale)).rgb;
-   vec3 K = texture(src_texture, uv + texel * (vec2(-1.0,  1.0) * scale)).rgb;
-   vec3 L = texture(src_texture, uv + texel * (vec2( 0.0,  1.0) * scale)).rgb;
-   vec3 M = texture(src_texture, uv + texel * (vec2( 1.0,  1.0) * scale)).rgb;
+   const float scale = 1.0;
+   vec3 A = sample_texture(src_texture, uv + texel * (vec2(-1.0, -1.0) * scale)).rgb;
+   vec3 B = sample_texture(src_texture, uv + texel * (vec2( 0.0, -1.0) * scale)).rgb;
+   vec3 C = sample_texture(src_texture, uv + texel * (vec2( 1.0, -1.0) * scale)).rgb;
+   vec3 D = sample_texture(src_texture, uv + texel * (vec2(-0.5, -0.5) * scale)).rgb;
+   vec3 E = sample_texture(src_texture, uv + texel * (vec2( 0.5, -0.5) * scale)).rgb;
+   vec3 F = sample_texture(src_texture, uv + texel * (vec2(-1.0,  0.0) * scale)).rgb;
+   vec3 G = sample_texture(src_texture, uv         * (vec2( 0.0,  0.0) * scale)).rgb;
+   vec3 H = sample_texture(src_texture, uv + texel * (vec2( 1.0,  0.0) * scale)).rgb;
+   vec3 I = sample_texture(src_texture, uv + texel * (vec2(-0.5,  0.5) * scale)).rgb;
+   vec3 J = sample_texture(src_texture, uv + texel * (vec2( 0.5,  0.5) * scale)).rgb;
+   vec3 K = sample_texture(src_texture, uv + texel * (vec2(-1.0,  1.0) * scale)).rgb;
+   vec3 L = sample_texture(src_texture, uv + texel * (vec2( 0.0,  1.0) * scale)).rgb;
+   vec3 M = sample_texture(src_texture, uv + texel * (vec2( 1.0,  1.0) * scale)).rgb;
    
    vec2 div   = (1.0 / 4.0) * vec2(0.5, 0.125);
    vec3 color = (D + E + I + J) * div.x;
@@ -170,10 +175,10 @@ vec3 sample_13_bilinear(vec2 uv, vec2 texel) {
       color += partial_average(d, e, g, h,  wd, we, wg, wh) * 0.125;
       color += partial_average(e, f, h, i,  we, wf, wh, wi) * 0.125;
    } else {
-      color =               e  * 0.125   ;
-      color += (a + c + g + i) * 0.03125 ;
-      color += (b + d + f + h) * 0.0625  ;
-      color += (j + k + l + m) * 0.125   ;
+      color =               e  * 0.12500;
+      color += (a + c + g + i) * 0.03125;
+      color += (b + d + f + h) * 0.06250;
+      color += (j + k + l + m) * 0.12500;
    }
 
    return color;
@@ -192,9 +197,8 @@ void main() {
    vec2 texel = 1.0 / vec2(bloom.src_width, bloom.src_height);
 
    vec3 color;
-   if (bloom.mip_level == 0) {
-      // Prefilter path
-      // HQ kernel then clamp, then threshold.
+   if (true && bloom.mip_level == 0) {
+      // Prefilter path, then clamp, then threshold.
       // color = sample_box(uv, texel);
       color = sample_13_bilinear(uv, texel);
       // color = sample_unity(uv, texel);

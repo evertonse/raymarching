@@ -299,7 +299,7 @@ void setup_particle_render_state(void) {
    // trace_info("simulation_speed = %f", simulation_speed);
    int values[]            = { GL_SRC_ALPHA,   GL_ONE_MINUS_SRC_ALPHA,   GL_ZERO,   GL_ONE,   GL_SRC_COLOR,   GL_ONE_MINUS_SRC_COLOR,   GL_DST_COLOR,   GL_ONE_MINUS_DST_COLOR,   GL_DST_ALPHA,   GL_ONE_MINUS_DST_ALPHA,   GL_CONSTANT_COLOR,   GL_ONE_MINUS_CONSTANT_COLOR,   GL_CONSTANT_ALPHA,   GL_ONE_MINUS_CONSTANT_ALPHA };
    ZString values_string[] = {"GL_SRC_ALPHA", "GL_ONE_MINUS_SRC_ALPHA", "GL_ZERO", "GL_ONE", "GL_SRC_COLOR", "GL_ONE_MINUS_SRC_COLOR", "GL_DST_COLOR", "GL_ONE_MINUS_DST_COLOR", "GL_DST_ALPHA", "GL_ONE_MINUS_DST_ALPHA", "GL_CONSTANT_COLOR", "GL_ONE_MINUS_CONSTANT_COLOR", "GL_CONSTANT_ALPHA", "GL_ONE_MINUS_CONSTANT_ALPHA"};
-   static int current_1 = 3;
+   static int current_1 = 0;
    static int current_2 = 1;
 
    if (is_button_pressed(BUTTON_1)) {
@@ -462,7 +462,6 @@ void draw_quad_test(Vector3 unit_position, Vector3 camera_position, Vector3 came
       
       update_transform(quad_node, t);
    }
-
 }
 
 
@@ -505,7 +504,7 @@ void draw_vfx(Vector3 unit_position, Vector3 camera_position, Vector3 camera_for
          .over_lifetime = {
             .color = {
                .values  = {vector4(1, 1, 1, 0), vector4(1), vector4(1, 1, 1, 0)},
-               .timings = {0., 0.5, 1.0},
+               .timings = {1.5/100., 52.9/100., 97.6/100.},
                .count   = 3
             },
             .size = vector3(1.f),
