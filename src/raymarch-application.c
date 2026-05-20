@@ -96,7 +96,7 @@ void raymarching_application_update(Raymarching_Application *app, f64 dt) {
 
       bind_texture_as_image(app->compute_framebuffer.color, 0, TEXTURE_ACCESS_WRITE);
 
-      const GLuint work_group_size = 16;
+      const GLuint work_group_size = 8;
       const GLuint work_group_size_x = work_group_size;
       const GLuint work_group_size_y = work_group_size;
 

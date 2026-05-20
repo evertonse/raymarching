@@ -1,6 +1,5 @@
 #define RAYMATH_IMPLEMENTATION
 #include "raymath.h"
-// #include <tgmath.h>
 
 typedef float Matrix4 __attribute__((matrix_type(4, 4)));
 typedef float float4 __attribute__((ext_vector_type(4)));
@@ -162,6 +161,10 @@ void __invalid_generic();
 
 
 #define mul(a, b) _Generic(((a)),                              \
+    Quaternion: _Generic(((b)),                                \
+        Quaternion: QuaternionMultiply,                        \
+        default: COMPILE_ERROR_TYPE_UNSUPPORTED                \
+    ),                                                         \
     Vector4: _Generic(((b)),                                   \
         int:     Vector4Scale,                                 \
         float:   Vector4Scale,                                 \
@@ -212,13 +215,13 @@ void __invalid_generic();
 #define length(a) _Generic((a), \
     Vector2: Vector2Length, \
     Vector3: Vector3Length \
-)((a))
+)(((a)))
 
 
 #define dot(a, b) _Generic((a), \
     Vector2: Vector2DotProduct, \
     Vector3: Vector3DotProduct \
-)((a), (b))
+)(((a)), ((b)))
 
 
 #define cross(a, ...) \
@@ -274,6 +277,18 @@ static inline Vector4 Vector4SubtractValueSwapped(float scalar, Vector4 vector) 
    return Vector4SubtractValue(vector, scalar);
 }
 
+bool is_parallel(Vector3 a, Vector3 b, float epsilon) {
+   float length_a = length(a);
+   float length_b = length(b);
+   if (length_a < epsilon || length_b < epsilon) return false; // degenerate
+
+   Vector3 normilized_a = mul(1.0f / length_a, a);
+   Vector3 normilized_b = mul(1.0f / length_b, b);
+   float abs_dot = fabsf(dot(normilized_a, normilized_b));
+   // Parallel if |dot| is close to 1
+   return (1.0f - abs_dot) < epsilon;
+}
+
 
 typedef struct Transform {
    union {
@@ -306,6 +321,7 @@ double Lerpf64(double start, double end, double amount) {
    double result = start + amount*(end - start);
    return result;
 }
+
 
 Transform TransformInterpolate(Transform t1, Transform t2, float amount) {
    Transform result = {0};
@@ -551,20 +567,19 @@ bool raycast_ground(Ray ray, Vector3 *hit) {
    return true;
 }
 
-
-Quaternion billboard_rotation(bool point_aligned, Vector3 position,  Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
+Quaternion billboard_rotation(bool is_point_aligned, Vector3 position, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
    // View aligned is what Mobas (League) uses for UI elements i.e. health bars.
    // Point aligned is used for things like particles or sprites that need to face the camera from any angle.
    // TODO: Make it into different functions or paremeter, also all these paremeters aren't necessary we're just experiementing with it like
    //       trying to align the billboard basis with the camera basis to see if a better billboard rotation could come out.
    
    const float threshold = 5.f;
-   if (point_aligned && length(sub(position, camera_position)) < threshold) {
-      point_aligned = false;
+   if (is_point_aligned && length(sub(position, camera_position)) < threshold) {
+      is_point_aligned = false;
    }
 
    // Using camera_forward makes it parallel to camera plane, uniform across viewport
-   Vector3 direction = point_aligned ? normalize(sub(position, camera_position)) : camera_forward;
+   Vector3 direction = is_point_aligned ? normalize(sub(position, camera_position)) : camera_forward;
 
    // Yaw spin around world Y to face camera in XZ plane
    float yaw = atan2f(direction.x, direction.z);
@@ -574,12 +589,83 @@ Quaternion billboard_rotation(bool point_aligned, Vector3 position,  Vector3 cam
    float pitch = -asinf(direction.y);
    Quaternion qx = QuaternionFromAxisAngle((Vector3){1, 0, 0}, pitch);
 
-   // Yaw first, then pitch
+   // Pitch, then Yaw does is matter?. Remember the matrix multiplication convention from raylib left vs right? Maybe quaternion is the same.
    return QuaternionMultiply(qy, qx);
 }
 
 
-float randf_range(float lo, float hi) { return lo + ((float)rand() / RAND_MAX) * (hi - lo); }
+Quaternion stretched_billboard_rotation(bool is_point_aligned, bool is_stretched_priority_camera, Vector3 position, Vector3 stretch_direction, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
+   //
+   // Idea is to create rotation that take the right handed canonical basis in camera space into a new basis where the y is aligned to stretch_direction (usually velocity)
+   // z is pointing to the camera and x is the cross between that. This rotation will make the particle face us but a bit inclined and rotated towards its velocity vector.
+   //
+
+   Vector3 to_camera = is_point_aligned
+      ? normalize(sub(camera_position, position))
+      : mul(-1.0f, normalize(camera_forward));
+
+   Vector3 y_axis = {0}, x_axis = {0}, z_axis = {0};
+   if (!is_stretched_priority_camera) {
+      y_axis = normalize(stretch_direction);
+
+      // Project to_camera onto velocity vector. Don't need to divide by dot(y_axis, y_axis) since |y_axis| = 1.
+      Vector3 proj = mul(dot(to_camera, y_axis), y_axis);
+      // Get the part of 'to_camera' that's perpendicular to y_axis.
+      z_axis = normalize(sub(to_camera, proj));
+      // TODO: There's a flipping behaviour have a situation when velocity is parallel to camera foward
+
+      x_axis = normalize(cross(y_axis, z_axis));
+      z_axis = cross(x_axis, y_axis); // reorthogonalize
+   } else {
+      // Primary z = camera normal exactly. y axis derived from velocity, will NOT be exact.
+      // Use this when facing camera matters most (slow/stationary particles)
+      z_axis = to_camera; // already normalized
+      Vector3 up_direction = normalize(stretch_direction);
+      y_axis = normalize(
+         sub(up_direction,
+            mul(dot(up_direction, z_axis), z_axis)
+         )
+      );
+      x_axis = normalize(cross(y_axis, z_axis));
+      y_axis = cross(z_axis, x_axis); // reorthogonalize
+   }
+
+   // Column order
+   Quaternion rotation = QuaternionFromMatrix(
+      (Matrix) {
+         x_axis.x, y_axis.x, z_axis.x, 0,
+         x_axis.y, y_axis.y, z_axis.y, 0,
+         x_axis.z, y_axis.z, z_axis.z, 0,
+         0,        0,        0,        1,
+      }
+   );
+   return rotation;
+}
+
+float random_float(float low, float high) { return low + ((float)rand() / RAND_MAX) * (high - low); }
+float overload random_float() { return random_float(0.f, 1.f); }
+
+float smoothstep(float edge0, float edge1, float x) {
+   float t = (x - edge0) / (edge1 - edge0);
+   // t = clamp(t, 0, 1)
+   t = fminf(fmaxf(t, 0.0f), 1.0f);
+   return t * t * (3.0f - 2.0f * t);
+}
+
+// Convention is that every quad and model should be facing (1, 0, 0)
+// Will return a quaternion that makes you face that direction, a better name should good
+Quaternion rotation_from_direction(Vector3 direction) {
+   const Vector3 default_facing = vector3(1, 0, 0);
+   return QuaternionFromVector3ToVector3(default_facing, normalize(direction));
+}
+
+Quaternion overload rotation_from_direction(float x, float y, float z) {
+   return rotation_from_direction(normalize(((Vector3){x, y, z})));
+}
+
+Vector3 overload rotate(Vector3 in_vector3, Quaternion q) {
+   return Vector3RotateByQuaternion(in_vector3, q);
+}
 
 typedef Vector4 Color;
 

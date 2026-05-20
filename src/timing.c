@@ -33,13 +33,21 @@ inline f64 time_now() {
    return glfwGetTime();
 }
 
- // Total time since start
+// Total time since start
 f64 inline time_elapsed() {
    return (time_now() - __state.time.start);
 }
 
+// The same delta for the whole frame
 f64 inline time_delta() {
    return __state.time.delta;
+}
+
+// Instructions within the same frame might see different deltas.
+f64 inline time_delta_recomputed() {
+   f64 current_time = time_now();
+   f64 delta = current_time - __state.time.previous;
+   return delta;
 }
 
 
@@ -48,11 +56,13 @@ void inline init_time() {
    __state.time.previous = __state.time.start;
 }
 
+
 void inline update_time(void) {
    f64 current_time = time_now();
    __state.time.delta = current_time - __state.time.previous; // Time since last frame
    __state.time.previous = current_time;
 }
+
 
 void init_fps() {
    memset(&__state.fps, 0, size_of(Fps));
@@ -60,6 +70,7 @@ void init_fps() {
    __state.fps.min_fps = 999999.0;
    __state.fps.max_fps = 0.0;
 }
+
 
 void update_fps() {
    f64 current_time = time_now();

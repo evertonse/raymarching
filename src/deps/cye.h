@@ -1248,7 +1248,7 @@ void cye__assert_handler(char const *prefix, char const *condition, char const *
 #endif // 0
 
 
-// These `tstring` functions should alwasy allocated new memory
+// These `tstring` functions should always allocated new memory
 // no matter if we already have some modifiable buffer like DString case
 TString cye_file_stats_tstring(Cye_File_Stats stats);
 TString cye_str_slice_tstring(Cye_String_Slice ss);
@@ -1374,7 +1374,7 @@ ZString cye_cpu_architecture(void);
 
 /*..................................................................................
  .                                                                                 .
- .                                IMPLEMENETATION                                  .
+ .                                IMPLEMENTATION                                  .
  .                                                                                 .
  ...................................................................................
 */

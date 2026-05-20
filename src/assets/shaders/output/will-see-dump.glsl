@@ -3,7 +3,13 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D scene_hdr;
-layout(rgba8, binding = 1) uniform writeonly image2D out_image;
+
+// Why the final frabebuffer doesnt work if not rgba instead of rgb?
+// #define IMAGE_FORMAT rgba8
+// #define IMAGE_FORMAT rgba32f
+#define IMAGE_FORMAT r11f_g11f_b10f
+
+layout(IMAGE_FORMAT, binding = 1) uniform writeonly image2D out_image;
 
 #define lerp mix
 
@@ -61,12 +67,14 @@ vec3 tonemap_aces2(const vec3 x) {
 // File derivation and implemenation from https://github.com/bWFuanVzYWth/AgX/blob/main/agx.glsl
 // Blender article about agx: https://developer.blender.org/docs/release_notes/4.0/color_management/
 //
+// Resources: https://github.com/EaryChow/AgX
+//
 
 // In practice, there is still debate and confusion around whether sRGB data
 // should be displayed with pure 2.2 gamma as defined in the standard,
 // or with the inverse of the OETF.
 // https://en.wikipedia.org/wiki/SRGB
-// 
+//
 #define BT709_OETF
 
 #if defined(PURE_GAMMA)
@@ -134,7 +142,6 @@ vec3 agx_tonemapping(vec3 /*Linear BT.709*/ ci) {
 
 vec3 tonemap_agx(vec3 x) {
    return to_linear(agx_tonemapping(x));
-   // return agx_tonemapping(x);
 }
 
 //
@@ -171,6 +178,33 @@ vec3 tonemap_agx(vec3 x) {
 // #define AGX_LOOK 2
 #define AGX_LOOK 2
 
+#define BT709_OETF
+// #defined PURE_GAMMA
+
+#if defined(PURE_GAMMA)
+vec3 internal_to_linear(vec3 sRGB) { return pow(sRGB, vec3(2.2)); }
+
+vec3 internal_from_linear(vec3 linearRGB) { return pow(linearRGB, vec3(1.0 / 2.2)); }
+
+#elif defined(BT709_OETF)
+vec3 internal_to_linear(vec3 sRGB) {
+   bvec3 cutoff = lessThan(sRGB, vec3(0.04045));
+   vec3 higher = pow((sRGB + vec3(0.055)) / vec3(1.055), vec3(2.4));
+   vec3 lower = sRGB / vec3(12.92);
+
+   return mix(higher, lower, cutoff);
+}
+
+vec3 internal_from_linear(vec3 linearRGB) {
+   bvec3 cutoff = lessThan(linearRGB, vec3(0.0031308));
+   vec3 higher = vec3(1.055) * pow(linearRGB, vec3(1.0 / 2.4)) - vec3(0.055);
+   vec3 lower = linearRGB * vec3(12.92);
+
+   return mix(higher, lower, cutoff);
+}
+
+#endif
+
 // Mean error^2: 1.85907662e-06
 vec3 agxDefaultContrastApprox7thOrder(vec3 x) {
   vec3 x2 = x * x;
@@ -202,6 +236,8 @@ vec3 agxDefaultContrastApprox(vec3 x) {
 }
 
 vec3 agx(vec3 val) {
+  // Ensure no negative values
+  // val = max(float3(0.0), val);
   const mat3 agx_mat = mat3(
     0.842479062253094, 0.0423282422610123, 0.0423756549057051,
     0.0784335999999992,  0.878468636469772,  0.0784336,
@@ -235,7 +271,8 @@ vec3 agxEotf(vec3 val) {
   // sRGB IEC 61966-2-1 2.2 Exponent Reference EOTF Display
   // NOTE: We're linearizing the output here. Comment/adjust when
   // *not* using a sRGB render target
-  val = pow(val, vec3(2.2));
+  // NOTE deccan: commenting out this
+  // val = pow(val, vec3(2.2));
 
   return val;
 }
@@ -256,7 +293,7 @@ vec3 agxLook(vec3 val) {
   // Punchy
   slope = vec3(1.0);
   power = vec3(1.35, 1.35, 1.35);
-  sat = 1.4;
+  sat = 1.05; // sat = 1.4;
 #endif
 
   // ASC CDL
@@ -274,12 +311,9 @@ vec3 tonemap_agx_minimal(vec3 x) {
    value = agx(value);
    value = agxLook(value); // Optional
    value = agxEotf(value);
+   value = internal_to_linear(value);
    return value;
 }
-
-
-// GT7-style tonemapping (approximation)
-// Based on Polyphony/GT publications and publicly available sample code.
 
 
 vec3 tonemap_filmic_backend(vec3 x) {
@@ -311,15 +345,14 @@ vec3 tonemap_filmic(vec3 color, float exposure) {
 }
 
 
-
 vec3 tonemap_reinhard(const vec3 x) {
    // reinhard tone mapping
    return x / (x + vec3(1.0));
 }
 
-////////////////////////////////////////////////////////////////////////////////
+
 // Lottes 2016, "Advanced Techniques and Optimization of HDR Color Pipelines"
-vec3 lottes(vec3 x) {
+vec3 tonemap_lottes(vec3 x) {
   const vec3 a = vec3(1.6);
   const vec3 d = vec3(0.977);
   const vec3 hdrMax = vec3(8.0);
@@ -336,14 +369,13 @@ vec3 lottes(vec3 x) {
   return pow(x, a) / (pow(x, a * d) * b + c);
 }
 
+
 vec3 tonemap_reinhard(const vec3 hdr_color, float exposure) {
    vec3 mapped = vec3(1.0) - exp(-hdr_color * exposure);
    return mapped;
 }
 
-// ------------------------------------------------------------
 // Uncharted 2 Filmic Tonemap
-// ------------------------------------------------------------
 vec3 tonemap_uncharted(vec3 x) {
    float A = 0.15;
    float B = 0.50;
@@ -358,9 +390,8 @@ vec3 tonemap_uncharted(vec3 x) {
    return x / white_scale;
 }
 
-// ------------------------------------------------------------
+
 // ACES Tonemap (Unity style)
-// ------------------------------------------------------------
 vec3 tonemap_aces_unity(vec3 x) {
    const mat3 aces_input_matrix = mat3(
       0.59719, 0.35458, 0.04823,
@@ -383,9 +414,8 @@ vec3 tonemap_aces_unity(vec3 x) {
    return clamp(x, 0.0, 1.0);
 }
 
-// ------------------------------------------------------------
+
 // ACES Tonemap (Unreal Engine style)
-// ------------------------------------------------------------
 vec3 tonemap_aces_unreal(vec3 x) {
    // Source: Unreal Engine 4 ACES implementation
    x *= 0.6; // exposure bias
@@ -397,6 +427,8 @@ vec3 tonemap_aces_unreal(vec3 x) {
 
    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
+
+
 vec3 tonemap_gt7(vec3 x) {
     // Parameters tuned for Gran Turismo
     float P = 1.0;  // max display brightness
@@ -424,6 +456,7 @@ vec3 tonemap_gt7(vec3 x) {
     
     return T * w0 + L * w1 + S * w2;
 }
+
 // Uchimura 2017, "HDR theory and practice"
 // Math: https://www.desmos.com/calculator/gslcdxvipg
 // Source: https://www.slideshare.net/nikuque/hdr-theory-and-practicce-jp
@@ -536,7 +569,7 @@ void main() {
 
    vec3 hdr = texture(scene_hdr, uv).rgb;
 
-   const float exposure = 0.999;
+   const float exposure = 1.0;
    hdr *= exposure;
 
    // tonemap_aces(FragColor.xyz);
@@ -557,5 +590,6 @@ void main() {
    mapped = linear_to_srgb(mapped);
 
    imageStore(out_image, pixel, vec4(mapped, 1.0));
+   // imageStore(out_image, pixel, mapped);
 }
  

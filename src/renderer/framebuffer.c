@@ -282,11 +282,12 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
    GLenum attachment = GL_COLOR_ATTACHMENT0;
 
    switch (texture.format) {
-   case TEXTURE_FORMAT_RGBA32F:
-   case TEXTURE_FORMAT_RGBA8:
-   case TEXTURE_FORMAT_RGB8:
-   case TEXTURE_FORMAT_RG8:
-   case TEXTURE_FORMAT_R8: {
+   case TEXTURE_FORMAT_RGBA32F   :
+   case TEXTURE_FORMAT_R11G11B10F:
+   case TEXTURE_FORMAT_RGBA8     :
+   case TEXTURE_FORMAT_RGB8      :
+   case TEXTURE_FORMAT_RG8       :
+   case TEXTURE_FORMAT_R8        : {
       attachment = GL_COLOR_ATTACHMENT0;
       framebuffer->color = texture;
       break;

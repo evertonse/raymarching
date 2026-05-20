@@ -333,13 +333,19 @@ Mesh generate_quad_mesh(float width, float height) {
    mesh.vertices.positions[3] = (Vector3){-hw, hh, 0};
 
    for (int i = 0; i < 4; i++) {
-      mesh.vertices.normals[i] = (Vector3){0, 0, 1};
+      // We're looking into +Z so the what normal is facing us in -Z.
+      mesh.vertices.normals[i] = (Vector3){0, 0, -1};
    }
 
    mesh.vertices.uvs[0] = (Vector2){0, 1};
    mesh.vertices.uvs[1] = (Vector2){1, 1};
    mesh.vertices.uvs[2] = (Vector2){1, 0};
    mesh.vertices.uvs[3] = (Vector2){0, 0};
+
+   mesh.vertices.uvs[0] = (Vector2){0, 0};
+   mesh.vertices.uvs[1] = (Vector2){1, 0};
+   mesh.vertices.uvs[2] = (Vector2){1, 1};
+   mesh.vertices.uvs[3] = (Vector2){0, 1};
 
    mesh.indices.items[0] = 0;
    mesh.indices.items[1] = 1;

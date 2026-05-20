@@ -8,9 +8,16 @@ layout(rgba32f, binding = 1) uniform image2D dst_image;
 #include "./bloom.h"
 
 const bool filter_radius_based_on_current_texture_size = false;
+const bool use_scattering = false;
+// Ways to control the bloom emanating radius from bright objects
+//   - use scattering and set to a value lower than .5
+//   - set clamp max value for prefilter stage
+//   - decrease the color instensity from object (bad because object will prolly not keep it's bright white core)
+const float scatter_value = .45; // set this to bigger than one to see some shit.
+const float scatter = lerp(0.05f, 0.95f, scatter_value);
 
-// #define sample_texture sample_bicubic // TODO: make this exist
-#define sample_texture texture
+#define sample_texture sample_texture_bicubic
+// #define sample_texture texture
 
 
 vec3 sample_tent(vec2 uv, vec2 texel) {
@@ -47,16 +54,28 @@ void main() {
 
    // It's important that filter_radius is in texture coordinate not in pixel so it scales independently of the texture size;
    // Yes we know there's a ton of unneeded calculation per pixel that should be dont in cpu once. Yes, we don't care.
-   const float scatter = 1.0;
-   const float aspect_ratio = float(bloom.src_width) / bloom.src_height;
+   const float aspect_ratio = float(bloom.src_width) / float(bloom.src_height);
 
-   vec2  texel = vec2(bloom.filter_radius, bloom.filter_radius*aspect_ratio) * scatter;
+
+   vec2 texel = vec2(bloom.filter_radius, bloom.filter_radius*aspect_ratio);
+   // vec2  texel = vec2(bloom.filter_radius, bloom.filter_radius) * scatter;
+
    if (filter_radius_based_on_current_texture_size) {
-      texel = 1.0 / vec2(textureSize(src_texture, 0)) * scatter;
+      texel = 1.0 / vec2(textureSize(src_texture, 0));
    }
 
-   vec4 high_mip = imageLoad(dst_image, coordinate);  // current mip content
-   vec3 low_mip  = sample_tent(uv, texel);            // blurred lower mip
+   vec3 high_mip = imageLoad(dst_image, coordinate).rgb;  // current high mip content
+   vec3 low_mip  = sample_tent(uv, texel);                // blurred lower mip
 
-   imageStore(dst_image, coordinate, vec4(high_mip.rgb + low_mip, 1.));
+
+
+   vec3 out_color;
+   if (use_scattering) {
+      out_color = 2*lerp(high_mip, low_mip, scatter);
+   } else {
+      out_color = high_mip + low_mip;
+   }
+
+
+   imageStore(dst_image, coordinate, vec4(out_color, 1.));
 };

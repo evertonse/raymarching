@@ -176,9 +176,9 @@ static void init_model_and_its_gpu_data(typeof(((Projection_Application *)0)->bo
       );
       assert(bundle->animation.vertex_joints.size == joints_size);
    }
-   bundle->transform.scale       = (Vector3){5., 5., 5.};
-   bundle->transform.rotation    = (Vector4){-1., 0, 0, PI/2.};
-   bundle->transform.translation = (Vector3){30., 16., 20.};
+   bundle->transform.scale       = (Vector3)   {5.,  5.,  5.      };
+   bundle->transform.rotation    = (Quaternion){-1., 0,   0, PI/2.};
+   bundle->transform.translation = (Vector3)   {30., 16., 20.     };
 }
 
 
@@ -1140,7 +1140,6 @@ void projection_update(Projection_Application *app, f64 dt) {
          Vector3 direction = spherical_to_cartesian(camera.rotation.x, camera.rotation.y);
          Matrix  view = MatrixLookAt((Vector3){0, 0, 0}, direction, (Vector3){0., 1., 0.});
          // printf("vec3(%f, %f, %f)\n", direction.x, direction.y, direction.z);
-         // Matrix view = MatrixViewFromSpherical(camera.position, -camera.rotation.y, -camera.rotation.x);
          glUniformMatrix4fv(view_location, 1, GL_FALSE, MatrixToFloat(view));
       }
 

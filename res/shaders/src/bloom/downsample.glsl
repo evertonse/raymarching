@@ -20,6 +20,7 @@ vec3 pow3(vec3 v, float p) {
 float luminance(vec3 linear_rgb) { return dot(linear_rgb, vec3(0.2126729, 0.7151522, 0.0721750)); }
 
 // Intents to eliminate NaN propagation. max between NaN and 0 is defined to be 0.
+// More about it: https://docs.unity3d.com/Packages/com.unity.render-pipelines.high-definition@15.0/manual/Post-Processing-Propagating-NaNs.html
 vec3 apply_clamp_max(vec3 c) {
    c = mix(vec3(0.0), c, vec3(equal(c, c))); // replace NaN with 0 (NaN != NaN)
    // Next line is nice but branch and can't rely on isnan always
@@ -32,10 +33,11 @@ vec3 apply_clamp_max(vec3 c) {
 
 // https://www.desmos.com/calculator/rauntuxt9o
 vec3 apply_threshold(vec3 c) {
-   float b = brightness(c);
+   const float b = brightness(c);
 
    const float t = bloom.prefilter_threshold;
    const float k = bloom.prefilter_knee + 1e-5f;
+
 
    float softness   = clamp(b - t + k, 0.0, 2.0 *k);
          softness   = (softness * softness) / (4.0 * k + 1e-4);
@@ -95,7 +97,7 @@ vec3 sample_texture(sampler2D in_texture, vec2 uv) {
 }
 
 // Unity HQ 13 tap pattern (URP FragPrefilter _BLOOM_HQ).
-// Half-pixel inner offsets exploit bilinear for free extra coverage.
+// Half-pixel inner offsets exploit bilinear for "free" extra coverage.
 vec3 sample_unity(vec2 uv, vec2 texel) {
    const float scale = 1.0;
    vec3 A = sample_texture(src_texture, uv + texel * (vec2(-1.0, -1.0) * scale)).rgb;
@@ -154,14 +156,28 @@ vec3 sample_13_bilinear(vec2 uv, vec2 texel) {
    vec3 l = sample_texture(src_texture, uv + texel * vec2(-1.0, -1.0)).rgb;
    vec3 m = sample_texture(src_texture, uv + texel * vec2( 1.0, -1.0)).rgb;
 
-   //
-   // Unity's prefilter:
-   //    https://github.com/Unity-Technologies/Graphics/blob/3e99c0d1e996f856b618cb33e390ee6c0e4867ea/Packages/com.unity.render-pipelines.universal/Shaders/PostProcessing/Bloom.shader#L55
-   //
    if (true && 0 == bloom.mip_level) {
+      //
       // Karis weighted groups to kill fireflies from slide 167
-      // Following unity's instead of opengl tutorial we have
-      // One karis weight per INDIVIDUAL sample, on raw unscaled values
+      // Jorge Jimenez:December 24, 2014 at 3:56 pm
+      //    Regarding the fireflies:
+      //    Sorry, that slide was possibly not too clear. You need to renormalize afterwards, it’s a weighted average:
+      //
+      //    float4 sum = 0.0;
+      //    for each sample: sum += (1.0 / (1.0 + luma)) * float4(sampleColor.rgb, 1.0);
+      //    sum.rgb /= sum.w;
+      //
+      // We're following Unity's instead of opengl tutorial we have one karis weight per INDIVIDUAL sample, on raw unscaled values
+      //
+      // Learn Opengl's  way: https://learnopengl.com/code_viewer_gh.php?code=src/8.guest/2022/6.physically_based_bloom/6.new_downsample.fs
+      //
+      // Unity's prefilter way:
+      //    https://github.com/Unity-Technologies/Graphics/blob/3e99c0d1e996f856b618cb33e390ee6c0e4867ea/Packages/com.unity.render-pipelines.universal/Shaders/PostProcessing/Bloom.shader#L55
+      //
+      //
+      // Yet another way of antiflickering: https://github.com/hdmmY/Bloom-Effect-Unity/blob/c6fa1e15161792363ed30b0ea5bf71d62dcfa713/Assets/Plugins/Hdmmy/Bloom/HBloom.cginc#L116
+      //
+
       float wj = karis_weight(j),  wk = karis_weight(k);
       float wl = karis_weight(l),  wm = karis_weight(m);
       float wa = karis_weight(a),  wb = karis_weight(b),  wc = karis_weight(c);
@@ -197,7 +213,7 @@ void main() {
    vec2 texel = 1.0 / vec2(bloom.src_width, bloom.src_height);
 
    vec3 color;
-   if (true && bloom.mip_level == 0) {
+   if (bloom.mip_level == 0) {
       // Prefilter path, then clamp, then threshold.
       // color = sample_box(uv, texel);
       color = sample_13_bilinear(uv, texel);

@@ -50,7 +50,10 @@ Framebuffer apply_postprocess(Framebuffer hdr_fb) {
       s.height = h;
 
       // Final output should be LDR (RGBA8) after tonemap + gamma
-      Texture out_texture = create_texture(w, h, nullptr, TEXTURE_FORMAT_RGBA8, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+      // auto format = TEXTURE_FORMAT_RGBA8;
+      // auto format = TEXTURE_FORMAT_RGBA32F;
+      auto format = TEXTURE_FORMAT_R11G11B10F;
+      Texture out_texture = create_texture(w, h, nullptr, format, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
 
       s.output_fb = create_framebuffer_from_texture(out_texture);
 

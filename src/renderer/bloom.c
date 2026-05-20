@@ -1,5 +1,5 @@
-// #define BLOOM_MIP_COUNT 5
-#define BLOOM_MIP_COUNT 7 // for 1080p
+// #define BLOOM_MAX_MIP_COUNT 5
+#define BLOOM_MAX_MIP_COUNT 13 // for 1080p
 
 #include "./shared/bloom_data.glsl"
 typedef struct Bloom_Data Bloom_Data;
@@ -12,18 +12,21 @@ typedef struct {
    Shader      upsample_shader;
    Shader      composite_shader;
    Texture     previous_bloom;
-   Texture     mips[BLOOM_MIP_COUNT];
+   Texture     mips[BLOOm_MAX_MIP_COUNT];
    Framebuffer output_framebuffer;
    int         width;
    int         height;
+   int         mips_count;
 } Bloom_State;
 
 
+// Another example but not only example used to implement this:
+//    https://github.com/tgalaj/RapidGL/blob/master/src/demos/26_bloom/downscale.comp
 Framebuffer apply_bloom(Framebuffer src_fb) {
    static Countdown shader_countdown_to_reload = {0};
    static Bloom_State s = {0};
-   static float filter_radius = 0.005f;
-   static float bloom_strength = 0.055f;
+   static float filter_radius = 0.0045f; // 0.005f;
+   static float bloom_strength = 0.075f; // 0.075f; // 0.05f;
 
    if (is_button_pressed(BUTTON_F2)) {
       bloom_strength += 0.02f;
@@ -70,7 +73,7 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
    if (need_init) {
       // Free memory and zero init
       {
-         for (int i = 0; i < BLOOM_MIP_COUNT; i++) {
+         for (int i = 0; i < BLOOM_MAX_MIP_COUNT; i++) {
             destroy_texture(&s.mips[i]);
          }
          destroy_texture(&s.previous_bloom);
@@ -100,10 +103,12 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
       int mips_width  = s.width;
       int mips_height = s.height;
 
-      for (int i = 0; i < BLOOM_MIP_COUNT; i++) {
+      for (int i = 0; i < BLOOM_MAX_MIP_COUNT; i++) {
          mips_width  = max(1, mips_width / 2);
          mips_height = max(1, mips_height / 2);
          s.mips[i] = create_texture(mips_width, mips_height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_BILINEAR, TEXTURE_WRAP_CLAMP_EDGE);
+         s.mips_count += 1;
+         if (s.mips[i].width < 4 || s.mips[i].height < 4) break;
       }
 
 
@@ -119,7 +124,7 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
       }
 
       s.loaded = true;
-      trace_info("Bloom initialized (%dx%d)", w, h);
+      trace_info("Bloom initialized (%dx%d) with %d mips count", w, h, s.mips_count);
    }
 
    update_countdown(&shader_countdown_to_reload, {
@@ -133,13 +138,14 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
    int src_width  = w;
    int src_height = h;
 
+   const float alternative_value = 1.0f;
    Bloom_Data bloom_data = {
 
       // Prefilter params shader reads them only on mip 0
       .prefilter_clamp_max = 500.0f,
-      .prefilter_threshold = 1.f,
-      .prefilter_knee      = 0.5f,
-      .strength            = bloom_strength ,
+      .prefilter_threshold = 0.7f, // 0.85f  or  1.f
+      .prefilter_knee      = 0.38, /* 0.5f */
+      .strength            = bloom_strength,
       .filter_radius       = filter_radius,
    };
 
@@ -147,7 +153,7 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
    bind_shader(s.downsample_shader);
    upload_push_constants(&bloom_data, size_of(bloom_data));
 
-   for (int i = 0; i < BLOOM_MIP_COUNT; i++) {
+   for (int i = 0; i < min(s.mips_count, BLOOM_MAX_MIP_COUNT); i++) {
       Texture mip = s.mips[i];
       bind_texture(src_current, 0);
       bind_texture_as_image(mip, 1, TEXTURE_ACCESS_WRITE);
@@ -170,7 +176,7 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
    // Pass 2: upsample
    bind_shader(s.upsample_shader);
    upload_push_constants(&bloom_data, size_of(bloom_data));
-   for (int i = BLOOM_MIP_COUNT - 1; i > 0; i--) {
+   for (int i = min(s.mips_count, BLOOM_MAX_MIP_COUNT) - 1; i > 0; i--) {
       auto *src_mip = &s.mips[i];
       auto *dst_mip = &s.mips[i - 1];
 
@@ -178,7 +184,6 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
       bind_texture_as_image(*dst_mip, 1, TEXTURE_ACCESS_READ | TEXTURE_ACCESS_WRITE);
 
       dispatch_compute_shader_2d(s.upsample_shader, dst_mip->width, dst_mip->height);
-
       shader_memory_barrier(SHADER_BARRIER_IMAGE_ACCESS | SHADER_BARRIER_TEXTURE_FETCH);
    }
 
@@ -199,7 +204,6 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
 
 
    dispatch_compute_shader_2d(s.composite_shader, w, h);
-
    shader_memory_barrier(SHADER_BARRIER_IMAGE_ACCESS | SHADER_BARRIER_TEXTURE_FETCH);
 
    copy_texture(s.previous_bloom, s.mips[0]);

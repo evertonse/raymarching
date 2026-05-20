@@ -32,6 +32,33 @@
 // #define AGX_LOOK 2
 #define AGX_LOOK 2
 
+#define BT709_OETF
+// #defined PURE_GAMMA
+
+#if defined(PURE_GAMMA)
+vec3 internal_to_linear(vec3 sRGB) { return pow(sRGB, vec3(2.2)); }
+
+vec3 internal_from_linear(vec3 linearRGB) { return pow(linearRGB, vec3(1.0 / 2.2)); }
+
+#elif defined(BT709_OETF)
+vec3 internal_to_linear(vec3 sRGB) {
+   bvec3 cutoff = lessThan(sRGB, vec3(0.04045));
+   vec3 higher = pow((sRGB + vec3(0.055)) / vec3(1.055), vec3(2.4));
+   vec3 lower = sRGB / vec3(12.92);
+
+   return mix(higher, lower, cutoff);
+}
+
+vec3 internal_from_linear(vec3 linearRGB) {
+   bvec3 cutoff = lessThan(linearRGB, vec3(0.0031308));
+   vec3 higher = vec3(1.055) * pow(linearRGB, vec3(1.0 / 2.4)) - vec3(0.055);
+   vec3 lower = linearRGB * vec3(12.92);
+
+   return mix(higher, lower, cutoff);
+}
+
+#endif
+
 // Mean error^2: 1.85907662e-06
 vec3 agxDefaultContrastApprox7thOrder(vec3 x) {
   vec3 x2 = x * x;
@@ -63,6 +90,8 @@ vec3 agxDefaultContrastApprox(vec3 x) {
 }
 
 vec3 agx(vec3 val) {
+  // Ensure no negative values
+  // val = max(float3(0.0), val);
   const mat3 agx_mat = mat3(
     0.842479062253094, 0.0423282422610123, 0.0423756549057051,
     0.0784335999999992,  0.878468636469772,  0.0784336,
@@ -96,7 +125,8 @@ vec3 agxEotf(vec3 val) {
   // sRGB IEC 61966-2-1 2.2 Exponent Reference EOTF Display
   // NOTE: We're linearizing the output here. Comment/adjust when
   // *not* using a sRGB render target
-  val = pow(val, vec3(2.2));
+  // NOTE deccan: commenting out this
+  // val = pow(val, vec3(2.2));
 
   return val;
 }
@@ -117,7 +147,7 @@ vec3 agxLook(vec3 val) {
   // Punchy
   slope = vec3(1.0);
   power = vec3(1.35, 1.35, 1.35);
-  sat = 1.4;
+  sat = 1.05; // sat = 1.4;
 #endif
 
   // ASC CDL
@@ -135,5 +165,6 @@ vec3 tonemap_agx_minimal(vec3 x) {
    value = agx(value);
    value = agxLook(value); // Optional
    value = agxEotf(value);
+   value = internal_to_linear(value);
    return value;
 }

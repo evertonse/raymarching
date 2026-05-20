@@ -123,10 +123,14 @@ typedef struct Vector2 {
 
 #if !defined(RL_VECTOR3_TYPE)
 // Vector3 type
-typedef struct Vector3 {
-    float x;
-    float y;
-    float z;
+typedef union Vector3 {
+    float items[3];
+    struct {
+        float x, y, z;
+    };
+    struct {
+        float pitch, yaw, roll;
+    };
 } Vector3;
 #define RL_VECTOR3_TYPE
 #endif
@@ -147,7 +151,17 @@ typedef union Vector4 {
 
 #if !defined(RL_QUATERNION_TYPE)
 // Quaternion type
-typedef Vector4 Quaternion;
+// typedef Vector4 Quaternion;
+
+typedef union Quaternion {
+    float items[4];
+    struct {
+        float x;
+        float y;
+        float z;
+        float w;
+    };
+} Quaternion;
 #define RL_QUATERNION_TYPE
 #endif
 
@@ -2616,16 +2630,34 @@ RMAPI void MatrixDecompose(Matrix mat, Vector3 *translation, Quaternion *rotatio
     }
 }
 
-#if defined(__cplusplus) && !defined(RAYMATH_DISABLE_CPP_OPERATORS)
 
-// Optional C++ math operators
-//-------------------------------------------------------------------------------
+// Vector3 operators
+static constexpr Vector3 Vector3Zeros = { 0, 0, 0 };
+static constexpr Vector3 Vector3Ones = { 1, 1, 1 };
+static constexpr Vector3 Vector3UnitX = { 1, 0, 0 };
+static constexpr Vector3 Vector3UnitY = { 0, 1, 0 };
+static constexpr Vector3 Vector3UnitZ = { 0, 0, 1 };
 
 // Vector2 operators
 static constexpr Vector2 Vector2Zeros = { 0, 0 };
 static constexpr Vector2 Vector2Ones = { 1, 1 };
 static constexpr Vector2 Vector2UnitX = { 1, 0 };
 static constexpr Vector2 Vector2UnitY = { 0, 1 };
+// Vector4 operators
+static constexpr Vector4 Vector4Zeros = { 0, 0, 0, 0 };
+static constexpr Vector4 Vector4Ones = { 1, 1, 1, 1 };
+static constexpr Vector4 Vector4UnitX = { 1, 0, 0, 0 };
+static constexpr Vector4 Vector4UnitY = { 0, 1, 0, 0 };
+static constexpr Vector4 Vector4UnitZ = { 0, 0, 1, 0 };
+static constexpr Vector4 Vector4UnitW = { 0, 0, 0, 1 };
+// Quaternion operators
+static constexpr Quaternion QuaternionZeros = { 0, 0, 0, 0 };
+static constexpr Quaternion QuaternionOnes = { 1, 1, 1, 1 };
+static constexpr Quaternion QuaternionUnitX = { 0, 0, 0, 1 };
+
+#if defined(__cplusplus) && !defined(RAYMATH_DISABLE_CPP_OPERATORS)
+// Optional C++ math operators
+//-------------------------------------------------------------------------------
 
 inline Vector2 operator + (const Vector2& lhs, const Vector2& rhs)
 {
@@ -2714,12 +2746,6 @@ inline bool operator != (const Vector2& lhs, const Vector2& rhs)
     return !FloatEquals(lhs.x, rhs.x) || !FloatEquals(lhs.y, rhs.y);
 }
 
-// Vector3 operators
-static constexpr Vector3 Vector3Zeros = { 0, 0, 0 };
-static constexpr Vector3 Vector3Ones = { 1, 1, 1 };
-static constexpr Vector3 Vector3UnitX = { 1, 0, 0 };
-static constexpr Vector3 Vector3UnitY = { 0, 1, 0 };
-static constexpr Vector3 Vector3UnitZ = { 0, 0, 1 };
 
 inline Vector3 operator + (const Vector3& lhs, const Vector3& rhs)
 {
@@ -2808,14 +2834,6 @@ inline bool operator != (const Vector3& lhs, const Vector3& rhs)
     return !FloatEquals(lhs.x, rhs.x) || !FloatEquals(lhs.y, rhs.y) || !FloatEquals(lhs.z, rhs.z);
 }
 
-// Vector4 operators
-static constexpr Vector4 Vector4Zeros = { 0, 0, 0, 0 };
-static constexpr Vector4 Vector4Ones = { 1, 1, 1, 1 };
-static constexpr Vector4 Vector4UnitX = { 1, 0, 0, 0 };
-static constexpr Vector4 Vector4UnitY = { 0, 1, 0, 0 };
-static constexpr Vector4 Vector4UnitZ = { 0, 0, 1, 0 };
-static constexpr Vector4 Vector4UnitW = { 0, 0, 0, 1 };
-
 inline Vector4 operator + (const Vector4& lhs, const Vector4& rhs)
 {
     return Vector4Add(lhs, rhs);
@@ -2892,10 +2910,6 @@ inline bool operator != (const Vector4& lhs, const Vector4& rhs)
     return !FloatEquals(lhs.x, rhs.x) || !FloatEquals(lhs.y, rhs.y) || !FloatEquals(lhs.z, rhs.z) || !FloatEquals(lhs.w, rhs.w);
 }
 
-// Quaternion operators
-static constexpr Quaternion QuaternionZeros = { 0, 0, 0, 0 };
-static constexpr Quaternion QuaternionOnes = { 1, 1, 1, 1 };
-static constexpr Quaternion QuaternionUnitX = { 0, 0, 0, 1 };
 
 inline Quaternion operator + (const Quaternion& lhs, const float& rhs)
 {

@@ -2,12 +2,14 @@
 // File derivation and implemenation from https://github.com/bWFuanVzYWth/AgX/blob/main/agx.glsl
 // Blender article about agx: https://developer.blender.org/docs/release_notes/4.0/color_management/
 //
+// Resources: https://github.com/EaryChow/AgX
+//
 
 // In practice, there is still debate and confusion around whether sRGB data
 // should be displayed with pure 2.2 gamma as defined in the standard,
 // or with the inverse of the OETF.
 // https://en.wikipedia.org/wiki/SRGB
-// 
+//
 #define BT709_OETF
 
 #if defined(PURE_GAMMA)
@@ -75,5 +77,4 @@ vec3 agx_tonemapping(vec3 /*Linear BT.709*/ ci) {
 
 vec3 tonemap_agx(vec3 x) {
    return to_linear(agx_tonemapping(x));
-   // return agx_tonemapping(x);
 }

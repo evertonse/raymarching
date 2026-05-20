@@ -3,7 +3,13 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D scene_hdr;
-layout(rgba8, binding = 1) uniform writeonly image2D out_image;
+
+// Why the final frabebuffer doesnt work if not rgba instead of rgb?
+// #define IMAGE_FORMAT rgba8
+// #define IMAGE_FORMAT rgba32f
+#define IMAGE_FORMAT r11f_g11f_b10f
+
+layout(IMAGE_FORMAT, binding = 1) uniform writeonly image2D out_image;
 
 #define lerp mix
 
@@ -56,7 +62,7 @@ void main() {
 
    vec3 hdr = texture(scene_hdr, uv).rgb;
 
-   const float exposure = 0.999;
+   const float exposure = 1.0;
    hdr *= exposure;
 
    // tonemap_aces(FragColor.xyz);
@@ -77,4 +83,5 @@ void main() {
    mapped = linear_to_srgb(mapped);
 
    imageStore(out_image, pixel, vec4(mapped, 1.0));
+   // imageStore(out_image, pixel, mapped);
 }

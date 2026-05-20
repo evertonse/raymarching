@@ -2,10 +2,6 @@
 #include "./agx.glsl"
 #include "./agx_minimal.glsl"
 
-// GT7-style tonemapping (approximation)
-// Based on Polyphony/GT publications and publicly available sample code.
-
-
 vec3 tonemap_filmic_backend(vec3 x) {
    // Constants from Hable's "Filmic Tonemapping Operators" talk
    // https://www.slideshare.net/slideshow/hable-john-uncharted2-hdr-lighting/3602588
@@ -35,15 +31,14 @@ vec3 tonemap_filmic(vec3 color, float exposure) {
 }
 
 
-
 vec3 tonemap_reinhard(const vec3 x) {
    // reinhard tone mapping
    return x / (x + vec3(1.0));
 }
 
-////////////////////////////////////////////////////////////////////////////////
+
 // Lottes 2016, "Advanced Techniques and Optimization of HDR Color Pipelines"
-vec3 lottes(vec3 x) {
+vec3 tonemap_lottes(vec3 x) {
   const vec3 a = vec3(1.6);
   const vec3 d = vec3(0.977);
   const vec3 hdrMax = vec3(8.0);
@@ -60,14 +55,13 @@ vec3 lottes(vec3 x) {
   return pow(x, a) / (pow(x, a * d) * b + c);
 }
 
+
 vec3 tonemap_reinhard(const vec3 hdr_color, float exposure) {
    vec3 mapped = vec3(1.0) - exp(-hdr_color * exposure);
    return mapped;
 }
 
-// ------------------------------------------------------------
 // Uncharted 2 Filmic Tonemap
-// ------------------------------------------------------------
 vec3 tonemap_uncharted(vec3 x) {
    float A = 0.15;
    float B = 0.50;
@@ -82,9 +76,8 @@ vec3 tonemap_uncharted(vec3 x) {
    return x / white_scale;
 }
 
-// ------------------------------------------------------------
+
 // ACES Tonemap (Unity style)
-// ------------------------------------------------------------
 vec3 tonemap_aces_unity(vec3 x) {
    const mat3 aces_input_matrix = mat3(
       0.59719, 0.35458, 0.04823,
@@ -107,9 +100,8 @@ vec3 tonemap_aces_unity(vec3 x) {
    return clamp(x, 0.0, 1.0);
 }
 
-// ------------------------------------------------------------
+
 // ACES Tonemap (Unreal Engine style)
-// ------------------------------------------------------------
 vec3 tonemap_aces_unreal(vec3 x) {
    // Source: Unreal Engine 4 ACES implementation
    x *= 0.6; // exposure bias
@@ -121,6 +113,8 @@ vec3 tonemap_aces_unreal(vec3 x) {
 
    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
+
+
 vec3 tonemap_gt7(vec3 x) {
     // Parameters tuned for Gran Turismo
     float P = 1.0;  // max display brightness
@@ -148,6 +142,7 @@ vec3 tonemap_gt7(vec3 x) {
     
     return T * w0 + L * w1 + S * w2;
 }
+
 // Uchimura 2017, "HDR theory and practice"
 // Math: https://www.desmos.com/calculator/gslcdxvipg
 // Source: https://www.slideshare.net/nikuque/hdr-theory-and-practicce-jp

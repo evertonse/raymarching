@@ -1,9 +1,9 @@
- #version 460 core
+#version 460 core
 
 layout(rgba32f, binding = 0)
     uniform writeonly image2D output_image;
 
-layout(local_size_x = 16, local_size_y = 16) in;
+layout(local_size_x = 32, local_size_y = 32) in;
 
 // Implemented ShaderToy Parameters
 uniform float iTime;

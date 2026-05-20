@@ -347,12 +347,14 @@ void draw_scene_league(Projection_Application *app) {
    render_unit(&vayne, &vayne_v);
    render_projectile_pool(&bolt_pool);
    Vector3 forward, right, up;
-   camera_basis(spherical, &forward, &right,&up);
+   camera_basis(spherical, &forward, &right, &up);
    render_health_bar(&vayne, &vayne_v.health_bar, per_frame.camera.position, forward, right, up);
 
    Vector3 vayne_position_vector3 = vector3(vayne.position.x, 0.0f, vayne.position.y);
+   Vector3 vayne_direction_vector3 = vector3(vayne.direction.x, 0.0f, vayne.direction.y);
    draw_vfx(
       vayne_position_vector3,
+      vayne_direction_vector3,
       per_frame.camera.position, forward, right, up
    );
 

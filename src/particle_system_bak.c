@@ -1,20 +1,18 @@
 #include "raymath.h"
 #include <math.h>
 
-constexpr Vector3 default_gravity = {0, -9.81f, 0};
+const Vector3 default_gravity = {0, -9.81, 0};
 
 typedef struct {
    //
    // These are in System Space
    //
-   Vector3 position;
+   Vector3 position; // local space
    Vector3 velocity;
 
-   // World space emitter transform at the time of spawn is not local space.
-   // Updated always is local
-   Transform emitter_transform;
+   Vector3 spawned_position; // world space emitter position at the time of spawn
 
-   float drag;    // Drag per second. Default to 0.25f // 0=no drag, 1=instant stop per second
+   float drag;  // Drag per second. Default to 0.25f // 0=no drag, 1=instant stop per second
    float gravity; // Each particle can be affected by different gravity values permitting slow or fast fall
 
    struct {
@@ -137,7 +135,7 @@ typedef struct {
    Particle particles[MAX_PARTICLES];
 
    uint particle_count;
-   bool is_local_simulation_space;
+   bool is_simulation_space_local;
    Transform transform;
 } Particle_System;
 
@@ -186,7 +184,7 @@ static const Particle_System particle_system_default = {
    // runtime state
    .particles = {0}, // zero‐initializes entire array
    .particle_count = 0,
-   .is_local_simulation_space = false,
+   .is_simulation_space_local = false,
    .transform = {
       .translation = {0,0,0},
       .rotation    = {0,0,0,1},
@@ -285,7 +283,7 @@ Particle_Spawn_Result particle_cone_spawn(Vector3 direction, float half_angle) {
    // TODO: Add support to spawn from volume or base radius
    return (Particle_Spawn_Result){
        .position = {0},
-       .direction = normalize(Vector3RotateByQuaternion(local_direction, rotation)),
+       .direction = Vector3RotateByQuaternion(local_direction, rotation),
    };
 }
 
@@ -305,8 +303,6 @@ Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float st
       float drag     = random_float(ps->start.drag    .min, ps->start.drag    .max);
       float t_color  = random_float(0.0f, 1.0f);
 
-      Vector4 color = lerp(ps->start.color.from, ps->start.color.to, t_color);
-
       // Pick random value per axis between from and to
       Vector3 rotation = {
          random_float(ps->start.rotation.from.x, ps->start.rotation.to.x),
@@ -317,7 +313,6 @@ Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float st
 
       switch (ps->spawn_shape.value) {
 
-      // Change this to ray instead or line segment
       case PARTICLE_SPAWN_SHAPE_DIRECTION:
       default: {
          result.direction = ps->spawn_shape.direction;
@@ -337,32 +332,32 @@ Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float st
          float theta = random_float(0.0f, 2.0f * PI);
          float phi = random_float(0.0f, PI);
          Vector3 direction = {
-            sinf(phi) * cosf(theta),
-            sinf(phi) * sinf(theta),
-            cosf(phi),
+             sinf(phi) * cosf(theta),
+             sinf(phi) * sinf(theta),
+             cosf(phi),
          };
          result.direction = direction;
          break;
       }
       };
 
-      // result.direction = normalize(Vector3RotateByQuaternion(result.direction, ps->transform.rotation));
+      result.direction = Vector3RotateByQuaternion(result.direction, ps->transform.rotation);
 
       *p = (Particle) {
          .position = result.position,
          .velocity = mul(speed, result.direction),
-         .emitter_transform = ps->transform,
+         .spawned_position = ps->transform.position,
 
          .gravity  = gravity,
          .drag     = drag,
          .size = {
             .start   = vector3(size),
-            .current = vector3(size),
+            .current = p->size.start,
          },
 
          .color = {
-            .start   = color,
-            .current = color,
+            .start   = lerp(ps->start.color.from, ps->start.color.to, t_color),
+            .current = p->color.start,
          },
 
          .rotation = {
@@ -386,79 +381,80 @@ Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float st
 
 
 // We take Particle_Transform_Mode instead of using the one in Particle_System *ps because we might wanna recurse with a different mode
-Transform calculate_particle_transform(Particle_Transform_Mode mode, const Particle *p, const Particle_System *ps, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
-   const Quaternion spin = QuaternionFromEuler(p->rotation.current.pitch, p->rotation.current.yaw, p->rotation.current.roll);
-   const Transform particle_local_transform = {
-      .position = p->position,
-      .scale    = p->size.current,
-      // .rotation = transform_identity.rotation,
-      .rotation = spin,
-   };
+Transform particle_transform(Particle_Transform_Mode mode, const Particle *p, const Particle_System *ps, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
+   Transform transform = transform_identity;
 
-   const Transform emitter_transform = p->emitter_transform;
-   // In unity, if simulation is not local live particles doesn't get rotated/translated by current emitter position.
-   // But for some reason they scale by current emitter scale!? I believe it makes more sense to only scale if simulation is local
-   Transform particle_transform = TransformCombine(emitter_transform, particle_local_transform);
+   Vector3 emitter_world_position = ps->is_simulation_space_local ? ps->transform.position : p->spawned_position;
+   Vector3 particle_world_position = mul(ps->transform.scale, p->position);
+   if (ps->is_simulation_space_local) {
+      particle_world_position = Vector3RotateByQuaternion(particle_world_position, ps->transform.rotation);
+   }
+   particle_world_position = add(emitter_world_position, particle_world_position);
 
    switch (mode) {
    // Any billboardind needs to be done considering camera and particle world-space coordinates
    case PARTICLE_TRANSFORM_MODE_BILLBOARD:
    default: {
-      Quaternion face = billboard_rotation(true, particle_transform.position, camera_position, camera_forward, camera_right, camera_up);
+      // Rotation
+      Quaternion face = billboard_rotation(true, particle_world_position, camera_position, camera_forward, camera_right, camera_up);
+      // Quaternion spin = QuaternionFromAxisAngle(camera_forward, p->rotation.current.z * DEG2RAD);
+      float pitch = p->rotation.current.y, yaw = p->rotation.current.x, roll = p->rotation.current.z;
+      Quaternion spin = QuaternionFromEuler(pitch, yaw, roll);
       Quaternion rotation = QuaternionMultiply(face, spin);
-      particle_transform.rotation = rotation;
+
+      // Transform
+      transform = (Transform) {
+          .translation = p->position,
+          .rotation = rotation,
+          .scale = p->size.current,
+      };
       break;
    }
 
    case PARTICLE_TRANSFORM_MODE_STRETCHED_BILLBOARD: {
+      float speed = length(p->velocity);
       const bool point_aligned = true;
 
-      static bool use_stretched_priority_camera = false;
+      static bool use_stretched_priority_camera = true;
+      static f64 time_previous = 0;
+      if (time_previous != time_delta() && is_button_pressed(BUTTON_8)) {
+         use_stretched_priority_camera = !use_stretched_priority_camera;
+         trace_info("time_previous = %f, use_stretched_priority_camera = %d", time_previous, use_stretched_priority_camera);
+      }
+      time_previous = time_delta();
+
+      Quaternion face = stretched_billboard_rotation(point_aligned, use_stretched_priority_camera, particle_world_position, p->velocity, camera_position, camera_forward, camera_right, camera_up);
       {
-         static f64 time_previous = 0;
-         // HACK: Running once perframe using delta with is fixed per frame
-         if (time_previous != time_delta() && is_button_pressed(BUTTON_8)) {
-            use_stretched_priority_camera = !use_stretched_priority_camera;
-            trace_info("time_previous = %f, use_stretched_priority_camera = %d", time_previous, use_stretched_priority_camera);
-         }
-         time_previous = time_delta();
+         // float pitch = p->rotation.current.y, yaw = p->rotation.current.x, roll = p->rotation.current.z;
+         // Quaternion spin = QuaternionFromEuler(pitch, yaw, roll);
+         // Quaternion rotation = QuaternionMultiply(face, spin);
       }
-
-
-      const Vector3 world_position = particle_transform.position;
-      const Vector3 world_velocity = rotate(mul(p->velocity, emitter_transform.scale), emitter_transform.rotation);
-      Quaternion face = stretched_billboard_rotation(point_aligned, use_stretched_priority_camera, world_position, world_velocity, camera_position, camera_forward, camera_right, camera_up);
-
-      // TODO: Enable rotation with streatch and test if this is correct
-      if (false) {
-         float pitch = p->rotation.current.y, yaw = p->rotation.current.x, roll = p->rotation.current.z;
-         Quaternion spin = QuaternionFromEuler(pitch, yaw, roll);
-         Quaternion rotation = QuaternionMultiply(face, spin);
-      }
-
-      float speed = length(world_velocity);
-
       Quaternion rotation = face;
-      Vector3 scale =  particle_transform.scale;
-      // scale.y *= (ps->transform_mode.length_scale + speed * ps->transform_mode.speed_scale);
-      scale.y = scale.y * ps->transform_mode.length_scale
-                + speed * ps->transform_mode.speed_scale;
+      float stretch =  ps->transform_mode.length_scale + ps->transform_mode.speed_scale*speed;
+      Vector3 scale =  p->size.current;
+      // scale.y       *= stretch;
+      scale.y = p->size.current.y * ps->transform_mode.length_scale
+                +           speed * ps->transform_mode.speed_scale;
 
-      particle_transform.scale    = scale;
-      particle_transform.rotation = rotation;
 
+      transform = (Transform) {
+         .translation = p->position,
+         .rotation    = rotation,
+         .scale       = scale,
+      };
       break;
    }
    }
 
-   return particle_transform;
+   transform.position = particle_world_position;
+   transform.scale    = mul(ps->transform.scale, transform.scale);
+
+   return transform;
 }
 
-
-Transform overload calculate_particle_transform(const Particle *p, const Particle_System *ps, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
-   return calculate_particle_transform(ps->transform_mode.value, p, ps, camera_position, camera_forward, camera_right, camera_up);
+Transform overload particle_transform(const Particle *p, const Particle_System *ps, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
+   return particle_transform(ps->transform_mode.value, p, ps, camera_position, camera_forward, camera_right, camera_up);
 }
-
 
 void internal update_particle(Particle *p, const Particle_System *ps, float dt) {
    if (!p || !p->alive) {
@@ -472,18 +468,11 @@ void internal update_particle(Particle *p, const Particle_System *ps, float dt) 
       return;
    }
 
-   if (ps->is_local_simulation_space) {
-      p->emitter_transform = ps->transform;
-   }
-
    float t = p->age / p->lifetime;
 
-   // Simulation is in local space but position will be rotated by spawned_transform at render.
-   // counter-rotate now so it comes out pointing world-down after that transform is applied.
-   const Vector3 gravity = rotate(default_gravity, QuaternionInvert(p->emitter_transform.rotation));
-
+   // Velocity update (before position)
    // Gravity
-   p->velocity = add(p->velocity, mul(gravity, p->gravity * dt));
+   p->velocity = add(p->velocity, mul(default_gravity, p->gravity * dt));
 
    // Drag
    p->velocity = mul(powf(1.0f - p->drag, dt), p->velocity);
@@ -491,9 +480,7 @@ void internal update_particle(Particle *p, const Particle_System *ps, float dt) 
    // Position from velocity (after velocity is updated by forces)
    p->position = add(p->position, mul(p->velocity, dt));
 
-   //
-   // Overlifetime color, rotation, size.
-   //
+   // color, rotation, size over lifetime
    p->color.current = mul(
       p->color.start,
       sample_color_gradient(ps->over_lifetime.color.values, ps->over_lifetime.color.timings, ps->over_lifetime.color.count, t)
@@ -543,11 +530,13 @@ void update_particle_system(Particle_System *ps, Vector3 emitter_position, float
             ps->spawn_accumulator -= 1.0f;
 
             float starting_age = ps->spawn_accumulator / ps->spawn_rate; // convert back to seconds
+            // trace_info("starting_age = %f", starting_age);
+            // starting_age = 0; // @remove
             Particle *p = spawn_particle(ps, emitter_position, starting_age);
 
             // Not updating when just spawned will cause popping related to over_lifetime fields.
-            // Also, we update with no time passed(dt=0 / starting_age) because it was just born.
-            update_particle(p, ps, starting_age);
+            // Also, we update with no time passed(dt=0) because it was just born.
+            update_particle(p, ps, 0);
          }
       }
    }
@@ -615,10 +604,6 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
    if (0 == ps->spawn_rate) {
       trace_warn("Potentially uninitiated particle system. Refusing to render.");
       return;
-   }
-
-   if (QuaternionEquals(ps->transform.rotation, QuaternionZeros)) {
-       ps->transform.rotation = transform_identity.rotation;
    }
 
    if (!ps_resources->loaded) {
@@ -689,7 +674,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
       // DIRTY
       update_rendering_mode(node, 2);
 
-      Transform transform = calculate_particle_transform(p, ps, camera_position, camera_forward, camera_right, camera_up);
+      Transform transform = particle_transform(p, ps, camera_position, camera_forward, camera_right, camera_up);
       update_transform(node, transform);
 
       update_color_tint(node, p->color.current);
@@ -751,10 +736,8 @@ void draw_quad_test(Vector3 unit_position, Vector3 camera_position, Vector3 came
 void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
    if (length(unit_direction) < 1e-5f) {
       unit_direction = vector3(1, 0, 0);
-   } else {
-      unit_direction = normalize(unit_direction);
    }
-
+   unit_direction = normalize(unit_direction);
    trace_debug("unit_direction = %f, %f, %f", unit_direction.x, unit_direction.y, unit_direction.z);
 
    static struct {
@@ -768,7 +751,6 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
       loaded = true;
       Color particle_color = vector4(0.);
       particle_color = mul(2.0, vector4(255/255., 80/255., 25/255., 1.));
-      particle_color.w = 1;
 
       vfx[count_of(vfx)-1].particle_system = (Particle_System) {
          // emitter
@@ -805,25 +787,24 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
          },
          .over_lifetime = {
             .color = {
-               .values  = { vector4(1, 1, 1, 0), vector4(1, 1, 1, 1), vector4(1, 1, 1, 0)},
-               .timings = { 0.0,                 0.05,                 0.9,               },
-               .count   = 3,
+               .values  = { vector4(1, 1, 1, 1), vector4(1, 1, 1, 0)},
+               .timings = { 0.0,                 0.9,               },
+               .count   = 2,
             },
-            // .size = particle_system_default.over_lifetime.size,
-            .size = vector3(0),
+            .size = vector3(1),
          },
          .transform_mode = {
-            .speed_scale = 0.065,
-            .length_scale = 1.85,
+            .speed_scale = 0.05,
+            .length_scale = 2,
             .value = PARTICLE_TRANSFORM_MODE_STRETCHED_BILLBOARD,
             // .value = PARTICLE_TRANSFORM_MODE_BILLBOARD,
          },
          .spawn_shape = {
             .direction  = normalize(vector3(1, 0, 0)),
-            .half_angle = DEG2RAD * (25/2.),
+            .half_angle = DEG2RAD * 25,
             .value      = PARTICLE_SPAWN_SHAPE_CONE,
          },
-         .is_local_simulation_space = false,
+         .is_simulation_space_local = false,
          .texture_path = "res/textures/vfx/Flame02_Rotated.png",
 
          .transform = {
@@ -839,28 +820,28 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
          .looping = true,
 
          // spawn
-         .spawn_rate = 0.7,
+         .spawn_rate = 3,
          .start = {
             .lifetime = {
-               .min = 10,
-               .max = 10,
+               .min = 40,
+               .max = 40,
             },
             .gravity = {
-               // .min = 0.25, .max = 0.25,
-               // .min = 0.05, .max = 0.05,
-               .min = 0, .max = 0,
+               .min = 0.25, .max = 0.25,
+               // .min = 2 + 0.25, .max = 2 + 0.25,
+               // .min = 0, .max = 0
             },
             .speed = {
-               .min = 0.5,
-               .max = 0.5
+               .min = 1,
+               .max = 1
             },
             .size = {
                .min = 1,
                .max = 1
             },
             .color = {
-               .from = vector4(1),
-               .to   = vector4(1),
+               .from = particle_color,
+               .to   = particle_color
             },
             .rotation = {
                .from = vector3(0),
@@ -876,54 +857,25 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
             .size = vector3(1),
          },
          .transform_mode = {
-            // .speed_scale = 0.9,
-            // .length_scale = 2,
-            .speed_scale  = 0.75,
-            .length_scale = 0,
+            .speed_scale = 0.9,
+            .length_scale = 2,
             .value = PARTICLE_TRANSFORM_MODE_STRETCHED_BILLBOARD,
-            // .value = PARTICLE_TRANSFORM_MODE_BILLBOARD,
          },
-         .spawn_shape = {
-            .direction  = normalize(vector3(0, 0, 1)),
-            // .half_angle = DEG2RAD * 25,
-            .value      = PARTICLE_SPAWN_SHAPE_DIRECTION,
-         },
+         .is_simulation_space_local = false,
          // .texture_path = "res/textures/vfx/Flame02.png",
          .texture_path = "res/textures/vfx/up-arrow2.png",
-
-         .is_local_simulation_space = true,
-         .transform = {
-            .scale = vector3(20.),
-         },
       };
-      // vfx[count_of(vfx)-1].particle_system = debug_particle_system;
    }
 
    setup_particle_render_state();
-   // for (int idx = 0; idx < count_of(vfx); idx++) {
-   //    Particle_System *ps = &vfx[idx].particle_system;
-   //    ps->transform.position = add(unit_position, vector3(30, 0, 0) );
-   //    auto particle_direction = mul(-1, unit_direction);
-   //    auto rotation = rotation_from_direction(particle_direction);
-   //    ps->transform.rotation = rotation;
-   //    draw_particle_system(&vfx[idx].particle_system, &vfx[idx].render_resources, unit_position, camera_position, camera_forward, camera_right, camera_up);
-   // }
    for (int idx = 0; idx < count_of(vfx); idx++) {
       Particle_System *ps = &vfx[idx].particle_system;
-      ps->transform.position = add(unit_position, vector3(0, 0, 0));
-
-
-      auto particle_direction = mul(-1, unit_direction);
-
-      // Tilt a bit. cross(direction, world_up) gives the right axis to rotate around
-      Vector3 right = normalize(cross(particle_direction, vector3(0, 1, 0)));
-      particle_direction = rotate(particle_direction, QuaternionFromAxisAngle(right, DEG2RAD * 45));
-      auto target_rotation = QuaternionFromVector3ToVector3(vector3(1, 0, 0), normalize(particle_direction));
-
-      // rotation_speed controls how fast it catches up
-      const float rotation_speed = 5.0f;
-      ps->transform.rotation = QuaternionSlerp(ps->transform.rotation, target_rotation, clamp(rotation_speed * time_delta(), 0.0f, 1.0f));
-
+      if (QuaternionEquals(ps->transform.rotation, QuaternionZeros)) {
+          ps->transform.rotation = transform_identity.rotation;
+      }
+      ps->transform.position = unit_position;
+      auto rotation = QuaternionFromVector3ToVector3(vector3(1, 0, 0), normalize(mul(-1, unit_direction)));
+      ps->transform.rotation = rotation;
       draw_particle_system(&vfx[idx].particle_system, &vfx[idx].render_resources, unit_position, camera_position, camera_forward, camera_right, camera_up);
    }
 }
@@ -1060,7 +1012,6 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
          .texture_path = "res/textures/vfx/Flare00.png",
       };
    }
-   
 
    setup_particle_render_state();
    for (int idx = 0; idx < count_of(vfx); idx++) {

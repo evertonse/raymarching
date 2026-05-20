@@ -1,6 +1,24 @@
 [ ] Add bicubic filtering for bloom upsampler https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1?permalink_comment_id=1879143#file-tex2dcatmullrom-hlsl-L5
 
-[ ] Fix health bad line rendering.
+[ ] Timed logging function (each function gets a slice of time to log based on __func__)
+[ ] Immediate Drawing mode
+[ ] Implement Panini projection. These are the effects order to remember for lens:
+    Before Lens:
+        SSR
+        SSAO
+        SDFGI
+        Fog
+        Depth of Field
+        TAA
+        Upscaling (FSR2, etc...)
+    After Lens:
+        Tonemapping
+        Auto Exposure
+        Bloom / glow
+        Colorgrading / LUT
+        Film grain
+
+[ ] Fix health bad line rendering (affect bloom with flickering).
 [ ] Read more about these libs bgfx bimg noise soloud
 [x] Add support for anisotropic texture filter
 [ ] Add support for slug's algorithm text.
@@ -8,7 +26,12 @@
 [ ] Make manager allow custom shader api that includes depth and alpha
     blending setting. This is because particles usually don't write to z-buffer but everything else does.
 
-[x] Add some vfx via particle system (simplest one)
+[ ] Particles: Add particle hot reloading from custom file that is quite literally a struct-like syntax.
+[ ] Particles: Add length and speed scaling to Stretched Billboarding
+[x] Particles: Add Stretched Billboarding
+[ ] Particles: Add spawn shape for position variation (spawning from volume and from base like in radius)
+[x] Particles: Add spawn shape for rotation variation
+[x] Particles: Add some vfx via particle system (simplest one)
 [ ] Make custom data be just a uint index into another renderer managed array
 
 [x] Make debugging on Rad Debugger work again
@@ -19,7 +42,7 @@
 
 [ ] Refactor game into dll to be loaded by engine handmade hero style.
 
-[ ] Fix Vayne bug that some triangles seem to be loaded incorreclty and randomly as well. Put in wireframe to see it better on draw_scene_league.
+[x] Fix Vayne bug that some triangles seem to be loaded incorreclty and randomly as well. Put in wireframe to see it better on draw_scene_league.
    Might need to count mesh surface triangles and compare to other programs to debug this one.
 
 # Projection Pipeline

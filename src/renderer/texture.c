@@ -5,6 +5,9 @@ typedef enum {
    TEXTURE_FORMAT_DEPTH24,
    TEXTURE_FORMAT_SHADOW,
    TEXTURE_FORMAT_RGBA32F,
+
+   TEXTURE_FORMAT_R11G11B10F,
+
    TEXTURE_FORMAT_R32F,
    TEXTURE_FORMAT_RGB8,
    TEXTURE_FORMAT_RGBA8,
@@ -12,6 +15,10 @@ typedef enum {
    TEXTURE_FORMAT_R8,
 } Texture_Format;
 
+//
+// NOTE: We neeed to have SRGB format because manual correction happens after filtering, which is incorrect if perform in nonlinear space.
+//       See: https://developer.nvidia.com/gpugems/gpugems3/part-iv-image-effects/chapter-24-importance-being-linear
+//
 typedef enum {
    TEXTURE_TYPE_UNDEFINED,
    TEXTURE_TYPE_2D,
@@ -149,43 +156,12 @@ void destroy_texture(Texture *texture) {
    *texture = (Texture){0};
 }
 
-Texture create_texture(int width, int height, void *data, Texture_Format format, Texture_Type type, Texture_Filter filter, Texture_Wrap wrap) {
-   Texture result = {
-       .width  = width,
-       .height = height,
-       .format = format,
-       .type   = type,
-       .filter = filter,
-       .wrap   = wrap,
-   };
-
-   if (width <= 0 || height <= 0) {
-      trace_error("%s: invalid texture size %dx%d", __func__, width, height);
-      return (Texture){0};
-   }
-
-   // Decode texture type
-   GLenum target  = GL_TEXTURE_2D;
-   bool is_mipmapped    = false;
-   bool is_multisampled = false;
-   int  samples = 0;
-
-   switch (type) {
-   case TEXTURE_TYPE_2D:                  target = GL_TEXTURE_2D;                                                   break;
-   case TEXTURE_TYPE_2D_MIPMAPPED:        target = GL_TEXTURE_2D; is_mipmapped = true;                              break;
-   case TEXTURE_TYPE_2D_MULTISAMPLED_2X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  2; break;
-   case TEXTURE_TYPE_2D_MULTISAMPLED_4X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  4; break;
-   case TEXTURE_TYPE_2D_MULTISAMPLED_8X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  8; break;
-   case TEXTURE_TYPE_2D_MULTISAMPLED_16X: target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples = 16; break;
-   default: {
-      trace_error("%s: unsupported texture type", __func__);
-      return (Texture){0};
-   }
-   }
-
-   // MSAA textures cannot use mipmapped filters
-   assert_msg(!(true == is_mipmapped && true == is_multisampled),"We should have caught that in the first switch on the type");
-
+void internal texture_format_to_gl_options(
+   Texture_Format format,
+   GLenum * out_internal_format, GLenum *out_gl_format, GLenum *out_data_type,
+   bool *out_is_depth,
+   bool *out_is_shadow
+) {
    // Format
    GLenum internal_format = 0, gl_format = 0, data_type = GL_UNSIGNED_BYTE;
    bool is_depth  = false;
@@ -217,6 +193,25 @@ Texture create_texture(int width, int height, void *data, Texture_Format format,
       data_type       = GL_FLOAT;
       break;
    }
+   case TEXTURE_FORMAT_R11G11B10F: {
+      internal_format = GL_R11F_G11F_B10F;
+      gl_format       = GL_RGB;
+      // NOTE: It dawn upon me that the cpu 'data_type' might be different than the desired gpu stored format
+      //       The Maybe the name should be cpu_format and gpu_internal_format which makes more sense.
+      //
+      //       It should be possible to have a unsigned rgba8 format cpu data and tell the gpu to load it into
+      //       10f11f11f interpreting the 8bit per channel uchar normally and transforming into the 11/10 bit floating point with no sign bit before storing?
+      //
+      //       Right now the api just assumes both are matching. Some normal ass defaults.
+      //       I would think that R11F_G11F_B10F would have a cpu_format of GL_FLOAT, but yeah not necessarily.
+      //
+      // From: https://registry.khronos.org/OpenGL/extensions/ARB/ARB_vertex_type_10f_11f_11f_rev.txt
+      //       UNSIGNED_INT_10F_11F_11F_REV indicates two unsigned 11-bit floating-point elements and one unsigned 10-bit floating-point elements packed into a single "uint".
+      //
+      data_type       = GL_UNSIGNED_INT_10F_11F_11F_REV;
+
+      break;
+   }
    case TEXTURE_FORMAT_R32F: {
       internal_format = GL_R32F;
       gl_format       = GL_RED;
@@ -239,10 +234,64 @@ Texture create_texture(int width, int height, void *data, Texture_Format format,
       break;
    }
    default: {
-      trace_error("create_texture: unsupported texture format");
+      trace_error("%s: Unsupported texture format and options");
+   }
+
+   }
+
+   if (out_internal_format) *out_internal_format = internal_format;
+   if (out_gl_format)       *out_gl_format       = gl_format;
+   if (out_data_type)       *out_data_type       = data_type;
+   if (out_is_depth)        *out_is_depth        = is_depth;
+   if (out_is_shadow)       *out_is_shadow       = is_shadow;
+}
+
+Texture create_texture(int width, int height, void *data, Texture_Format format, Texture_Type type, Texture_Filter filter, Texture_Wrap wrap) {
+   Texture result = {
+       .width  = width,
+       .height = height,
+       .format = format,
+       .type   = type,
+       .filter = filter,
+       .wrap   = wrap,
+   };
+
+   if (width <= 0 || height <= 0) {
+      trace_error("%s: invalid texture size %dx%d", __func__, width, height);
+      return (Texture){0};
+   }
+
+   // Decode texture type
+   GLenum target  = GL_TEXTURE_2D;
+   bool is_mipmapped    = false;
+   bool is_multisampled = false;
+   int  samples = 0;
+
+   switch (type) {
+   case TEXTURE_TYPE_2D:                  target = GL_TEXTURE_2D;                                                   break;
+   case TEXTURE_TYPE_2D_MIPMAPPED:        target = GL_TEXTURE_2D;             is_mipmapped = true;                  break;
+   case TEXTURE_TYPE_2D_MULTISAMPLED_2X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  2; break;
+   case TEXTURE_TYPE_2D_MULTISAMPLED_4X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  4; break;
+   case TEXTURE_TYPE_2D_MULTISAMPLED_8X:  target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples =  8; break;
+   case TEXTURE_TYPE_2D_MULTISAMPLED_16X: target = GL_TEXTURE_2D_MULTISAMPLE; is_multisampled = true; samples = 16; break;
+   default: {
+      trace_error("%s: unsupported texture type", __func__);
       return (Texture){0};
    }
    }
+
+   // MSAA textures cannot use mipmapped filters
+   assert_msg(!(true == is_mipmapped && true == is_multisampled),"We should have caught that in the first switch on the type");
+
+   // Format options
+   GLenum internal_format = 0, gl_format = 0, data_type = GL_UNSIGNED_BYTE;
+   bool is_depth  = false, is_shadow = false;
+   texture_format_to_gl_options(
+      format,
+      &internal_format, &gl_format, &data_type,
+      &is_depth,
+      &is_shadow
+   );
 
    // Create texture object
    glCreateTextures(target, 1, &result.handle);
@@ -398,6 +447,7 @@ Texture create_texture_from_filepath(const char *filepath) {
    stbi_set_flip_vertically_on_load(true);
    u8 *data = nullptr;
    bool stbi_need_free = false;
+
    Cye_DString ds = {0};
    if (true) {
       data = stbi_load(filepath, &width, &height, &channels, 0);
@@ -451,17 +501,16 @@ void update_texture(Texture* texture, int new_width, int new_height, const void*
    assert(texture && texture->handle);
    assert(new_width <= texture->width && new_height <= texture->height);
    
-   GLenum format = 0, type = GL_UNSIGNED_BYTE;
-   switch (texture->format) {
-      case TEXTURE_FORMAT_RGBA8:     format = GL_RGBA;                                    break;
-      case TEXTURE_FORMAT_RGB8:      format = GL_RGB;                                     break;
-      case TEXTURE_FORMAT_RG8:       format = GL_RG;                                      break;
-      case TEXTURE_FORMAT_R8:        format = GL_RED;                                     break;
-      case TEXTURE_FORMAT_RGBA32F:   format = GL_RGBA;            type = GL_FLOAT;        break;
-      case TEXTURE_FORMAT_R32F:      format = GL_RED;             type = GL_FLOAT;        break;
-      case TEXTURE_FORMAT_DEPTH24:   format = GL_DEPTH_COMPONENT; type = GL_UNSIGNED_INT; break;
-      default: assert_msg(false, "Unsupported texture format for subimage update");       return;
-   }
+
+   // Format options
+   GLenum internal_format = 0, gl_format = 0, data_type = GL_UNSIGNED_BYTE;
+   bool is_depth  = false, is_shadow = false;
+   texture_format_to_gl_options(
+      texture->format,
+      &internal_format, &gl_format, &data_type,
+      &is_depth,
+      &is_shadow
+   );
    
    // Only works for non-multisampled textures
    if (texture_multisamples(*texture) > 1) {
@@ -475,8 +524,8 @@ void update_texture(Texture* texture, int new_width, int new_height, const void*
       0, 0, // xoffset, yoffset
       new_width,
       new_height,
-      format,
-      type,
+      internal_format,
+      data_type,
       new_data
    );
 }
@@ -535,19 +584,16 @@ void bind_texture_as_image(const Texture texture, usz binding, Texture_Access ac
       return;
    }
 
-   GLenum format = 0;
 
-   switch (texture.format) {
-   case TEXTURE_FORMAT_RGBA32F: format = GL_RGBA32F; break;
-   case TEXTURE_FORMAT_R32F:    format = GL_R32F;    break;
-   case TEXTURE_FORMAT_RGBA8:   format = GL_RGBA8;   break;
-   case TEXTURE_FORMAT_RGB8:    format = GL_RGB8;    break;
-   case TEXTURE_FORMAT_RG8:     format = GL_RG8;     break;
-   case TEXTURE_FORMAT_R8:      format = GL_R8;      break;
-   default:
-      trace_error("%s: Unsupported or invalid format for image binding (%d).\n", __func__, texture.format);
-      return;
-   }
+   // Format options
+   GLenum internal_format = 0, gl_format = 0, data_type = GL_UNSIGNED_BYTE;
+   bool is_depth  = false, is_shadow = false;
+   texture_format_to_gl_options(
+      texture.format,
+      &internal_format, &gl_format, &data_type,
+      &is_depth,
+      &is_shadow
+   );
 
    GLenum gl_access = GL_READ_ONLY; // default
    if ((access & TEXTURE_ACCESS_READ) && (access & TEXTURE_ACCESS_WRITE)) {
@@ -562,7 +608,7 @@ void bind_texture_as_image(const Texture texture, usz binding, Texture_Access ac
 
    int level = 0, layer = 0;
    bool is_layered = GL_FALSE;
-   glBindImageTexture(binding, texture.handle, level, is_layered, layer, gl_access, format);
+   glBindImageTexture(binding, texture.handle, level, is_layered, layer, gl_access, internal_format);
 
    GLenum err = glGetError();
    if (err != GL_NO_ERROR) {

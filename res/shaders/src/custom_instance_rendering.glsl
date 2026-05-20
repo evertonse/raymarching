@@ -72,7 +72,6 @@ vec3 health_background(vec2 uv, float health_percent) {
 
 // NOTE: Adapted from this https://www.shadertoy.com/view/mlXSzS and this https://www.shadertoy.com/view/dlXSzB
 vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_aspect_ratio) {
-   uv.y = 1.f - uv.y; // quick remap to make y be the bottom of our quads and
    float NUM_TICKS   = (health_max / 100.) - 1.;
    const float DIVISOR     = 10.0;
    const float TICK_WIDTH  = 0.009; // fraction of quad width
@@ -103,6 +102,29 @@ vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_a
    return vec4(color, 1.0);
 }
 
+vec3 rgb_to_hsv(vec3 c) {
+   vec4 K = vec4(0., -1. / 3., 2. / 3., -1.);
+   vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+   vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+   float d = q.x - min(q.w, q.y);
+   float e = 1.0e-10;
+   return vec3(abs(q.z + (q.w - q.y) / (6. * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 hsv_to_rgb(vec3 c) {
+   vec4 K = vec4(1., 2. / 3., 1. / 3., 3.);
+   vec3 p = abs(fract(c.xxx + K.xyz) * 6. - K.www);
+   return c.z * mix(K.xxx, clamp(p - K.xxx, 0., 1.), c.y);
+}
+
+vec3 mix_particle_color_multiply(vec3 texture_color, vec3 particle_color) {
+   // - _ColorAddSubDiff: {r: -1, g: 1, b: 0, a: 0}
+   vec3 hsv_particle = rgb_to_hsv(particle_color);
+   vec3 hsv_texture = rgb_to_hsv(texture_color);
+   // Take hue+sat from particle, multiply values together
+   return hsv_to_rgb(vec3(hsv_particle.xy, hsv_particle.z * hsv_texture.z));
+}
+
 // Gradient noise from Jorge Jimenez's presentation:
 // http://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
 // Example of dithering: https://www.shadertoy.com/view/MlV3R1
@@ -118,18 +140,20 @@ float gradient_noise(in vec2 uv) {
 vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
 
    if (3 == instance_rendering_mode) {
-      float intensity = 99.;
+      float intensity = 100.;
       // return vec4(vec3(1.)*intensity, 1.) * color_tint;
       return vec4(vec3(1.)*intensity, 1.) * color_tint;
       // return vec4(1.);
    }
    if (2 == instance_rendering_mode) {
-      uv.y = -uv.y;
-      const float thickness = 0.002;
-      const bool show_outline = false;
+      const float thickness = 0.025;
+      const bool show_border_outline = false;
       const bool in_border = (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness));
-      if (show_outline && in_border) {
-         return vec4(1., 0., 0., 1.);
+      if (show_border_outline && in_border) {
+         if (uv.y > (1. - thickness)) {
+            return vec4(0., 0., 1., 0.8);
+         }
+         return vec4(1., 0., 0., 0.8);
       }
 
       Material material = materials[material_index];
@@ -143,21 +167,44 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
          const float scale = 1./255.;
          const float added_noise = lerp(-0.5 * scale, 0.5 * scale, noise);
          const vec3 linear_color = srgb_to_linear(dtexture.rgb);
+         vec3 tint = srgb_to_linear(color_tint.rgb);
 
-         const vec3 albedo = linear_color * color_tint.rgb;
+         // const vec3 tint = (color_tint.rgb);
+         // const vec3 albedo = mix_particle_color_multiply(linear_color, tint);
          const float alpha = dtexture.a * color_tint.a;
 
          float intensity_ev = 2.616925;
          if (material_index == 5) {
-            // intensity_ev = 4;
+            // tint *= 2.2;
+            // intensity_ev = 1.5 * alpha;
+            tint *= 1.3*alpha;
          }
-         float intensity_linear = pow(2.0, intensity_ev); // approx 2.66
+         float intensity_linear = pow(2. + intensity_ev, intensity_ev); // approx 2.66
+         // float intensity_linear = pow(2., intensity_ev); // approx 2.66
+         // tint = 2.2;
 
-         const vec3 emission_color = srgb_to_linear(vec3(191., 191., 191.) / 255.0) * intensity_linear;
-         const vec3 emission = linear_color * emission_color;
+
+         // const vec3 hdr_color = srgb_to_linear(vec3(191., 191., 191.) / 255.0) * intensity_linear;
+         // const vec3 hdr_color = mix_particle_color_multiply((vec3(191., 191., 191.) / 255.0), vec3(intensity_linear));
+         const vec3 hdr_color = (vec3(191., 191., 191.) / 255.0) * intensity_linear;
+
+         const vec3 albedo = mix_particle_color_multiply(linear_color, tint);
+         // const vec3 albedo = linear_color * tint;
 
 
-         vec4 fragment_color = vec4(albedo * emission, alpha);
+         vec4 premultiplied_fragment_color = vec4(albedo * hdr_color * alpha, alpha);
+
+         vec4 fragment_color = vec4(
+            linear_color * color_tint.rgb
+            * srgb_to_linear(vec3(191., 191., 191.) / 255.0)
+            * pow(2., intensity_ev),
+            alpha
+         );
+
+         if (true) {
+            fragment_color = vec4(albedo * hdr_color * alpha, alpha);
+         }
+         // vec4(tint.rgb*dtexture.a, alpha);
          if (material_index != 4) {
             // return vec4(0.);
          }
