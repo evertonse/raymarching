@@ -12,7 +12,7 @@ typedef struct {
    Shader      upsample_shader;
    Shader      composite_shader;
    Texture     previous_bloom;
-   Texture     mips[BLOOm_MAX_MIP_COUNT];
+   Texture     mips[BLOOM_MAX_MIP_COUNT];
    Framebuffer output_framebuffer;
    int         width;
    int         height;

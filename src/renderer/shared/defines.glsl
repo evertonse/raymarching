@@ -24,11 +24,6 @@
 #define BINDING_JOINT_BUFFER       9
 
 
-// I refuse to call this mix smh.
-#ifndef lerp
-#   define lerp mix
-#endif
-
 // Some helpful constants
 #ifndef PI
 #   define PI 3.14159265358979323846

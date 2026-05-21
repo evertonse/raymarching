@@ -289,7 +289,6 @@ bool is_parallel(Vector3 a, Vector3 b, float epsilon) {
    return (1.0f - abs_dot) < epsilon;
 }
 
-
 typedef struct Transform {
    union {
       Vector3 translation, position;

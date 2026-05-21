@@ -11,32 +11,7 @@
 // https://en.wikipedia.org/wiki/SRGB
 //
 #define BT709_OETF
-
-#if defined(PURE_GAMMA)
-vec3 to_linear(vec3 sRGB) { return pow(sRGB, vec3(2.2)); }
-
-vec3 from_linear(vec3 linearRGB) { return pow(linearRGB, vec3(1.0 / 2.2)); }
-
-#elif defined(BT709_OETF)
-vec3 to_linear(vec3 sRGB) {
-   bvec3 cutoff = lessThan(sRGB, vec3(0.04045));
-   vec3 higher = pow((sRGB + vec3(0.055)) / vec3(1.055), vec3(2.4));
-   vec3 lower = sRGB / vec3(12.92);
-
-   return mix(higher, lower, cutoff);
-}
-
-vec3 from_linear(vec3 linearRGB) {
-   bvec3 cutoff = lessThan(linearRGB, vec3(0.0031308));
-   vec3 higher = vec3(1.055) * pow(linearRGB, vec3(1.0 / 2.4)) - vec3(0.055);
-   vec3 lower = linearRGB * vec3(12.92);
-
-   return mix(higher, lower, cutoff);
-}
-
-#endif
-
-vec3 saturate(vec3 v) { return clamp(v, 0.0, 1.0); }
+#include "res/shaders/common.glsl"
 
 vec3 agx_curve3(vec3 v) {
    const float threshold = 0.6060606060606061;

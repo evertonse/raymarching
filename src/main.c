@@ -26,6 +26,7 @@
 #define type_as_string(d)   __builtin_type_as_string(&d, &tprintf)
 
 #define private __attribute__((visibility("hidden")))
+#define type_of(x) (typeof(x))
 #define zero_of(x) ((typeof(x)) {0})
 
 void wait_for_enter_on_terminal(void) {

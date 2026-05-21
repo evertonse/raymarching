@@ -5,7 +5,9 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D src_texture;
 layout(rgba32f, binding = 1) uniform image2D dst_image;
 
+#include "res/shaders/common.glsl"
 #include "./bloom.h"
+
 
 const bool filter_radius_based_on_current_texture_size = false;
 const bool use_scattering = false;

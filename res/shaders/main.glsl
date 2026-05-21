@@ -5,6 +5,7 @@
 // layout(location = 0) in vec3 position;
 // layout(location = 1) in vec3 normal;
 // layout(location = 2) in vec2 uv;
+#include "res/shaders/common.glsl"
 #include "src/renderer/shared/types.glsl"  // DrawCommand is defined here.
 #include "src/renderer/shared/defines.glsl"
 #include "./src/buffers.glsl"
@@ -14,9 +15,6 @@ uniform mat4 view;
 uniform mat4 model;
 uniform mat4 perspective;
 uniform bool is_light;
-
-// TODO: remove has_animation
-uniform int  has_animation = -1;
 
 uniform vec3 camera_position;
 vec2 spherical;
@@ -193,6 +191,8 @@ void main() {
 #pragma fragment
 #version 460 core
 #extension GL_ARB_bindless_texture : enable
+
+#include "res/shaders/common.glsl"
 
 
 // TODO: Match these by location as well

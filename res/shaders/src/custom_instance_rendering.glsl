@@ -118,7 +118,6 @@ vec3 hsv_to_rgb(vec3 c) {
 }
 
 vec3 mix_particle_color_multiply(vec3 texture_color, vec3 particle_color) {
-   // - _ColorAddSubDiff: {r: -1, g: 1, b: 0, a: 0}
    vec3 hsv_particle = rgb_to_hsv(particle_color);
    vec3 hsv_texture = rgb_to_hsv(texture_color);
    // Take hue+sat from particle, multiply values together
