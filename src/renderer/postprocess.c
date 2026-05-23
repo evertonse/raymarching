@@ -17,7 +17,6 @@ Framebuffer apply_postprocess(Framebuffer hdr_fb) {
 
    static Postprocess_State s = {0};
 
-   static float exposure = 1.0f;
 
    // Validation
    if (!is_valid_framebuffer(hdr_fb)) {
@@ -42,7 +41,7 @@ Framebuffer apply_postprocess(Framebuffer hdr_fb) {
 
       destroy_framebuffer(&s.output_fb);
 
-      memset(&s, 0, sizeof(s));
+      memset(&s, 0, size_of(s));
 
       shader_reload = create_countdown(0.25, true);
 
@@ -50,9 +49,9 @@ Framebuffer apply_postprocess(Framebuffer hdr_fb) {
       s.height = h;
 
       // Final output should be LDR (RGBA8) after tonemap + gamma
-      // auto format = TEXTURE_FORMAT_RGBA8;
+      auto format = TEXTURE_FORMAT_RGBA8;
       // auto format = TEXTURE_FORMAT_RGBA32F;
-      auto format = TEXTURE_FORMAT_R11G11B10F;
+      // auto format = TEXTURE_FORMAT_R11G11B10F;
       Texture out_texture = create_texture(w, h, nullptr, format, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
 
       s.output_fb = create_framebuffer_from_texture(out_texture);
@@ -87,6 +86,7 @@ Framebuffer apply_postprocess(Framebuffer hdr_fb) {
    // Binding 1 final output image
    bind_texture_as_image(s.output_fb.color, 1, TEXTURE_ACCESS_WRITE);
 
+   static float exposure = 1.0f;
    upload_uniform_float(s.shader, "exposure", exposure);
    dispatch_compute_shader_2d(s.shader, w, h);
    shader_memory_barrier(SHADER_BARRIER_IMAGE_ACCESS | SHADER_BARRIER_TEXTURE_FETCH);

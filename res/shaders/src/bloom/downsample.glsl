@@ -11,13 +11,6 @@ layout(rgba32f, binding = 1) writeonly uniform image2D dst_image;
 // Taken from https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare/
 //
 
-float brightness(vec3 c) { return max(c.r, max(c.g, c.b)); };
-
-vec3 pow3(vec3 v, float p) {
-   return vec3(pow(v.x, p), pow(v.y, p), pow(v.z, p));
-}
-
-float luminance(vec3 linear_rgb) { return dot(linear_rgb, vec3(0.2126729, 0.7151522, 0.0721750)); }
 
 // Intents to eliminate NaN propagation. max between NaN and 0 is defined to be 0.
 // More about it: https://docs.unity3d.com/Packages/com.unity.render-pipelines.high-definition@15.0/manual/Post-Processing-Propagating-NaNs.html
@@ -82,7 +75,7 @@ vec3 partial_average(vec3 c0, vec3 c1, vec3 c2, vec3 c3, float w0, float w1, flo
 }
 
 
-vec3 sample_texture(sampler2D in_texture, vec2 uv) {
+vec3 sample_texture_premultiple_alpha(sampler2D in_texture, vec2 uv) {
    vec4 c = texture(in_texture, uv);
 
    // From Unity:
@@ -92,7 +85,7 @@ vec3 sample_texture(sampler2D in_texture, vec2 uv) {
    //
 
    // NOTE: Disabling this for now to test particle vfx bloom influence
-   // c.rgb *= clamp(c.a, 0.0, 1.0);
+   c.rgb *= clamp(c.a, 0.0, 1.0);
    return c.rgb;
 }
 
@@ -100,20 +93,20 @@ vec3 sample_texture(sampler2D in_texture, vec2 uv) {
 // Half-pixel inner offsets exploit bilinear for "free" extra coverage.
 vec3 sample_unity(vec2 uv, vec2 texel) {
    const float scale = 1.0;
-   vec3 A = sample_texture(src_texture, uv + texel * (vec2(-1.0, -1.0) * scale)).rgb;
-   vec3 B = sample_texture(src_texture, uv + texel * (vec2( 0.0, -1.0) * scale)).rgb;
-   vec3 C = sample_texture(src_texture, uv + texel * (vec2( 1.0, -1.0) * scale)).rgb;
-   vec3 D = sample_texture(src_texture, uv + texel * (vec2(-0.5, -0.5) * scale)).rgb;
-   vec3 E = sample_texture(src_texture, uv + texel * (vec2( 0.5, -0.5) * scale)).rgb;
-   vec3 F = sample_texture(src_texture, uv + texel * (vec2(-1.0,  0.0) * scale)).rgb;
-   vec3 G = sample_texture(src_texture, uv         * (vec2( 0.0,  0.0) * scale)).rgb;
-   vec3 H = sample_texture(src_texture, uv + texel * (vec2( 1.0,  0.0) * scale)).rgb;
-   vec3 I = sample_texture(src_texture, uv + texel * (vec2(-0.5,  0.5) * scale)).rgb;
-   vec3 J = sample_texture(src_texture, uv + texel * (vec2( 0.5,  0.5) * scale)).rgb;
-   vec3 K = sample_texture(src_texture, uv + texel * (vec2(-1.0,  1.0) * scale)).rgb;
-   vec3 L = sample_texture(src_texture, uv + texel * (vec2( 0.0,  1.0) * scale)).rgb;
-   vec3 M = sample_texture(src_texture, uv + texel * (vec2( 1.0,  1.0) * scale)).rgb;
-   
+   vec3 A = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2(-1.0, -1.0) * scale)).rgb;
+   vec3 B = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2( 0.0, -1.0) * scale)).rgb;
+   vec3 C = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2( 1.0, -1.0) * scale)).rgb;
+   vec3 D = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2(-0.5, -0.5) * scale)).rgb;
+   vec3 E = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2( 0.5, -0.5) * scale)).rgb;
+   vec3 F = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2(-1.0,  0.0) * scale)).rgb;
+   vec3 G = sample_texture_premultiple_alpha(src_texture, uv         * (vec2( 0.0,  0.0) * scale)).rgb;
+   vec3 H = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2( 1.0,  0.0) * scale)).rgb;
+   vec3 I = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2(-0.5,  0.5) * scale)).rgb;
+   vec3 J = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2( 0.5,  0.5) * scale)).rgb;
+   vec3 K = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2(-1.0,  1.0) * scale)).rgb;
+   vec3 L = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2( 0.0,  1.0) * scale)).rgb;
+   vec3 M = sample_texture_premultiple_alpha(src_texture, uv + texel * (vec2( 1.0,  1.0) * scale)).rgb;
+
    vec2 div   = (1.0 / 4.0) * vec2(0.5, 0.125);
    vec3 color = (D + E + I + J) * div.x;
    color     += (A + B + G + F) * div.y;
@@ -137,24 +130,24 @@ vec3 sample_13_bilinear(vec2 uv, vec2 texel) {
    //
    //  ('e' is the current texel)
    //
-   vec3 a = sample_texture(src_texture, uv + texel * vec2(-2.0, 2.0)).rgb;
-   vec3 b = sample_texture(src_texture, uv + texel * vec2( 0.0, 2.0)).rgb;
-   vec3 c = sample_texture(src_texture, uv + texel * vec2( 2.0, 2.0)).rgb;
+   vec3 a = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2(-2.0, 2.0)).rgb;
+   vec3 b = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2( 0.0, 2.0)).rgb;
+   vec3 c = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2( 2.0, 2.0)).rgb;
 
 
-   vec3 d = sample_texture(src_texture, uv + texel * vec2(-2.0, 0.0)).rgb;
-   vec3 e = sample_texture(src_texture, uv + texel * vec2( 0.0, 0.0)).rgb; // center
-   vec3 f = sample_texture(src_texture, uv + texel * vec2( 2.0, 0.0)).rgb;
+   vec3 d = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2(-2.0, 0.0)).rgb;
+   vec3 e = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2( 0.0, 0.0)).rgb; // center
+   vec3 f = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2( 2.0, 0.0)).rgb;
 
-   vec3 g = sample_texture(src_texture, uv + texel * vec2(-2.0, -2.0)).rgb;
-   vec3 h = sample_texture(src_texture, uv + texel * vec2( 0.0, -2.0)).rgb;
-   vec3 i = sample_texture(src_texture, uv + texel * vec2( 2.0, -2.0)).rgb;
+   vec3 g = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2(-2.0, -2.0)).rgb;
+   vec3 h = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2( 0.0, -2.0)).rgb;
+   vec3 i = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2( 2.0, -2.0)).rgb;
 
 
-   vec3 j = sample_texture(src_texture, uv + texel * vec2(-1.0,  1.0)).rgb;
-   vec3 k = sample_texture(src_texture, uv + texel * vec2( 1.0,  1.0)).rgb;
-   vec3 l = sample_texture(src_texture, uv + texel * vec2(-1.0, -1.0)).rgb;
-   vec3 m = sample_texture(src_texture, uv + texel * vec2( 1.0, -1.0)).rgb;
+   vec3 j = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2(-1.0,  1.0)).rgb;
+   vec3 k = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2( 1.0,  1.0)).rgb;
+   vec3 l = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2(-1.0, -1.0)).rgb;
+   vec3 m = sample_texture_premultiple_alpha(src_texture, uv + texel * vec2( 1.0, -1.0)).rgb;
 
    if (true && 0 == bloom.mip_level) {
       //

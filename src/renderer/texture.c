@@ -169,6 +169,8 @@ void internal texture_format_to_gl_options(
    switch (format) {
    case TEXTURE_FORMAT_RGBA8: {
       internal_format = GL_RGBA8;
+      // internal_format = GL_SRGB8_ALPHA8;
+
       gl_format       = GL_RGBA;
       break;
    }
@@ -474,7 +476,9 @@ Texture create_texture_from_filepath(const char *filepath) {
       break;
    }
 
-   Texture result = create_texture(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, TEXTURE_FILTER_ANISOTROPIC_16X, TEXTURE_WRAP_REPEAT);
+   // const default_filter_from_filepath_textures = TEXTURE_FILTER_ANISOTROPIC_16X;
+   const auto default_filter_from_filepath_textures = TEXTURE_FILTER_ANISOTROPIC_4X;
+   Texture result = create_texture(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, default_filter_from_filepath_textures, TEXTURE_WRAP_REPEAT);
    // NOTE: I'm usure if the texture should hold this memory or not. A lota of times an externable memory is already alocatted idk.
    result.path = filepath;
 
@@ -915,4 +919,77 @@ bool dump_texture_mips_png(Texture *texture, const char *filename) {
 
    trace_info("%s wrote %s", __func__, filename);
    return true;
+}
+
+
+void debug_print_texture(Texture t) {
+   GLuint h = t.handle;
+   if (!glIsTexture(h)) {
+      trace_error("debug_print_texture: handle %d is not a valid texture", h);
+      return;
+   }
+
+   GLint width, height, samples, internal_format;
+   GLint min_filter, mag_filter, wrap_s, wrap_t;
+   GLint mip_levels, base_level, max_level;
+   GLfloat anisotropy;
+
+   glGetTextureLevelParameteriv(h, 0, GL_TEXTURE_WIDTH, &width);
+   glGetTextureLevelParameteriv(h, 0, GL_TEXTURE_HEIGHT, &height);
+   glGetTextureLevelParameteriv(h, 0, GL_TEXTURE_INTERNAL_FORMAT, &internal_format);
+   glGetTextureLevelParameteriv(h, 0, GL_TEXTURE_SAMPLES, &samples);
+
+   glGetTextureParameteriv(h, GL_TEXTURE_MIN_FILTER, &min_filter);
+   glGetTextureParameteriv(h, GL_TEXTURE_MAG_FILTER, &mag_filter);
+   glGetTextureParameteriv(h, GL_TEXTURE_WRAP_S, &wrap_s);
+   glGetTextureParameteriv(h, GL_TEXTURE_WRAP_T, &wrap_t);
+   glGetTextureParameteriv(h, GL_TEXTURE_BASE_LEVEL, &base_level);
+   glGetTextureParameteriv(h, GL_TEXTURE_MAX_LEVEL, &max_level);
+   glGetTextureParameterfv(h, GL_TEXTURE_MAX_ANISOTROPY, &anisotropy);
+
+   // Compute actual mip count from level 0 size
+   int expected_mips = (int)floorf(log2f((float)max(width, height))) + 1;
+   int actual_mip_levels = 1;                  // at least level 0 exists
+   for (int level = 1; level <= 20; ++level) { // safe cap (2^20 = 1M)
+      GLint w = 0;
+      glGetTextureLevelParameteriv(h, level, GL_TEXTURE_WIDTH, &w);
+      if (w == 0)
+         break;
+      actual_mip_levels = level + 1; // levels 0..level exist
+   }
+   int max_generated_level = actual_mip_levels - 1;
+
+   trace_info("=== Texture %d '%s' ===", h, t.path ? t.path : "<unnamed>");
+   trace_info("  size            : %dx%d", width, height);
+   trace_info("  internal_format : 0x%X (%s)", internal_format,
+              internal_format == GL_RGBA8               ? "RGBA8"
+              : internal_format == GL_RGB8              ? "RGB8"
+              : internal_format == GL_RGBA32F           ? "RGBA32F"
+              : internal_format == GL_SRGB8_ALPHA8      ? "SRGB8_ALPHA8"
+              : internal_format == GL_DEPTH_COMPONENT24 ? "DEPTH24"
+              : internal_format == GL_R11F_G11F_B10F    ? "R11F_G11F_B10F"
+                                                        : "unknown");
+
+   trace_info("  samples         : %d", samples);
+   trace_info("  min_filter      : 0x%X (%s)", min_filter,
+              min_filter == GL_NEAREST                 ? "NEAREST"
+              : min_filter == GL_LINEAR                ? "LINEAR"
+              : min_filter == GL_LINEAR_MIPMAP_LINEAR  ? "LINEAR_MIPMAP_LINEAR"
+              : min_filter == GL_LINEAR_MIPMAP_NEAREST ? "LINEAR_MIPMAP_NEAREST"
+              : min_filter == GL_NEAREST_MIPMAP_LINEAR ? "NEAREST_MIPMAP_LINEAR"
+                                                       : "other");
+   trace_info("  mag_filter      : 0x%X (%s)", mag_filter, mag_filter == GL_NEAREST ? "NEAREST" : mag_filter == GL_LINEAR ? "LINEAR" : "other");
+   trace_info("  wrap_s          : 0x%X (%s)", wrap_s, wrap_s == GL_REPEAT ? "REPEAT" : wrap_s == GL_CLAMP_TO_EDGE ? "CLAMP_TO_EDGE" : wrap_s == GL_MIRRORED_REPEAT ? "MIRRORED_REPEAT" : "other");
+   trace_info("  wrap_t          : 0x%X (%s)", wrap_t, wrap_t == GL_REPEAT ? "REPEAT" : wrap_t == GL_CLAMP_TO_EDGE ? "CLAMP_TO_EDGE" : wrap_t == GL_MIRRORED_REPEAT ? "MIRRORED_REPEAT" : "other");
+   trace_info("  base_level      : %d", base_level);
+   trace_info("  max_level       : %d", max_level);
+   trace_info("  mips_levels     : %d", actual_mip_levels);
+   trace_info("  anisotropy      : %.1fx", anisotropy);
+
+   if (t.width != width)
+      trace_warn("  MISMATCH width:   struct=%d gl=%d", t.width, width);
+   if (t.height != height)
+      trace_warn("  MISMATCH height:  struct=%d gl=%d", t.height, height);
+   if (texture_multisamples(t) != samples)
+      trace_warn("  MISMATCH samples: struct=%d gl=%d", texture_multisamples(t), samples);
 }

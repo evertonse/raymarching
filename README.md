@@ -31,7 +31,8 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 - [Exportable VFX file](https://effekseer.github.io/en/download.html)
 - [WickedEngine](https://github.com/turanszkij/WickedEngine)
 - [RapidGL Bloom and other effects to read code from](https://github.com/tgalaj/RapidGL#bloom)
- 
+
+- Clang [Extensions](https://clang.llvm.org/docs/LanguageExtensions.html) and [Attributes](https://clang.llvm.org/docs/AttributeReference.html)
 
 - https://github.com/JimmyLefevre/kb/
 

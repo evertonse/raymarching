@@ -565,9 +565,10 @@ void enable_error_report() {
 
 void initialize_opengl_options(void) {
 
+   // glDisable(GL_FRAMEBUFFER_SRGB);
    glDisable(GL_FRAMEBUFFER_SRGB);
-   // glEnable(GL_DITHER);
    glDisable(GL_DITHER);
+   // glDisable(GL_DITHER);
 
    {
       // https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMinSampleShading.xhtml

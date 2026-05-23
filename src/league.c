@@ -253,7 +253,7 @@ Scene_Node draw_cube(void) {
       loaded = true;
       cube_model        = create_cube_model();
       node = create_scene_node(&cube_model);
-      update_rendering_mode(node, 3);
+      update_rendering_mode(node, 2);
       update_color_tint(node, vector4(.98, .01, .23, 1));
    }
 

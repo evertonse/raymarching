@@ -96,17 +96,21 @@ typedef struct {
    } start;
 
    struct {
-      #define PARTICLE_MAX_COLOR_KEYS 8
+      #define PARTICLE_MAX_KEYS 8
 
       struct {
-         Color values [PARTICLE_MAX_COLOR_KEYS];
-         float timings[PARTICLE_MAX_COLOR_KEYS];
+         Color values [PARTICLE_MAX_KEYS];
+         float timings[PARTICLE_MAX_KEYS];
          uint  count;
       } color;
 
       Vector3 rotation;
 
-      Vector3 size;
+      struct {
+          Vector3 values[PARTICLE_MAX_KEYS];
+          float timings[PARTICLE_MAX_KEYS];
+          int   count;
+      } size;
 
    } over_lifetime;
 
@@ -162,7 +166,7 @@ static const Particle_System particle_system_default = {
    .over_lifetime = {
       .color = { .values = {{0}}, .timings = {0}, .count = 0 },
       .rotation = {0,0,0},
-      .size = {1,1,1}
+      .size = { .values = {{0}}, .timings = {0}, .count = 0 },
    },
 
    .transform_mode = {
@@ -196,6 +200,8 @@ typedef struct {
    bool loaded;
    Model model;
    Scene_Node nodes[MAX_PARTICLES];
+   int instance_rendering_mode;
+   float hdr_intensity;
 } Particle_System_Render_Resources;
 
 
@@ -242,6 +248,27 @@ Color internal sample_color_gradient(const Color *colors, const float *timings, 
    }
 
    return colors[count - 1];
+}
+
+Vector3 sample_size_curve(const Vector3 *values, const float *timings, uint count, float t) {
+   if (count < 1)
+      return vector3(1);
+   if (t <= timings[0])
+      return values[0];
+   if (t >= timings[count - 1])
+      return values[count - 1];
+
+   for (uint i = 0; i < count - 1; i++) {
+      float t0 = timings[i];
+      float t1 = timings[i + 1];
+      if (t >= t0 && t <= t1) {
+         float local_t = (t - t0) / (t1 - t0);
+         local_t = smoothstep(0.0f, 1.0f, local_t);
+         return lerp(values[i], values[i + 1], local_t);
+      }
+   }
+
+   return values[count - 1];
 }
 
 typedef struct {
@@ -496,10 +523,14 @@ void internal update_particle(Particle *p, const Particle_System *ps, float dt) 
       sample_color_gradient(ps->over_lifetime.color.values, ps->over_lifetime.color.timings, ps->over_lifetime.color.count, t)
    );
 
+
    // over_lifetime.rotation is radians per second, additive per frame
    p->rotation.current = add(p->rotation.current, mul(ps->over_lifetime.rotation, dt));
 
-   p->size.current = lerp(p->size.start, mul(p->size.start, ps->over_lifetime.size), t);
+   p->size.current = mul(
+      p->size.start,
+      sample_size_curve(ps->over_lifetime.size.values, ps->over_lifetime.size.timings, ps->over_lifetime.size.count, t)
+   );
 }
 
 
@@ -550,7 +581,6 @@ void update_particle_system(Particle_System *ps, Vector3 emitter_position, float
          }
       }
    }
-
 }
 
 
@@ -628,18 +658,22 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
          ps->texture_path, nullptr, nullptr, nullptr
       );
 
-      // first node owns the mesh
-      ps_resources->nodes[0] = create_scene_node(&ps_resources->model, transform_identity);
-      // hide the first one too until a particle claims it
-      update_color_tint(ps_resources->nodes[0], vector4(0.f));
+      const float hdr_linear_intensity = powf(2.0f, ps_resources->hdr_intensity);
+      trace_info("ps_resources->hdr_intensity = %f hdr_linear_intensity = %f for %s", ps_resources->hdr_intensity, hdr_linear_intensity, ps->texture_path);
 
+      for (uint i = 0; i < MAX_PARTICLES; i++) {
+         if (0 == i) {
+            // First node owns mesh
+            ps_resources->nodes[i] = create_scene_node(&ps_resources->model);
+         } else {
+            // Instances from first
+            ps_resources->nodes[i] = create_scene_node(ps_resources->nodes[0]);
+         }
 
-      // rest share the same renderable, start invisible
-      for (uint i = 1; i < MAX_PARTICLES; i++) {
-         ps_resources->nodes[i] = create_scene_node(ps_resources->nodes[0], transform_identity);
+         // Hide until a particle claims it
          update_color_tint(ps_resources->nodes[i], vector4(0.f));
+         update_custom_data(ps_resources->nodes[i], vector4(hdr_linear_intensity, vector3(0)), vector4(0));
       }
-
    }
 
    static float simulation_speed = 1.;
@@ -655,18 +689,15 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
 
    update_particle_system(ps, position, time_delta() * simulation_speed);
 
-   // push all dead particles to the back first
-   // Idk just testing some stuff to see if we might need sorting
    uint live_count = 0;
    for (uint i = 0; i < MAX_PARTICLES; i++) {
-       if (ps->particles[i].alive) {
-           Particle tmp       = ps->particles[live_count];
-           ps->particles[live_count] = ps->particles[i];
-           ps->particles[i]   = tmp;
-           live_count++;
-       }
+      if (ps->particles[i].alive) {
+         Particle tmp = ps->particles[live_count];
+         ps->particles[live_count] = ps->particles[i];
+         ps->particles[i] = tmp;
+         live_count++;
+      }
    }
-
 
    for (uint i = 0; i < MAX_PARTICLES; i++) {
       Particle *p = &ps->particles[i];
@@ -682,7 +713,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
       }
 
       // DIRTY
-      update_rendering_mode(node, 2);
+      update_rendering_mode(node, ps_resources->instance_rendering_mode);
 
       Transform transform = calculate_particle_transform(p, ps, camera_position, camera_forward, camera_right, camera_up);
       update_transform(node, transform);
@@ -748,7 +779,7 @@ void draw_impact_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 came
       Particle_System_Render_Resources render_resources;
    } vfx[4] = {0};
 
-         
+
    static bool loaded = false;
    if (!loaded) {
       loaded = true;
@@ -756,12 +787,37 @@ void draw_impact_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 came
          vfx[idx].particle_system = particle_system_default;
          vfx[idx].particle_system.duration = 5;
          vfx[idx].particle_system.transform.scale = vector3(20);
+         vfx[idx].render_resources.instance_rendering_mode = 3 + 2;
       }
       Particle_System *ps = &vfx[0].particle_system;
-      ps->start.lifetime.min = 0.1;
-      ps->start.lifetime.max = 0.1;
-      ps->texture_path = "res/textures/vfx/Flare00.png";
+      auto *resources = &vfx[0].render_resources;
+
+      ps->duration   = 0.2;
+      ps->looping    = true;
+      ps->spawn_rate = 10;
+
+      ps->start.lifetime.min = 0.25;
+      ps->start.lifetime.max = 0.25;
+
+      ps->start.size.min = 7;
+      ps->start.size.max = 7;
+
+      auto color = mul(1./255., vector3(255, 204, 140));
+      ps->start.color.from = vector4(color, 1);
+      ps->start.color.to   = vector4(color, 1);
+      ps->transform.scale  = vector3(5);
+      ps->over_lifetime.size = (type_of(ps->over_lifetime.size)) {
+         .values  = { vector3(1.0f/3.0f), vector3(0.8), vector3(1.0) },
+         .timings = { 0.0f, 0.9f, 1.0f },
+         .count   = 3
+      };
+
+      // ps->texture_path = "res/textures/vfx/Flare00.png";
+      ps->texture_path = "./res/textures/vfx/glow_point1_blue 1_1.png";
    }
+   // auto tex = create_texture("./res/textures/vfx/glow_point1_blue 1_1.png");
+   // debug_print_texture(tex);
+   // wait_for_enter_on_terminal();
 
    for (int idx = 0; idx < count_of(vfx); idx++) {
       Particle_System *ps = &vfx[idx].particle_system;
@@ -803,15 +859,22 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
 
    } vfx[1] = {0};
 
-         
+
    static bool loaded = false;
    if (!loaded) {
       loaded = true;
+      for (uint idx = 0; idx < count_of(vfx); idx++) {
+         vfx[idx].particle_system = particle_system_default;
+         vfx[idx].render_resources.instance_rendering_mode = 3;
+         vfx[idx].render_resources.hdr_intensity = 7;
+      }
+
       Color particle_color = vector4(0.);
       particle_color = mul(2.0, vector4(255/255., 80/255., 25/255., 1.));
       particle_color.w = 1;
 
       vfx[count_of(vfx)-1].particle_system = (Particle_System) {
+         .texture_path = "res/textures/vfx/Flame02_Rotated.png",
          // emitter
          .duration = 5.,
          .looping = true,
@@ -851,7 +914,11 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
                .count   = 3,
             },
             // .size = particle_system_default.over_lifetime.size,
-            .size = vector3(0),
+            .size = {
+               .values  = {vector3(1), vector3(0)},
+               .timings = {0, 1.f},
+               .count   = 2,
+            },
          },
          .transform_mode = {
             .speed_scale = 0.065,
@@ -865,7 +932,6 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
             .value      = PARTICLE_SPAWN_SHAPE_CONE,
          },
          .is_local_simulation_space = false,
-         .texture_path = "res/textures/vfx/Flame02_Rotated.png",
 
          .transform = {
             .rotation = QuaternionFromVector3ToVector3(vector3(1, 0, 0), normalize(vector3(1, 0,1))),
@@ -914,7 +980,11 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
                .timings = {},
                .count   = 0
             },
-            .size = vector3(1),
+            .size = {
+               .values  = {},
+               .timings = {},
+               .count   = 0
+            },
          },
          .transform_mode = {
             // .speed_scale = 0.9,
@@ -975,19 +1045,25 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
    static struct {
       Particle_System particle_system;
       Particle_System_Render_Resources render_resources;
-
    } vfx[3] = {0};
 
    static bool loaded = false;
    const bool is_local_simulation_space = true;
    if (!loaded) {
       loaded = true;
+      for (uint idx = 0; idx < count_of(vfx); idx++) {
+         vfx[idx].particle_system = particle_system_default;
+         vfx[idx].render_resources.instance_rendering_mode = 3;
+         vfx[idx].render_resources.hdr_intensity = 2.616925 * 2;
+      }
       Color particle_color = vector4(0.);
       // particle_color = vector4(50/255., 72/255., 103/255., 1.);
-      particle_color = mul(2.0, vector4(50/255., 72/255., 103/255., 1.));
+      particle_color = vector4(50/255., 72/255., 103/255., 1.);
       particle_color.w = 1.f;
 
-      vfx[count_of(vfx)-1].particle_system = (Particle_System){
+      vfx[count_of(vfx)-1].render_resources.instance_rendering_mode += 1;
+      vfx[count_of(vfx)-1].render_resources.hdr_intensity = 2.616925 * 2;
+      vfx[count_of(vfx)-1].particle_system = (Particle_System) {
          // emitter
          .duration = 1.,
          .looping = true,
@@ -1018,7 +1094,6 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
                .timings = {1.5/100., 52.9/100., 97.6/100.},
                .count   = 3
             },
-            .size = vector3(1.),
          },
          .transform_mode = particle_system_default.transform_mode,
          .spawn_shape = particle_system_default.spawn_shape,
@@ -1032,6 +1107,7 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
 
       particle_color = vector4(17/255., 24/255., 34/255., 1.);
       particle_color.w = 1.f;
+      vfx[1].render_resources.hdr_intensity = 6;
       vfx[1].particle_system = (Particle_System) {
          // emitter
          .duration = 1.,
@@ -1064,7 +1140,6 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
                .count   = 3
             },
             .rotation = mul(DEG2RAD, vector3(360)),
-            .size = vector3(1.f),
          },
          .texture_path = "res/textures/vfx/Swirl01.png",
 
@@ -1079,8 +1154,9 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
 
       particle_color   = vector4(0, 0, 0, 1.);
       particle_color.w = 1.f;
+      vfx[0].render_resources.hdr_intensity = 0;
       vfx[0].particle_system = (Particle_System) {
-
+         .texture_path = "res/textures/vfx/Flare00.png",
          .spawn_accumulator = 1.0f, // "prewarm" trigger spawn immediately
          // emitter
          .duration = 1.,
@@ -1112,9 +1188,7 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
                .timings = {},
                .count   = 0
             },
-            .size = vector3(1.f),
          },
-         .texture_path = "res/textures/vfx/Flare00.png",
          .transform_mode = particle_system_default.transform_mode,
          .spawn_shape = particle_system_default.spawn_shape,
          .transform = {

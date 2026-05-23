@@ -26,7 +26,6 @@ layout (location = 0) out #include "./src/pipe.glsl";
 // };
 
 #include "./src/coordinates.glsl"
-#include "./src/remaps.glsl"
 #include "./src/perspective.glsl"
 #include "./src/transformations.glsl"
 #include "./src/camera.glsl"

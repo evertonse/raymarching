@@ -1,6 +1,7 @@
 #define RAYMATH_IMPLEMENTATION
 #include "raymath.h"
 
+// https://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-extended-vectors
 typedef float Matrix4 __attribute__((matrix_type(4, 4)));
 typedef float float4 __attribute__((ext_vector_type(4)));
 
@@ -429,14 +430,17 @@ Matrix FloatsToMatrix(float floats[16]) {
    return mat;
 }
 
-Vector2 overload vector2(float v) { return (Vector2){v, v}; }
+Vector2 vector2(float v) { return (Vector2){v, v}; }
 Vector2 overload vector2(float x, float y) { return (Vector2){x, y}; }
 
-Vector3 overload vector3(float v) { return (Vector3){v, v, v}; }
+Vector3 vector3(float v) { return (Vector3){v, v, v}; }
 Vector3 overload vector3(float x, float y, float z) { return (Vector3){x, y, z}; }
 
-Vector4 overload vector4(float v) { return (Vector4){v, v, v, v}; }
+Vector4 vector4(float v) { return (Vector4){v, v, v, v}; }
 Vector4 overload vector4(float x, float y, float z, float w) { return (Vector4){x, y, z, w}; }
+Vector4 overload vector4(Vector3 v, float w) { return (Vector4){v.x, v.y, v.z, w}; }
+Vector4 overload vector4(float x, Vector3 v) { return (Vector4){x, v.x, v.y, v.z}; }
+
 
 Vector3 camera_forward(Vector2 spherical) {
    float theta = -spherical.x;

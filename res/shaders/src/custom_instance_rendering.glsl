@@ -1,21 +1,15 @@
 
-#include "./remaps.glsl"
 
-//
-// Fast approximation
-// From http://chilliant.blogspot.com/2012/08/srgb-approximations-for-hlsl.html
-//
-vec3 linear_to_srgb(vec3 linear_rgb) {
-   vec3 rgb = linear_rgb;
-   vec3 s1 = sqrt(rgb);
-   vec3 s2 = sqrt(s1);
-   vec3 s3 = sqrt(s2);
-   vec3 srgb = 0.662002687 * s1 + 0.684122060 * s2 - 0.323583601 * s3 - 0.0225411470 * rgb;
-   return srgb;
+vec4 particle_final_color(sampler2D diffuse_sampler, vec2 uv, vec4 color_tint) {
+   vec4 texture_color = texture(diffuse_sampler, uv);
+   vec3 albedo        = texture_color.rgb * color_tint.rgb;         // LDR tint
+   const vec3 hdr_color = vec3(191./255.) * pow(2, 2.6);
+   vec3 emission      = texture_color.rgb * hdr_color.rgb;  // HDR, pre-baked on CPU
+   float alpha        = texture_color.a * color_tint.a;
+
+   // return vec4((albedo + emission) * alpha, alpha);
+   return vec4(albedo * alpha, alpha) * color_tint * color_tint * color_tint;
 }
-
-vec3 srgb_to_linear(vec3 srgb) { return srgb * (srgb * (srgb * 0.305306011 + 0.682171111) + 0.012522878); }
-
 
 vec3 health_background(vec2 uv, float health_percent) {
    vec3 background = vec3(0.15, 0.15, 0.15);
@@ -102,20 +96,7 @@ vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_a
    return vec4(color, 1.0);
 }
 
-vec3 rgb_to_hsv(vec3 c) {
-   vec4 K = vec4(0., -1. / 3., 2. / 3., -1.);
-   vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-   vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-   float d = q.x - min(q.w, q.y);
-   float e = 1.0e-10;
-   return vec3(abs(q.z + (q.w - q.y) / (6. * d + e)), d / (q.x + e), q.x);
-}
 
-vec3 hsv_to_rgb(vec3 c) {
-   vec4 K = vec4(1., 2. / 3., 1. / 3., 3.);
-   vec3 p = abs(fract(c.xxx + K.xyz) * 6. - K.www);
-   return c.z * mix(K.xxx, clamp(p - K.xxx, 0., 1.), c.y);
-}
 
 vec3 mix_particle_color_multiply(vec3 texture_color, vec3 particle_color) {
    vec3 hsv_particle = rgb_to_hsv(particle_color);
@@ -135,16 +116,14 @@ float gradient_noise(in vec2 uv) {
    return noise;
 }
 
-
 vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
-
-   if (3 == instance_rendering_mode) {
-      float intensity = 100.;
-      // return vec4(vec3(1.)*intensity, 1.) * color_tint;
-      return vec4(vec3(1.)*intensity, 1.) * color_tint;
-      // return vec4(1.);
-   }
    if (2 == instance_rendering_mode) {
+      const float intensity = 100.;
+      return vec4(vec3(1.) * intensity, 1.) * color_tint;
+   }
+
+   if (instance_rendering_mode >= 3) {
+      float hdr_intensity_linear = custom_1.x;
       const float thickness = 0.025;
       const bool show_border_outline = false;
       const bool in_border = (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness));
@@ -161,52 +140,50 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
          // TODO: Mode gamma_correction to after sbti loading
          vec4 dtexture = texture(sampler2D(material.diffuse_handle), uv);
          float noise = gradient_noise(gl_FragCoord.xy + vec2(gl_SampleID));
-         // float noise = 0;
+         // return dtexture.rgba;
+         // return vec4(dtexture.rgb*dtexture.a, dtexture.a);
 
-         const float scale = 1./255.;
+         const float scale = 1. / 255.;
          const float added_noise = lerp(-0.5 * scale, 0.5 * scale, noise);
-         const vec3 linear_color = srgb_to_linear(dtexture.rgb);
+         const vec3 linear_color = srgb_to_linear(dtexture.rgb) + added_noise;
+         // const vec3 linear_color = srgb_to_linear(dtexture.rgb);
          vec3 tint = srgb_to_linear(color_tint.rgb);
-
-         // const vec3 tint = (color_tint.rgb);
-         // const vec3 albedo = mix_particle_color_multiply(linear_color, tint);
-         const float alpha = dtexture.a * color_tint.a;
+         float alpha = saturate(dtexture.a * color_tint.a);
+         // float alpha = saturate(pow(dtexture.a, 2.2) * color_tint.a);
+         // return vec4(dtexture.rgb * 10 * pow(dtexture.a, 2.2), alpha);
+         // float alpha = saturate(luminance(dtexture.rgb) * color_tint.a);
+         // float alpha = saturate(luminance(dtexture.rgb));
 
          float intensity_ev = 2.616925;
-         if (material_index == 5) {
-            // tint *= 2.2;
-            // intensity_ev = 1.5 * alpha;
-            tint *= 1.3*alpha;
+         if (instance_rendering_mode == 4) {
+            intensity_ev *= 2.1 * alpha;
+            hdr_intensity_linear *= 2.2 * pow(2., alpha);
+            // tint *= 2.3*alpha;
          }
-         float intensity_linear = pow(2. + intensity_ev, intensity_ev); // approx 2.66
-         // float intensity_linear = pow(2., intensity_ev); // approx 2.66
-         // tint = 2.2;
-
+         // float intensity_linear = pow(2. + intensity_ev, intensity_ev); // approx 2.66
+         float intensity_linear = pow(2., intensity_ev *2); // approx 2.66
+         // intensity_linear *= alpha;
 
          // const vec3 hdr_color = srgb_to_linear(vec3(191., 191., 191.) / 255.0) * intensity_linear;
          // const vec3 hdr_color = mix_particle_color_multiply((vec3(191., 191., 191.) / 255.0), vec3(intensity_linear));
-         const vec3 hdr_color = (vec3(191., 191., 191.) / 255.0) * intensity_linear;
+         // vec3 hdr_color = srgb_to_linear(vec3(191., 191., 191.) / 255.0) * intensity_linear;
+         vec3 hdr_color = (vec3(191., 191., 191.) / 255.0) * hdr_intensity_linear;
+         // hdr_color = lerp(vec3(1.0), hdr_color, alpha);
+         // hdr_color = vec3(1.0);
 
-         const vec3 albedo = mix_particle_color_multiply(linear_color, tint);
-         // const vec3 albedo = linear_color * tint;
+         // vec3 albedo = mix_particle_color_multiply(tint * linear_color, hdr_color);
+         vec3 albedo = linear_color * tint;
 
-
-         vec4 premultiplied_fragment_color = vec4(albedo * hdr_color * alpha, alpha);
-
-         vec4 fragment_color = vec4(
-            linear_color * color_tint.rgb
-            * srgb_to_linear(vec3(191., 191., 191.) / 255.0)
-            * pow(2., intensity_ev),
-            alpha
-         );
-
+         vec4 fragment_color = vec4(albedo * hdr_color, alpha);
          if (true) {
+            // const float premultiplied_alpha = pow(dtexture.a, 2.2);
             fragment_color = vec4(albedo * hdr_color * alpha, alpha);
+            // fragment_color = vec4(albedo * hdr_color, alpha);
          }
-         // vec4(tint.rgb*dtexture.a, alpha);
-         if (material_index != 4) {
-            // return vec4(0.);
+         if (true && instance_rendering_mode == 5) {
+            fragment_color = particle_final_color(sampler2D(material.diffuse_handle), uv, color_tint);
          }
+
          return fragment_color;
 
       } else {
@@ -215,8 +192,8 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
    }
 
    float current = custom_1.x;
-   float max     = custom_1.y;
-   float aspect  = custom_1.z;
+   float max = custom_1.y;
+   float aspect = custom_1.z;
    if (gl_FrontFacing) {
       return vec4(1.);
    }

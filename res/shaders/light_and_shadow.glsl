@@ -103,6 +103,5 @@ void main() {
 	float specular = spec_amount * specular_light;
 
 	FragColor = visibility*texture(tex0, tex_coord) * light_color * (diffuse + ambient + specular);
-
-    FragColor.w = 1.0;
+   FragColor.w = 1.0;
 }
