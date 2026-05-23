@@ -672,3 +672,4 @@ Vector3 overload rotate(Vector3 in_vector3, Quaternion q) {
 
 typedef Vector4 Color;
 
+#define saturate(x) clamp(x, 0.0, 1.0)

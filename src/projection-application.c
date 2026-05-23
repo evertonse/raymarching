@@ -1,6 +1,5 @@
 #include "raymath.h"
-#include <minwindef.h>
-#include <stdlib.h>
+
 typedef struct {
     Vector3 position; f32 pad0;
     Vector3 ambient;  f32 pad1;

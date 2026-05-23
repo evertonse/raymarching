@@ -14,6 +14,7 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 # Resources
 
 - https://github.com/electricsquare/raymarching-workshop?tab=readme-ov-file#camera
+- [Header Only Libraries](https://github.com/RandyGaul/cute_headers)
 - [An introduction to Raymarching](https://www.youtube.com/watch?v=khblXafu7iA)
 - [OpenGL only knows about NDC and it's left-handed](https://www.gingerbill.org/article/2024/11/10/opengl-is-not-right-handed/)
 - [Deriving the perspective projection](https://youtu.be/k_L6edKHKfA?si=wgMU7ZRCrAcDgkFW)
@@ -31,6 +32,8 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 - [Exportable VFX file](https://effekseer.github.io/en/download.html)
 - [WickedEngine](https://github.com/turanszkij/WickedEngine)
 - [RapidGL Bloom and other effects to read code from](https://github.com/tgalaj/RapidGL#bloom)
+- [AA Options](https://www.youtube.com/watch?v=LiUvA3cTdhg)
+
 
 - Clang [Extensions](https://clang.llvm.org/docs/LanguageExtensions.html) and [Attributes](https://clang.llvm.org/docs/AttributeReference.html)
 

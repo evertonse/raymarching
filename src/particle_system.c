@@ -201,7 +201,7 @@ typedef struct {
    Model model;
    Scene_Node nodes[MAX_PARTICLES];
    int instance_rendering_mode;
-   float hdr_intensity;
+   float hdr_intensity, hdr_alpha_compose, hdr_alpha_coefficient_intensity;
 } Particle_System_Render_Resources;
 
 
@@ -658,7 +658,10 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
          ps->texture_path, nullptr, nullptr, nullptr
       );
 
-      const float hdr_linear_intensity = powf(2.0f, ps_resources->hdr_intensity);
+      const float hdr_linear_intensity            = powf(2.0f, ps_resources->hdr_intensity);
+      const float hdr_alpha_compose               = saturate(ps_resources->hdr_alpha_compose);
+      const float hdr_alpha_coefficient_intensity = powf(2.0f, ps_resources->hdr_alpha_coefficient_intensity);
+
       trace_info("ps_resources->hdr_intensity = %f hdr_linear_intensity = %f for %s", ps_resources->hdr_intensity, hdr_linear_intensity, ps->texture_path);
 
       for (uint i = 0; i < MAX_PARTICLES; i++) {
@@ -672,7 +675,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
 
          // Hide until a particle claims it
          update_color_tint(ps_resources->nodes[i], vector4(0.f));
-         update_custom_data(ps_resources->nodes[i], vector4(hdr_linear_intensity, vector3(0)), vector4(0));
+         update_custom_data(ps_resources->nodes[i], vector4(hdr_linear_intensity, hdr_alpha_compose, hdr_alpha_coefficient_intensity, 0), vector4(0));
       }
    }
 
@@ -1063,6 +1066,8 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
 
       vfx[count_of(vfx)-1].render_resources.instance_rendering_mode += 1;
       vfx[count_of(vfx)-1].render_resources.hdr_intensity = 2.616925 * 2;
+      vfx[count_of(vfx)-1].render_resources.hdr_alpha_compose = 1.;
+      vfx[count_of(vfx)-1].render_resources.hdr_alpha_coefficient_intensity = 1.15;
       vfx[count_of(vfx)-1].particle_system = (Particle_System) {
          // emitter
          .duration = 1.,
