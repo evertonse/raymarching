@@ -48,10 +48,10 @@ struct Joint_Vertex {
 /*
    // How MDI sorta is
    unsigned int * indices = (unsigned int *)ELEMENT_ARRAY_BUFFER;
-   for (DrawElementsIndirectCommand cmd : GL_DRAW_INDIRECT_BUFFER) {
-       for (uint i = 0; i < cmd.count; ++i) {
-           int gl_VertexID = indices[cmd.firstIndex + i] + cmd.baseVertex;
-       }
+   for DrawElementsIndirectCommand cmd in GL_DRAW_INDIRECT_BUFFER {
+      for uint i = 0; i < cmd.count; ++i {
+         int gl_VertexID = indices[cmd.firstIndex + i] + cmd.baseVertex;
+      }
    }
 */
 
@@ -80,7 +80,3 @@ struct Joint_Vertex {
 #define SHARED_TYPES_HEADER
 
 #endif // SHARED_TYPES_HEADER
-#ifdef COMMENTS
-#include "res/shaders/src/comments.glsl"
-#endif
-// types.glsl end

@@ -212,9 +212,18 @@ void projection_init(Projection_Application *app) {
    const struct {isz width, height;} resolution = {get_window_width(), get_window_height()};
 
 
-   const isz samples = 4;
-   // options = create_framebuffer_multisample, create_framebuffer, create_framebuffer_multisample_with_renderbuffers
-   app->fb = create_framebuffer_multisample(resolution.width, resolution.height, samples);
+   {
+      const isz samples = 4;
+      // NOTE: Since we have a lotta passes now, renderbuffers can only be used as a framebuffer in the last step
+      //       Also might be the time to start using multiple color attachments to the framebuffer in the hopes
+      //       that we'll have less framebuffers binds for each effect. Hopefully it gets faster.
+      // options = create_framebuffer_multisample, create_framebuffer, create_framebuffer_multisample_with_renderbuffers
+      app->fb = create_framebuffer_multisample(resolution.width, resolution.height, samples);
+   }
+
+   static const Vector3 clear_color = {123., 123., 123.};
+   app->fb.clear_color = vector4(mul(1./255, clear_color), 1.);
+
    // app->fb = create_framebuffer(resolution.width, resolution.height);
 
 
@@ -243,133 +252,6 @@ void projection_init(Projection_Application *app) {
    );
 }
 
-void draw_old_way(Projection_Application *app, Shader shader, Camera camera) {
-
-   bind_vertex_array(app->chosen_mesh_va);
-   bind_texture(app->diffuse_texture, 3);
-
-   {
-      Vector3 positions[] = {
-         (Vector3){  0.0f,  0.0f,  0.0f  },
-         (Vector3){  0.02f,  0.05f, -10.15f },
-         (Vector3){ -1.5f, -2.2f, -2.5f  },
-         (Vector3){ -3.8f, -2.0f, -12.3f },
-         (Vector3){  2.4f, -0.4f, -3.5f  },
-         (Vector3){ -1.7f,  3.0f, -7.5f  },
-         (Vector3){  1.3f, -2.0f, -2.5f  },
-         (Vector3){  1.5f,  2.0f, -2.5f  },
-         (Vector3){  1.5f,  0.2f, -1.5f  },
-         (Vector3){ -1.3f,  1.0f, -1.5f  }
-      };
-
-
-
-      static f32 scale_single    =  12.4;
-      static f32 rotation_single =  0;
-      gui_float("Model Scale", &scale_single);
-      gui_float("Model Rotation", &rotation_single);
-      if (is_button_pressed(BUTTON_R)) {
-         scale_single    =  12.4;
-         rotation_single =  0;
-         camera = (typeof(camera)){0};
-         camera.position.y = 3.f; // just a bit off the ground
-         camera.position.z = -3.f; // just a bit behind both near plane
-      }
-
-      GLint model_location = glGetUniformLocation(shader.handle, "model");
-      for (isz i = 0; i < count_of(positions); i += 1) {
-         Vector3 position = positions[i];
-         (void)position;
-         if (9 == i) {
-            break;
-         }
-
-
-         position = (Vector3){i* scale_single * 2., 0., 0.};
-         // Vector3 scale = vector3_gui();
-         // Vector3 scale = { 12.3f, 12.3f, 12.3f };
-         Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
-         Matrix scale_matrix       = MatrixScale(scale_single, scale_single, scale_single);
-         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, rotation_single);
-
-         Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
-
-         update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-
-         bind_buffer(&app->per_frame_buffer.buffer, BUFFER_TYPE_UNIFORM, 4);
-
-         glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
-         assert(is_valid_vertex_array(app->chosen_mesh_va));
-         bind_buffer(&app->chosen_mesh_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
-         glDrawElements(GL_TRIANGLES, app->chosen_mesh_va.ib.count, GL_UNSIGNED_INT, NULL);
-
-      }
-
-      {
-
-         const f32 scale_single    = 2.4;
-         auto translation = app->per_frame.light.position;
-         auto scale       = (Vector3){scale_single, scale_single, scale_single};
-         auto rotation    = (Vector4){ 0., 1., 0., 0};
-         upload_uniform_bool(app->shader, "is_light", true);
-         draw_va(app, &app->sphere_va, translation, scale, rotation);
-      }
-
-      if (true) {
-         const f32 scale_single    = 10.4;
-         Matrix translation_matrix = MatrixTranslate(12, 40, -40);
-         Matrix scale_matrix       = MatrixScale(scale_single, scale_single, scale_single);
-         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, time_elapsed());
-         Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
-         upload_uniform_bool(app->shader, "is_light", false);
-         update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-
-         glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
-         bind_texture(app->cube_texture, 3);
-         bind_buffer(&app->cube_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
-
-         glBindVertexArray(app->cube_va.handle);
-         assert(is_valid_vertex_array(app->cube_va));
-         glDrawElements(GL_TRIANGLES, app->cube_va.ib.count, GL_UNSIGNED_INT, NULL);
-      }
-
-      {
-         Matrix translation_matrix = MatrixTranslate(0, 0, -2);
-         Matrix scale_matrix       = MatrixScale(100000, 1/100., 100000);
-         Matrix rotation_matrix    = MatrixRotate((Vector3){ 0., 1., 0.}, 0);
-         Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
-
-         upload_uniform_bool(app->shader, "is_light", false);
-         update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-
-         glUniformMatrix4fv(model_location, 1, GL_FALSE, MatrixToFloat(model));
-         bind_texture(app->cube_texture, 3);
-         bind_buffer(&app->cube_va.vb.buffer, BUFFER_TYPE_STORAGE, 3);
-
-         glBindVertexArray(app->cube_va.handle);
-         assert(is_valid_vertex_array(app->cube_va));
-         glDrawElements(GL_TRIANGLES, app->cube_va.ib.count, GL_UNSIGNED_INT, NULL);
-      }
-
-      {
-         upload_uniform_bool(app->shader, "has_specular", true);
-         upload_uniform_bool(app->shader, "has_emissive", true);
-         bind_texture(app->wood_box.diffuse,  3);
-         bind_texture(app->wood_box.specular, 4);
-         bind_texture(app->wood_box.emissive, 5);
-         static Vertex_Array learnopengl_cube = {0};
-         if (!is_valid_vertex_array(learnopengl_cube)) {
-            learnopengl_cube = create_cube_vertex_array();
-         }
-         draw_va(app, &learnopengl_cube, (Vector3){110., 36., 41.}, (Vector3){20, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * PI/2.});
-         bind_texture(app->wood_box.specular_colored, 4);
-         draw_va(app, &learnopengl_cube, (Vector3){50., 36., 30.}, (Vector3){10, 20, 20}, (Vector4){1, 1, 1, time_elapsed() * 0.1});
-      }
-
-
-      draw_text("Fuck your mother");
-   }
-}
 
 
 void draw_scene(Projection_Application *app) {
@@ -1070,56 +952,9 @@ void projection_update(Projection_Application *app, f64 dt) {
       debug_culling_state();
       trace_error("Framebuffer is not valid");
    }
+
+   // Clears depth and color
    clear_framebuffer(app->fb);
-   
-   if (true) {
-      assert_msg(is_valid_texture(app->fb.depth), "");
-      //
-      // TODO: use these and measure time
-      // clear_framebuffer_depth();
-      // clear_framebuffer_color();
-      //
-
-      // NOTE: This are the usual culprits of weird, missing or outta order triangle redering.
-
-
-      if (false) { // Testing somethings
-         // glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
-         glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
-         glDepthMask(GL_TRUE);
-         glDepthFunc(GL_LESS);
-      }
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glBlendEquation(GL_FUNC_ADD);
-
-      glEnable(GL_DEPTH_TEST);
-
-      glDisable(GL_CULL_FACE);
-      glFrontFace (GL_CW);     // Instead of GL_CCW
-      glCullFace  (GL_BACK);   // Instead of GL_BACK
-      glDepthMask(GL_TRUE);
-
-      if (false) {
-         glDepthFunc (GL_LESS);
-         glDepthMask (GL_TRUE);
-         glCullFace  (GL_FRONT);  // Instead of GL_BACK
-         glFrontFace (GL_CCW);     // Instead of GL_CCW
-         glClearDepth(1.0);
-         glDepthRange(0.0, 1.0);
-      }
-
-      // Enable polygon offset to mitigate z-fighting
-      glEnable(GL_POLYGON_OFFSET_FILL);
-      glPolygonOffset(0.1f, 0.1f);
-
-      // glClearColor(0.21f, 0.2f, 0.2f, 0.0f);
-
-   }
-
-   static const Vector3 clear_color = {123./255, 123./255, 123./255};
-   glClearColor(clear_color.x, clear_color.y, clear_color.z, 1.);
-   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
    Shader shader = app->shader;
    bind_shader(shader);
@@ -1179,9 +1014,6 @@ void projection_update(Projection_Application *app, f64 dt) {
    }
 
    draw_indirect((Texture){0}, app->shader);
-
-
-   // draw_old_way(app, shader, camera);
 
 
    if (please_sync) {

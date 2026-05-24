@@ -1,4 +1,5 @@
 
+const bool debug_color_for_missing_textures = true;
 vec3 health_background(vec2 uv, float health_percent) {
    vec3 background = vec3(0.15, 0.15, 0.15);
 
@@ -130,6 +131,10 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
       vec4 diffuse_texture = vec4(1.);
       if (material.diffuse_handle != uvec2(0)) {
          diffuse_texture = texture(sampler2D(material.diffuse_handle), uv);
+      } else {
+         if (debug_color_for_missing_textures) {
+            return vec4(1., 0., 0., 1.);
+         }
       }
 
       // TODO: Mode gamma_correction to after sbti loading
@@ -142,7 +147,7 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
       const vec3 albedo = srgb_to_linear(diffuse_texture.rgb) * tint + added_noise;
       // const vec3 albedo = mix_particle_color_multiply(srgb_to_linear(diffuse_texture.rgb), tint) + added_noise;
       const float alpha = saturate(diffuse_texture.a * color_tint.a);
-      
+
 
       const float hdr_intensity_linear = lerp(
          hdr_intensity,

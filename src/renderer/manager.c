@@ -17,7 +17,7 @@ typedef struct {
 } Draw_Index;
 
 typedef struct {
-   u32 base;  // Index into draw_commands.items
+   u32 base;
    u32 count; // Allocated in sequence, Index + 0, Index + 1, ..., Index + count-1
 } Animation_Index;
 
@@ -38,6 +38,12 @@ static_assert(size_of(Draw_Command) % 16 == 0);
    constexpr auto instances_buffer_usage                  = BUFFER_USAGE_SUBDATA;
    constexpr auto geometry_to_world_matrices_buffer_usage = BUFFER_USAGE_SUBDATA;
 #endif
+
+typedef enum {
+   RENDER_STATE_OPAQUE,
+   RENDER_STATE_VFX,
+   RENDER_STATE_COUNT,
+} Render_State;
 
 // Global buffer system with separate attribute buffers
 // Unalignment goes crazy with all these dirty flags @Flag
@@ -76,7 +82,6 @@ typedef struct {
       bool   dirty;
    } joints;
 
-
    struct {
       u32   *items;
       u32    count;
@@ -103,7 +108,7 @@ typedef struct {
                Texture normal;
             };
          };
-         bool    loaded; // Instead of that just is_valid or check the path
+         bool loaded; // Instead of that just is_valid or check the path
       } *items;
       u32    count;
       u32    capacity;
@@ -117,6 +122,12 @@ typedef struct {
       u32    capacity;
       Buffer buffer;
       bool   dirty;
+      struct {
+         void (*apply[RENDER_STATE_COUNT])(void);
+         u32  offsets[RENDER_STATE_COUNT];
+         bool sort_dirty;
+      } render_state;
+
    } draw_commands;
 
 
@@ -126,6 +137,11 @@ typedef struct {
       struct {
          // Instances and Draw Comamnds are related as we have always less or equal ren than we draw_commands
          struct {
+
+            // NOTE: Right now, the granularity of reder_state is for all instance and all draw commands associated with a renderable.
+            //       It *can* happen that certain submeshes of a renderable should be in a render_state and the rest in another. As it stands, all submeshes will be rendered in the same render_state, some correctly, some incorrectly.
+            Render_State render_state;
+
             Draw_Index draw_index;
             Animation_Index animation_index;
             Joint_List joint_list; // NOTE: It's not that lean of a structure, maybe we sould make use an index instead?
@@ -137,9 +153,11 @@ typedef struct {
                   uint animation_number;
                   // isz animation_last_keyframe_index; // Read animation.c comment to get some insight of what we might need to do to speed up finding keypair
                   Transform transform;
+
                   Vector4 color_tint;
                   uint instance_rendering_mode; // Default 0, but SDF texture or custom extra rendering for an model will be handled by this flag
                   Vector4 custom_1, custom_2;
+
                   Geometry_To_World_List geometry_to_world_matrices;
                   struct { // TODO: make it possible to have instances with differentes materials considering surfaces in a mesh
                      u32 base;
@@ -180,6 +198,45 @@ typedef struct {
 
 
 static Manager manager = {0};
+
+
+// Sorts draw_commands by render_state in-place.
+// Updates every renderable's draw_index to point to the new positions.
+// GPU buffer is reuploaded.
+void sort_draw_commands_by_render_state(void) {
+   u32 total = manager.draw_commands.count;
+   if (0 == total) {
+      return;
+   }
+
+   // Write sorted commands into scratch buffer
+   // TODO: All these static might need to be thread local someday
+   static Draw_Command *scratch = nullptr;
+   static u32 scratch_capacity = 0;
+   if (total > scratch_capacity) {
+      scratch_capacity = max(total, scratch_capacity * 2 + 64);
+      scratch = realloc(scratch, scratch_capacity * size_of(Draw_Command));
+   }
+
+   // We're using Insertion Sort but might want Counting Sort instead
+   // 3N, not that bad ok?
+   u32 cursor = 0;
+   for (uint render_state_index = 0; render_state_index < RENDER_STATE_COUNT; render_state_index += 1) {
+      manager.draw_commands.render_state.offsets[render_state_index] = cursor;
+
+      for (u32 ri = 0; ri < manager.scene.renderables.count; ri++) {
+         auto *r = &manager.scene.renderables.items[ri];
+         if (r->render_state != (Render_State)render_state_index) {
+            continue;
+         }
+         memcpy(scratch + cursor, manager.draw_commands.items + r->draw_index.base, r->draw_index.count * size_of(Draw_Command));
+         r->draw_index.base = cursor; // Outside side effect
+         cursor += r->draw_index.count;
+      }
+   }
+   memcpy(manager.draw_commands.items, scratch, total * size_of(Draw_Command));
+   manager.draw_commands.dirty = true;
+}
 
 
 bool overload has_animation(Scene_Node node) {
@@ -277,12 +334,12 @@ Draw_Index push_draw_command_to_manager(const Draw_Command command) {
 
 // Add surface data to global buffers
 Draw_Index push_arrays_to_manager(
-      Vector3 *positions, Vector3 *normals, Vector2 *uvs, Vector4 *tangents, void *joints, u32 vertices_count,
-      u32 *indices, u32 indices_count,
-      u32 material_index,
-      isz base_vertices_offset_override, // Can pass -1 to not override anything
-      isz base_tangents_offset_override,  // Can pass -1 to not override anything
-      isz base_joints_offset_override   // Can pass -1 to not override anything
+   Vector3 *positions, Vector3 *normals, Vector2 *uvs, Vector4 *tangents, void *joints, u32 vertices_count,
+   u32 *indices, u32 indices_count,
+   u32 material_index,
+   isz base_vertices_offset_override,  // Can pass -1 to not override anything
+   isz base_tangents_offset_override,  // Can pass -1 to not override anything
+   isz base_joints_offset_override     // Can pass -1 to not override anything
 ) {
    bool has_joints = joints != nullptr;
    bool has_tangents = tangents != nullptr;
@@ -334,24 +391,28 @@ Draw_Index push_arrays_to_manager(
    memcpy(&manager.indices.items[manager.indices.count], indices, indices_count * size_of(u32));
 
    // Update counters
-   manager.vertices.count += vertices_count;
-   if (has_tangents) {
-      manager.tangents.count += vertices_count;
+   {
+      manager.vertices.count += vertices_count;
+      if (has_tangents) {
+         manager.tangents.count += vertices_count;
+      }
+      if (has_joints) {
+         manager.joints.count += vertices_count;
+      }
+      manager.indices.count += indices_count;
    }
-   if (has_joints) {
-      manager.joints.count += vertices_count;
-   }
-   manager.indices.count += indices_count;
 
    // Mark buffers as dirty for GPU upload
-   manager.vertices.dirty = true;
-   if (has_tangents) {
-      manager.tangents.dirty = true;
+   {
+      manager.vertices.dirty = true;
+      if (has_tangents) {
+         manager.tangents.dirty = true;
+      }
+      if (has_joints) {
+         manager.joints.dirty = true;
+      }
+      manager.indices.dirty = true;
    }
-   if (has_joints) {
-      manager.joints.dirty = true;
-   }
-   manager.indices.dirty = true;
 
    return draw_index;
 }
@@ -507,6 +568,11 @@ void update_manager_gpu_resources() {
       }
    }
 
+   if (manager.draw_commands.render_state.sort_dirty) {
+      sort_draw_commands_by_render_state();
+      manager.draw_commands.render_state.sort_dirty = false;
+   }
+
    if (manager.draw_commands.dirty) {
       trace_info("[Manager] Draw Commands were dirty.");
 
@@ -545,10 +611,10 @@ void update_manager_gpu_resources() {
    if (manager.materials.dirty) {
       static Material materials_handles[2048];
       assert_msg(manager.materials.count <= count_of(materials_handles),
-         "If we have more than %lld materials per MDI, maybe it's time to do a proper material unloading ok buddy?", (usz)count_of(materials_handles)
+         "1: If we have more than %lld materials per MDI, maybe it's time to do a proper material unloading ok buddy?", (usz)count_of(materials_handles)
       );
       assert_msg(manager.materials.capacity <= count_of(materials_handles),
-         "If we have more than %lld materials (in capacity) per MDI, maybe it's time to do a proper material unloading ok buddy?", (usz)count_of(materials_handles)
+         "2: If we have more than %lld materials (in capacity) per MDI, maybe it's time to do a proper material unloading ok buddy?", (usz)count_of(materials_handles)
       );
 
       // Load all textures from paths should that should be set when pushing all materials.
@@ -584,13 +650,19 @@ void update_manager_gpu_resources() {
          manager.materials.buffer = create_buffer(BUFFER_USAGE_SUBDATA, materials_handles, required_buffer_capacity_in_bytes);
       } else {
          resize_buffer_if_needed(&manager.materials.buffer, required_buffer_capacity_in_bytes);
-
          isz buffer_size = manager.materials.count * size_of(Material);
          update_buffer(&manager.materials.buffer, materials_handles, 0, buffer_size);
       }
 
       trace_info("[Manager] Materials were dirty and needed to load %lld textures for %lld/%lld materials.", this_many_textures, this_many_needed_loaded, (isz)manager.materials.count);
       manager.materials.dirty = false;
+   }
+
+   {
+      GLenum err = glGetError();
+      if (err != GL_NO_ERROR) {
+         trace_error("[OpenGL Error] %s update_manager_gpu_resources (0x%X).", __func__, err);
+      }
    }
 }
 
@@ -652,8 +724,12 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
    }
 
    update_manager_gpu_resources();
-   glBindVertexArray(manager.vao);
-   glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
+
+   {
+      // We should have only one for everything in ts.
+      glBindVertexArray(manager.vao);
+      glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
+   }
 
    for (u32 sequential_index = 0; sequential_index < draw_index.count;  sequential_index += 1) {
       auto draw_command = &manager.draw_commands.items[draw_index.base + sequential_index];
@@ -679,12 +755,6 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
 void draw_indirect(Texture diffuse, Shader shader) {
    update_manager_gpu_resources();
 
-   {
-      GLenum err = glGetError();
-      if (err != GL_NO_ERROR) {
-         trace_error("[OpenGL Error] %s update_manager_gpu_resources (0x%X).", __func__, err);
-      }
-   }
 
    assert_msg(is_valid_buffer(manager.draw_commands.buffer), "Draw Comands Buffer is should always be valid in this function");
 
@@ -700,11 +770,6 @@ void draw_indirect(Texture diffuse, Shader shader) {
       }
    }
 
-   {
-      bind_buffer_draw_indirect(&manager.draw_commands.buffer);
-      auto draw_commands_size = manager.draw_commands.count * size_of(manager.draw_commands.items[0]);
-      bind_buffer_view(&manager.draw_commands.buffer, BUFFER_TYPE_STORAGE, BINDING_DRAW_COMMAND, 0, draw_commands_size);
-   }
 
    {
       auto vertices_size = manager.vertices.count * (2*size_of(Vector3) + size_of(Vector2));
@@ -726,6 +791,10 @@ void draw_indirect(Texture diffuse, Shader shader) {
       bind_buffer_view(&manager.materials.buffer, BUFFER_TYPE_STORAGE, BINDING_MATERIAL, 0, material_handles_size);
    }
 
+
+   {
+      bind_buffer_draw_indirect(&manager.draw_commands.buffer);
+   }
 #if RENDERER_DEBUG
    {
       GLenum err = glGetError();
@@ -750,15 +819,40 @@ void draw_indirect(Texture diffuse, Shader shader) {
    }
 #endif
 
-   // assert(is_valid_texture(diffuse));
-   // bind_texture(diffuse, 3);
+   const isz stride = size_of(manager.draw_commands.items[0]);
+   for (int render_state_index = 0; render_state_index < RENDER_STATE_COUNT; render_state_index++) {
+      u32 offset = manager.draw_commands.render_state.offsets[render_state_index];
+      u32 count = (render_state_index + 1 < RENDER_STATE_COUNT) ?
+           manager.draw_commands.render_state.offsets[render_state_index + 1] - offset
+         : manager.draw_commands.count - offset
+      ;
 
-   glMultiDrawElementsIndirect(
-       GL_TRIANGLES, GL_UNSIGNED_INT,
-       (const void *)0,                          // No offset into draw command buffer
-       manager.draw_commands.count,              // How many commands. In count, not size.
-       size_of(manager.draw_commands.items[0])   // Stride, 0 if the data is tightly packed
-   );
+      if (0 == count) {
+         continue;
+      }
+
+
+      manager.draw_commands.render_state.apply[render_state_index]();
+
+      auto draw_commands_size            = count  * stride;
+      auto draw_commands_offset_in_bytes = offset * stride;
+
+      {
+         // Separately slides the SSBO view for gl_DrawID indexing.
+         // NOTE: If we decide to only bind_buffer view once before call, then in shader every use
+         // of gl_DrawID will have to take an offset because it won't be able to be used as an index by itself anymore.
+         // Because of GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT
+         bind_buffer_view(&manager.draw_commands.buffer, BUFFER_TYPE_STORAGE, BINDING_DRAW_COMMAND, draw_commands_offset_in_bytes, draw_commands_size);
+      }
+
+      // Multi Draw Indirect is not concerned about buffer view, so we need to pass offset, stride, count as if the full buffer is bound.
+      glMultiDrawElementsIndirect(
+         GL_TRIANGLES, GL_UNSIGNED_INT,
+         (const void *)(draw_commands_offset_in_bytes), // Offset into draw command buffer
+         count,                                         // How many commands. In count, not size.
+         stride                                         // Stride, can be 0 if the data is tightly packed
+      );
+   }
 
    {
       GLenum err = glGetError();
@@ -1150,12 +1244,9 @@ void overload play_animation(Scene_Node node) {
 }
 
 
-
-
 // NOTE: 2025-09-04 Every instance is created here renderable is created elsewhere
 Scene_Node internal create_scene_node_from_renderable(isz renderable_index, const Transform transform) {
    auto renderable = &manager.scene.renderables.items[renderable_index];
-
    isz instance_index = renderable->instances.count;
    da_append(&renderable->instances,
       { .transform = transform, .animation_speed = 1., .color_tint = {1.f, 1.f, 1.f, 1.f} }
@@ -1178,6 +1269,8 @@ Scene_Node internal create_scene_node_from_renderable(isz renderable_index, cons
 
    // Because instance_count has to be updated for each draw command.
    manager.draw_commands.dirty = true;
+   // Because each renderable has a render_state that might not be in order anymore
+   manager.draw_commands.render_state.sort_dirty = true;
 
    return scene_node;
 }
@@ -1243,6 +1336,7 @@ Scene_Node overload create_scene_node(Scene_Node node) {
    return create_scene_node_from_renderable(renderable_index, instance.transform);
 }
 
+
 Transform get_transform(Scene_Node node) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
@@ -1273,6 +1367,7 @@ void update_position(Scene_Node node, Vector3 position) {
    return;
 }
 
+
 void update_scale(Scene_Node node, float scale) {
    Transform transform = get_transform(node);
    transform.scale = vector3(scale);
@@ -1292,6 +1387,7 @@ void overload update_transform(Scene_Node node, Quaternion rotation) {
    return;
 }
 
+
 void update_color_tint(Scene_Node node, Vector4 color_tint) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
@@ -1303,6 +1399,19 @@ void update_color_tint(Scene_Node node, Vector4 color_tint) {
       instance->color_tint = color_tint;
       trace_debug("color_tint = {%f, %f, %f, %f}", color_tint.x, color_tint.y, color_tint.z, color_tint.w);
    }
+   return;
+}
+
+
+// This updates render_state for all instances
+void update_renderable_render_state(Scene_Node node, Render_State render_state) {
+   manager.scene.instances_dirty = true;
+
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   renderable->render_state = render_state;
+   manager.draw_commands.render_state.sort_dirty = true;
    return;
 }
 
@@ -1334,8 +1443,6 @@ void update_custom_data(Scene_Node node, Vector4 custom_1, Vector4 custom_2) {
    }
    return;
 }
-
-
 
 
 void set_animation_time(Scene_Node node, f64 time) {
@@ -1397,6 +1504,100 @@ void destroy_manager_materials() {
 }
 
 
+void render_state_apply_normal(void) {
+   glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+   glEnable(GL_SAMPLE_ALPHA_TO_ONE);
+
+   // Enable Supersampling with GL_SAMPLE_SHADING and glMinSampleShading set to 1
+   // glEnable(GL_SAMPLE_SHADING);
+   // glMinSampleShading(1.0):
+
+   glEnable(GL_BLEND);
+   glBlendEquation(GL_FUNC_ADD);
+
+   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+   { // Some expected settings
+      glEnable(GL_DEPTH_TEST);
+      glDisable(GL_CULL_FACE);
+   }
+
+   {
+      glDisable(GL_SCISSOR_TEST);
+      glEnable(GL_STENCIL_TEST);
+   }
+
+   glEnable(GL_DEPTH_TEST);
+   glDepthMask(GL_TRUE);
+   glDepthFunc(GL_LESS);
+
+   if (false) {
+      glDepthFunc (GL_LESS);
+      glCullFace  (GL_FRONT);  // Instead of GL_BACK
+      glFrontFace (GL_CCW);     // Instead of GL_CCW
+      glClearDepth(1.0);
+      glDepthRange(0.0, 1.0);
+   }
+}
+
+
+void render_state_apply_vfx(void) {
+
+   glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+   glDisable(GL_SAMPLE_ALPHA_TO_ONE);
+
+   // No backface culling quads are single sided
+   // but we want both sides visible if camera goes behind
+   glDisable(GL_CULL_FACE);
+
+   glEnable(GL_BLEND);
+   // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+   glBlendEquation(GL_FUNC_ADD); // GL_FUNC_SUBTRACT
+
+
+   // Particles don't write depth
+   const bool depth_fiddling = true;
+   if (depth_fiddling) {
+      glDepthMask(GL_FALSE);
+      glEnable(GL_DEPTH_TEST);
+      glDepthFunc(GL_LESS);
+   }
+
+
+   // trace_info("simulation_speed = %f", simulation_speed);
+   int values[]            = { GL_SRC_ALPHA,   GL_ONE_MINUS_SRC_ALPHA,   GL_ZERO,   GL_ONE,   GL_SRC_COLOR,   GL_ONE_MINUS_SRC_COLOR,   GL_DST_COLOR,   GL_ONE_MINUS_DST_COLOR,   GL_DST_ALPHA,   GL_ONE_MINUS_DST_ALPHA,   GL_CONSTANT_COLOR,   GL_ONE_MINUS_CONSTANT_COLOR,   GL_CONSTANT_ALPHA,   GL_ONE_MINUS_CONSTANT_ALPHA };
+   ZString values_string[] = {"GL_SRC_ALPHA", "GL_ONE_MINUS_SRC_ALPHA", "GL_ZERO", "GL_ONE", "GL_SRC_COLOR", "GL_ONE_MINUS_SRC_COLOR", "GL_DST_COLOR", "GL_ONE_MINUS_DST_COLOR", "GL_DST_ALPHA", "GL_ONE_MINUS_DST_ALPHA", "GL_CONSTANT_COLOR", "GL_ONE_MINUS_CONSTANT_COLOR", "GL_CONSTANT_ALPHA", "GL_ONE_MINUS_CONSTANT_ALPHA"};
+   static int current_1 = 3;
+   static int current_2 = 1;
+   bool pressed_button = false;
+
+   if (is_button_pressed(BUTTON_1)) {
+      current_1 = (current_1 + 1) % count_of(values);
+      pressed_button = true;
+   }
+   if (is_button_pressed(BUTTON_2)) {
+      current_2 = (current_2 + 1) % count_of(values);
+      pressed_button = true;
+   }
+
+   if (is_button_pressed(BUTTON_3)) {
+      current_1 = 0; current_2 = 1;
+      pressed_button = true;
+   }
+
+   if (is_button_pressed(BUTTON_4)) {
+      current_1 = 3; current_2 = 1;
+      pressed_button = true;
+   }
+
+   if (pressed_button) {
+      trace_info("glBlendFunc(%s, %s)", values_string[current_1], values_string[current_2]);
+   }
+
+   glBlendFunc(values[current_1], values[current_2]);
+}
+
 
 // Initialize the global buffer system
 void init_manager() {
@@ -1445,6 +1646,9 @@ void init_manager() {
 
    isz draw_commands_buffer_size = initial_index_capacity * size_of(manager.draw_commands.items[0]);
    manager.draw_commands.buffer  = create_buffer(buffer_flag, nullptr, draw_commands_buffer_size);
+
+   manager.draw_commands.render_state.apply[RENDER_STATE_OPAQUE] = render_state_apply_normal;
+   manager.draw_commands.render_state.apply[RENDER_STATE_VFX]    = render_state_apply_vfx;
 
    // Create VAO
    glCreateVertexArrays(1, &manager.vao);

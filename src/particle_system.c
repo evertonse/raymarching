@@ -668,6 +668,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
          if (0 == i) {
             // First node owns mesh
             ps_resources->nodes[i] = create_scene_node(&ps_resources->model);
+            update_renderable_render_state(ps_resources->nodes[i], RENDER_STATE_VFX);
          } else {
             // Instances from first
             ps_resources->nodes[i] = create_scene_node(ps_resources->nodes[0]);
@@ -1013,7 +1014,7 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
       // vfx[count_of(vfx)-1].particle_system = debug_particle_system;
    }
 
-   setup_particle_render_state();
+   // setup_particle_render_state();
    // for (int idx = 0; idx < count_of(vfx); idx++) {
    //    Particle_System *ps = &vfx[idx].particle_system;
    //    ps->transform.position = add(unit_position, vector3(30, 0, 0) );
@@ -1205,7 +1206,7 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
    }
 
 
-   setup_particle_render_state();
+   // setup_particle_render_state();
    for (int idx = 0; idx < count_of(vfx); idx++) {
       auto ps = &vfx[idx].particle_system;
       ps->transform.position = add(vector3(30, 0, 30), unit_position);

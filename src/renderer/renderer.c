@@ -114,7 +114,7 @@ Vertex_Array create_vertex_array(const Vertex *vertices, usz vertex_count, const
 
 
 void set_redererer_mode(Renderer_Mode mode) {
-   // WARN: We gotta make sure the actuall state and our's aren't desync.
+   // WARN: We gotta make sure the actual state and our's aren't desync.
    //       Sometimes we might be using a lib that changes the gl state.
    if (mode == __state.renderer.mode) {
       return;
@@ -564,11 +564,8 @@ void enable_error_report() {
 }
 
 void initialize_opengl_options(void) {
-
-   // glDisable(GL_FRAMEBUFFER_SRGB);
    glDisable(GL_FRAMEBUFFER_SRGB);
    glDisable(GL_DITHER);
-   // glDisable(GL_DITHER);
 
    {
       // https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMinSampleShading.xhtml
@@ -588,21 +585,25 @@ void initialize_opengl_options(void) {
 
       glEnable(GL_BLEND);
       glBlendEquation(GL_FUNC_ADD);
-      // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
    }
 
    { // Some expected settings
       glEnable(GL_DEPTH_TEST);
       glDisable(GL_CULL_FACE);
-      glCullFace(GL_BACK); // GL_BACK to Cull back faces
-      glFrontFace(GL_CCW); // GL_CCW to define front faces as counter-clockwise
+      glCullFace  (GL_BACK);   // Instead of GL_FRONT or GL_FRONT_AND_BACK
+      glFrontFace (GL_CW);     // Instead of GL_CCW
    }
 
    {
       glDisable(GL_SCISSOR_TEST);
       glEnable(GL_STENCIL_TEST);
    }
+
+   // Enable polygon offset to mitigate z-fighting
+   glEnable(GL_POLYGON_OFFSET_FILL);
+   glPolygonOffset(0.1f, 0.1f);
+
 }
 
 void init_renderer(void) {
@@ -619,6 +620,18 @@ void init_renderer(void) {
    trace_info("GL_VENDOR   : %s\n", glGetString(GL_VENDOR));
    trace_info("GL_RENDERER : %s\n", glGetString(GL_RENDERER));
    trace_info("GL_VERSION  : %s\n", glGetString(GL_VERSION));
+
+   static GLint ssbo_alignment = -1;
+   if (-1 == ssbo_alignment) {
+      glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &ssbo_alignment);
+      if (16 != ssbo_alignment) {
+         trace_error("GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT: %d is not 16 as we expected from a std430 layout (not sure if layout matter in anything)", ssbo_alignment);
+      } else {
+         trace_info("GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT: %d", ssbo_alignment);
+      }
+   }
+   // assert(draw_commands_offset_in_bytes % ssbo_alignment == 0);
+
 
    print_opengl_resource_limits();
    print_default_framebuffer_info();

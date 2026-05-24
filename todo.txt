@@ -1,4 +1,4 @@
-[ ] Add bicubic filtering for bloom upsampler https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1?permalink_comment_id=1879143#file-tex2dcatmullrom-hlsl-L5
+[x] Add bicubic filtering for bloom upsampler https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1?permalink_comment_id=1879143#file-tex2dcatmullrom-hlsl-L5
 
 [ ] Timed logging function (each function gets a slice of time to log based on __func__)
 [ ] Immediate Drawing mode
@@ -27,7 +27,7 @@
     blending setting. This is because particles usually don't write to z-buffer but everything else does.
 
 [ ] Particles: Add particle hot reloading from custom file that is quite literally a struct-like syntax.
-[ ] Particles: Add length and speed scaling to Stretched Billboarding
+[x] Particles: Add length and speed scaling to Stretched Billboarding
 [x] Particles: Add Stretched Billboarding
 [ ] Particles: Add spawn shape for position variation (spawning from volume and from base like in radius)
 [x] Particles: Add spawn shape for rotation variation
@@ -58,9 +58,9 @@
 
 [ ] New tonemap taken from that video about how outdated unreal engine's Tonemap is
 
-[ ] Investigate why auto reload is not working sometimes
+[x] Investigate why auto reload is not working sometimes
 
-[ ] Fix is_button_pressed and variants based on raylib implementation
+[x] Fix is_button_pressed and variants based on raylib implementation
 
 
 

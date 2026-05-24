@@ -300,6 +300,7 @@ void draw_scene_league(Projection_Application *app) {
 
       vayne_v.health_bar.model      = health_bar_model;
       vayne_v.health_bar.node = create_scene_node(&health_bar_model, transform_identity);
+      update_renderable_render_state(vayne_v.health_bar.node, RENDER_STATE_VFX);
 
       for (int i = 0; i < MAX_PROJECTILES; i++) {
          bolt_pool.visuals[i].node = create_scene_node(vayne_v.hitbox_node);

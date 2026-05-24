@@ -1,18 +1,20 @@
+#define MAX_TEXTURES_PER_FRAMEBUFFER 8
 
 typedef struct {
    GLuint handle;
    union {
       Texture color;
-      Texture colors[8];
+      Texture colors[MAX_TEXTURES_PER_FRAMEBUFFER];
    };
    Texture depth;
+   Color clear_color;
    bool is_default_framebuffer; // hacky
 } Framebuffer;
 
 
 // Gets updated in renderer
 Framebuffer default_framebuffer = {
-    .is_default_framebuffer = true,
+   .is_default_framebuffer = true,
 };
 
 bool inline is_valid_framebuffer(Framebuffer fb) {
@@ -26,7 +28,7 @@ bool inline is_valid_framebuffer(Framebuffer fb) {
    // Ensure color attachments (if valid) have consistent sample counts
    int expected_samples = -1;
 
-   for (int i = 0; i < 8; i++) {
+   for (int i = 0; i < MAX_TEXTURES_PER_FRAMEBUFFER; i++) {
       if (is_valid_texture(fb.colors[i])) {
          if (expected_samples < 0) {
             expected_samples = texture_multisamples(fb.colors[i]);
@@ -624,12 +626,14 @@ void bind_framebuffer(Framebuffer fb) {
 }
 
 
-void clear_framebuffer_color_indexed(Framebuffer fb, int draw_buffer_index, const float color[4]) {
-   glClearNamedFramebufferfv(fb.handle, GL_COLOR, draw_buffer_index, color);
+void clear_framebuffer_color_indexed(Framebuffer fb, int draw_buffer_index, const Color color) {
+   const float c[4] = {color.x, color.y, color.z, color.w};
+   glClearNamedFramebufferfv(fb.handle, GL_COLOR, draw_buffer_index, c);
+   fb.clear_color = color;
 }
 
 
-void clear_framebuffer_color(Framebuffer fb, const float color[4]) {
+void clear_framebuffer_color(Framebuffer fb, const Color color) {
    clear_framebuffer_color_indexed(fb, 0, color);
 }
 
@@ -640,20 +644,32 @@ void clear_framebuffer_depth(Framebuffer fb, float depth_value) {
 
 
 void clear_framebuffer(Framebuffer fb) {
-   bool color_valid = is_valid_texture(fb.color);
-   bool depth_valid = is_valid_texture(fb.depth);
-
    assert_msg(is_valid_framebuffer(fb), "Tried to clear a framebuffer that is not valid");
-   assert_msg(color_valid || depth_valid, "Tried to clear a framebuffer that has no textures attached");
 
-   const f32 depth_value = 0;
-   if (depth_valid) {
-      clear_framebuffer_depth(fb, depth_value);
+   if (fb.is_default_framebuffer) {
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+      return;
    }
 
-   const f32 alpha_value = 1.0f;
-   if (color_valid) {
-      clear_framebuffer_color(fb, (float[4]){.1, .1, .1, alpha_value});
+   // Save and force depth writes on
+   // Maybe we should not care about it and let callers expect side effects
+   GLboolean depth_mask;
+   glGetBooleanv(GL_DEPTH_WRITEMASK, &depth_mask);
+   glDepthMask(GL_TRUE);
+
+   // Check what attachments actually exist on the FBO
+   GLint color_type = 0, depth_type = 0;
+   glGetNamedFramebufferAttachmentParameteriv(fb.handle, GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &color_type);
+   glGetNamedFramebufferAttachmentParameteriv(fb.handle, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &depth_type);
+
+   if (color_type != GL_NONE) {
+      clear_framebuffer_color(fb, fb.clear_color);
    }
+
+   if (depth_type != GL_NONE) {
+      clear_framebuffer_depth(fb, 1.0f); // always 1.0 for GL_LESS
+   }
+
+   // Restore
+   glDepthMask(depth_mask);
 }
-
