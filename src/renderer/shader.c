@@ -1338,7 +1338,9 @@ void upload_uniform_int(const Shader shader, const char* name, int value) {
 //       Additionally, we're not getting the location, we're assuming it's on location 0 so no string nor location caching
 // NOTE: This call is only useful for the current shader
 void upload_push_constants(const void *data, isz size_in_bytes) {
-   assert(size_in_bytes % size_of(Vector4) == 0);
+   if (0 != (size_in_bytes % size_of(Vector4))) {
+      trace_warn("size_in_bytes=%d ideally would be aligned to %d. Will do an alignment for you.", size_in_bytes, size_of(Vector4));
+   }
    if (size_in_bytes > 256) {
       trace_warn("size_in_bytes=%d > 256 bytes, They say hardware has *small* fast constant storage, consider using something else for bigger data.", size_in_bytes);
    }

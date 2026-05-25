@@ -1,12 +1,12 @@
 #ifndef SHARED_TYPES_HEADER
 // This sequence can't change, and to be in this order and must come first.
 // TODO: change instace to instances to match others
-#define DRAW_COMMAND_BASE                                           \
-   uint indices_count;                                              \
-   uint instance_count;    /* For instanced rendering (usually 1)*/ \
-   uint indices_offset;    /* Start index in index *not byte*    */ \
-   uint vertices_offset;   /* Base Vertex in index *not byte*    */ \
-   uint instance_offset    /* Base Instance in index *not byte*  */
+#define DRAW_COMMAND_BASE                                               \
+   uint indices_count;                                                  \
+   uint instance_count;    /* For instanced rendering (usually 1)    */ \
+   uint indices_offset;    /* Start index in index *not in bytes*    */ \
+   uint vertices_offset;   /* Base Vertex in index *not in bytes*    */ \
+   uint instance_offset    /* Base Instance in index *not in bytes*  */
 
 struct Draw_Command {
    DRAW_COMMAND_BASE;

@@ -20,6 +20,8 @@ uniform vec3 camera_position;
 vec2 spherical;
 
 
+layout(location = 0) uniform vec4 push_constants[2];
+
 layout (location = 0) out #include "./src/pipe.glsl";
 
 // layout (location = 8) out  Flat {
@@ -92,10 +94,13 @@ void main() {
 
    {
       // Passing instance data to the fragment shader
-      color_tint = instances[gl_BaseInstance + gl_InstanceID].color_tint;
+      // This render state should not be necessary if we're using premultiplied?
+      // https://docs.gl/sl4/floatBitsToInt
+      render_state            = floatBitsToUint(push_constants[0].x);
+      color_tint              = instances[gl_BaseInstance + gl_InstanceID].color_tint;
       instance_rendering_mode = instances[gl_BaseInstance + gl_InstanceID].instance_rendering_mode;
-      custom_1 = instances[gl_BaseInstance + gl_InstanceID].custom_1;
-      custom_2 = instances[gl_BaseInstance + gl_InstanceID].custom_2;
+      custom_1                = instances[gl_BaseInstance + gl_InstanceID].custom_1;
+      custom_2                = instances[gl_BaseInstance + gl_InstanceID].custom_2;
    }
 
    highp mat4 model = instances[gl_BaseInstance + gl_InstanceID].model_matrix;
@@ -830,7 +835,7 @@ void main() {
 
    if (instance_rendering_mode > 0) {
       // TODO: Expand parameters
-      FragColor = custom(uv, instance_rendering_mode, custom_1, custom_2);
+      FragColor = custom(uv, render_state, instance_rendering_mode, custom_1, custom_2);
       return;
    }
 

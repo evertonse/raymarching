@@ -10,6 +10,7 @@ Varying {
    vec3 TangentViewPosition;
    vec3 TangentFragPosition;
 
+   flat uint render_state;
    flat uint material_index;
    flat uint has_tangents;
    flat vec4 color_tint;

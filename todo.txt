@@ -1,6 +1,13 @@
 [x] Add bicubic filtering for bloom upsampler https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1?permalink_comment_id=1879143#file-tex2dcatmullrom-hlsl-L5
 
 [ ] Timed logging function (each function gets a slice of time to log based on __func__)
+
+[ ] DDGI
+[ ] SSGI
+
+[ ] GTAO
+[ ] Oct normals
+
 [ ] Immediate Drawing mode
 [ ] Implement Panini projection. These are the effects order to remember for lens:
     Before Lens:
@@ -18,6 +25,10 @@
         Colorgrading / LUT
         Film grain
 
+[ ] Additive Blending
+[ ] Add Diana vfx from unity old project
+
+[ ] Make bloom temporal
 [ ] Fix health bad line rendering (affect bloom with flickering).
 [ ] Read more about these libs bgfx bimg noise soloud
 [x] Add support for anisotropic texture filter
@@ -49,10 +60,15 @@
 
 ## Animation
 
+[ ] Animation Retargeting
 [ ] Animation 3 way blend (Vayne riot model)
 [x] Animation blending, simplest way with some fixed transition time
 [ ] Animation blend trees that supports blend tree within itself. That would enable interpolating between crouching and standing up trees.
 [x] Make vayne animations load
+
+[ ] Texture Sheet animation in particle system
+
+[ ] Dynamic diffuse gi?
 
 ## General
 

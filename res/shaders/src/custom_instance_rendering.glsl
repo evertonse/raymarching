@@ -1,5 +1,29 @@
 
+const bool show_border_outline = false;
 const bool debug_color_for_missing_textures = true;
+
+vec2 texture_sheet_uv(vec2 uv, uint tiles_x, uint tiles_y, float t, float cycles) {
+   // Total frames in the sheet
+   float total_frames = float(tiles_x * tiles_y);
+
+   // Which frame are we on loops 'cycles' times over lifetime
+   float frame = mod(t * cycles * total_frames, total_frames);
+   uint frame_index = uint(floor(frame));
+
+   // 2D position of the frame in the grid
+   uint col = frame_index % tiles_x;
+   uint row = frame_index / tiles_x;
+
+   // Tile size in UV space
+   vec2 tile_size = vec2(1.0 / float(tiles_x), 1.0 / float(tiles_y));
+
+   // Unity orders rows top-to-bottom, flip row
+   uint flipped_row = (tiles_y - 1) - row;
+
+   // Offset uv into the correct tile
+   return (uv * tile_size) + vec2(float(col), float(flipped_row)) * tile_size;
+}
+
 vec3 health_background(vec2 uv, float health_percent) {
    vec3 background = vec3(0.15, 0.15, 0.15);
 
@@ -105,20 +129,42 @@ float gradient_noise(in vec2 uv) {
    return noise;
 }
 
-vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
+vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
    if (2 == instance_rendering_mode) {
       const float intensity = 100.;
       return vec4(vec3(1.) * intensity, 1.) * color_tint;
    }
 
    if (instance_rendering_mode >= 3) {
+
+      uint  tiles_x         = floatBitsToInt(custom_2.x);
+      uint  tiles_y         = floatBitsToInt(custom_2.y);
+      // float cycles       = custom_2.z;
+      float cycles          = 1;
+      float frame_over_time = custom_2.w;
+      // float t = per_frame.elapsed_time;
+      float t = custom_1.w;
+
+
+      // uint tiles_x = 2; uint tiles_y = 3; float t = per_frame.elapsed_time; float cycles = 1;
+
+      if (!(0 == tiles_x)) {
+         // tiles_x = 2; tiles_y = 3; t = per_frame.elapsed_time/2; cycles = 1;
+         // cycles = tiles_x*tiles_y);
+         t = (2/6.);
+         uv = texture_sheet_uv(uv, tiles_x, tiles_y, t, cycles);
+      }
+
       const float thickness = 0.025;
-      const bool show_border_outline = false;
       const bool in_border = (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness));
       if (show_border_outline && in_border) {
          // Orient by color. Useful for debugging.
          if (uv.y > (1. - thickness)) {
             return vec4(0., 0., 1., 0.8);
+         }
+
+         if (uv.x < thickness) {
+            return vec4(1., 1., 1., 0.8);
          }
          return vec4(1., 0., 0., 0.8);
       }
@@ -141,12 +187,19 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
       const float noise = gradient_noise(gl_FragCoord.xy + vec2(gl_SampleID));
 
       const float scale = 1. / 255.;
-      const float added_noise = lerp(-0.5 * scale, 0.5 * scale, noise);
+      float added_noise = lerp(-0.5 * scale, 0.5 * scale, noise);
+      // NOTE: Somehow adding a noise lags
+      added_noise *= 0;
 
       const vec3 tint   = srgb_to_linear(color_tint.rgb);
+      // const vec3 tint   = srgb_to_linear(vec3(0.4, 0, 0));
       const vec3 albedo = srgb_to_linear(diffuse_texture.rgb) * tint + added_noise;
       // const vec3 albedo = mix_particle_color_multiply(srgb_to_linear(diffuse_texture.rgb), tint) + added_noise;
+
       const float alpha = saturate(diffuse_texture.a * color_tint.a);
+      // const float alpha = saturate(luminance(albedo) * diffuse_texture.a * color_tint.a);
+      // const float alpha = saturate(brightness(albedo) * diffuse_texture.a * color_tint.a);
+
 
 
       const float hdr_intensity_linear = lerp(
@@ -158,10 +211,19 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
       const vec3 hdr_color = srgb_to_linear(vec3(191., 191., 191.) / 255.0) * hdr_intensity_linear;
       vec4 fragment_color = vec4(albedo * hdr_color, alpha);
 
-      const bool is_premultiplied_alpha = true;
-
-      if (is_premultiplied_alpha) {
+      // const uint blend_mode = render_state - 1; // NOTE: not the best since this number is pretty much dependent on C enum. Yikes.
+      const uint blend_mode = 0; // NOTE: not the best since this number is pretty much dependent on C enum. Yikes.
+      if (0 == blend_mode) {
+         // Alpha blend: premultiplied
          fragment_color = vec4(albedo * hdr_color * alpha, alpha);
+      } else if (1 == blend_mode) {
+         // Additive: alpha = 0 so dst is unchanged, src adds on top
+         // (ONE, ONE) blend mode i think is necessary
+         fragment_color = vec4(albedo * hdr_color, alpha);
+         // fragment_color = vec4(albedo, 0);
+      } else {
+         float grey = dot(albedo * hdr_color, vec3(0.2126, 0.7152, 0.0722));
+         return vec4(0.0, 0.0, 0.0, 1.0 - grey);
       }
 
       return fragment_color;
@@ -169,8 +231,8 @@ vec4 custom(vec2 uv, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2)
    }
 
    float current = custom_1.x;
-   float max = custom_1.y;
-   float aspect = custom_1.z;
+   float max     = custom_1.y;
+   float aspect  = custom_1.z;
    if (gl_FrontFacing) {
       return vec4(1.);
    }

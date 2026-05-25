@@ -48,8 +48,8 @@ typedef enum {
 } Particle_Spawn_Shape;
 
 
-#define MAX_PARTICLES 5*200
-// #define MAX_PARTICLES 1
+#define PARTICLE_SYSTEM_MAX_PARTICLES_COUNT 5*200
+// #define PARTICLE_SYSTEM_MAX_PARTICLES_COUNT 1
 
 typedef struct {
 
@@ -131,13 +131,20 @@ typedef struct {
       Particle_Spawn_Shape value;
    } spawn_shape;
 
+   struct {
+      int tiles_x,tiles_y;
+      float cycles;
+      float frame_over_time;
+      bool enabled;
+   } sheet_animation;
+
    ZString texture_path;
 
 
 
-   Particle particles[MAX_PARTICLES];
+   Particle particles[PARTICLE_SYSTEM_MAX_PARTICLES_COUNT];
 
-   uint particle_count;
+   uint max_particles_count, particles_count;
    bool is_local_simulation_space;
    Transform transform;
 } Particle_System;
@@ -186,7 +193,8 @@ static const Particle_System particle_system_default = {
 
    // runtime state
    .particles = {0}, // zero‐initializes entire array
-   .particle_count = 0,
+   .particles_count = 0,
+   .max_particles_count = PARTICLE_SYSTEM_MAX_PARTICLES_COUNT,
    .is_local_simulation_space = false,
    .transform = {
       .translation = {0,0,0},
@@ -199,9 +207,10 @@ static const Particle_System particle_system_default = {
 typedef struct {
    bool loaded;
    Model model;
-   Scene_Node nodes[MAX_PARTICLES];
+   Scene_Node nodes[PARTICLE_SYSTEM_MAX_PARTICLES_COUNT];
    int instance_rendering_mode;
    float hdr_intensity, hdr_alpha_compose, hdr_alpha_coefficient_intensity;
+   bool is_additive;
 } Particle_System_Render_Resources;
 
 
@@ -250,6 +259,7 @@ Color internal sample_color_gradient(const Color *colors, const float *timings, 
    return colors[count - 1];
 }
 
+
 Vector3 sample_size_curve(const Vector3 *values, const float *timings, uint count, float t) {
    if (count < 1)
       return vector3(1);
@@ -263,13 +273,16 @@ Vector3 sample_size_curve(const Vector3 *values, const float *timings, uint coun
       float t1 = timings[i + 1];
       if (t >= t0 && t <= t1) {
          float local_t = (t - t0) / (t1 - t0);
-         local_t = smoothstep(0.0f, 1.0f, local_t);
+         // local_t = local_t*local_t;
+         local_t = sqrt(local_t);
+         // local_t = smoothstep(0.0f, 1.0f, local_t);
          return lerp(values[i], values[i + 1], local_t);
       }
    }
 
    return values[count - 1];
 }
+
 
 typedef struct {
    Vector3 position;
@@ -315,7 +328,8 @@ Particle_Spawn_Result particle_cone_spawn(Vector3 direction, float half_angle) {
 
 // Return stub instead of null no need to check pointer
 Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float starting_age) {
-   for (uint i = 0; i < MAX_PARTICLES; i++) {
+
+   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
       Particle *p = &ps->particles[i];
       if (p && p->alive) {
          continue;
@@ -402,7 +416,7 @@ Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float st
       return p;
    }
 
-   trace_debug("If path is taken triggers we probably hit max capacity (%d) on particles per particle_system", MAX_PARTICLES);
+   trace_debug("If path is taken triggers we probably hit max capacity (%d) on particles per particle_system", PARTICLE_SYSTEM_MAX_PARTICLES_COUNT);
    static Particle stub = {0};
    // silently drop by returning stub particle if full
    return &stub;
@@ -538,21 +552,23 @@ void update_particle_system(Particle_System *ps, Vector3 emitter_position, float
    // Simulate live particles. Do this first because if we spawn particles and then update
    // Every new particle would start with at least 'dt' of age which would could synchronization problems.
    {
-      ps->particle_count = 0;
-      for (uint i = 0; i < MAX_PARTICLES; i++) {
+      ps->particles_count = 0;
+      for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
          Particle *p = &ps->particles[i];
          if (p->alive) {
             update_particle(p, ps, dt);
-            ps->particle_count += 1;
          } else {
             *p = (Particle){0};
          }
+
+         ps->particles_count += (int)p->alive;
       }
    }
 
    // Advance emitter clock
    {
       ps->emitter_age += dt;
+      // NOTE: Should we kill all currently alive particles when duration is reached?
       if (ps->looping && ps->emitter_age >= ps->duration) {
          ps->emitter_age -= ps->duration;
          // -= instead of = 0 so we don't lose overshoot
@@ -572,6 +588,10 @@ void update_particle_system(Particle_System *ps, Vector3 emitter_position, float
 
             float starting_age = ps->spawn_accumulator / ps->spawn_rate; // convert back to seconds
             // starting_age = 0;
+
+            if (ps->particles_count >= ps->max_particles_count) {
+               break;
+            }
             Particle *p = spawn_particle(ps, emitter_position, starting_age);
 
             // Not updating when just spawned will cause popping related to over_lifetime fields.
@@ -581,62 +601,6 @@ void update_particle_system(Particle_System *ps, Vector3 emitter_position, float
          }
       }
    }
-}
-
-
-void setup_particle_render_state(void) {
-   // true ? nullptr : glEnable(GL_FRAMEBUFFER_SRGB);
-
-   // No backface culling quads are single sided
-   // but we want both sides visible if camera goes behind
-   glDisable(GL_CULL_FACE);
-
-   glEnable(GL_BLEND);
-   // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-   glBlendEquation(GL_FUNC_ADD); // GL_FUNC_SUBTRACT
-
-
-   // Particles don't write depth
-   const bool depth_fiddling = true;
-   if (depth_fiddling) {
-      glDepthMask(GL_FALSE);
-      glEnable(GL_DEPTH_TEST);
-      glDepthFunc(GL_LESS);
-   }
-
-
-   // trace_info("simulation_speed = %f", simulation_speed);
-   int values[]            = { GL_SRC_ALPHA,   GL_ONE_MINUS_SRC_ALPHA,   GL_ZERO,   GL_ONE,   GL_SRC_COLOR,   GL_ONE_MINUS_SRC_COLOR,   GL_DST_COLOR,   GL_ONE_MINUS_DST_COLOR,   GL_DST_ALPHA,   GL_ONE_MINUS_DST_ALPHA,   GL_CONSTANT_COLOR,   GL_ONE_MINUS_CONSTANT_COLOR,   GL_CONSTANT_ALPHA,   GL_ONE_MINUS_CONSTANT_ALPHA };
-   ZString values_string[] = {"GL_SRC_ALPHA", "GL_ONE_MINUS_SRC_ALPHA", "GL_ZERO", "GL_ONE", "GL_SRC_COLOR", "GL_ONE_MINUS_SRC_COLOR", "GL_DST_COLOR", "GL_ONE_MINUS_DST_COLOR", "GL_DST_ALPHA", "GL_ONE_MINUS_DST_ALPHA", "GL_CONSTANT_COLOR", "GL_ONE_MINUS_CONSTANT_COLOR", "GL_CONSTANT_ALPHA", "GL_ONE_MINUS_CONSTANT_ALPHA"};
-   static int current_1 = 0;
-   static int current_2 = 1;
-   bool pressed_button = false;
-
-   if (is_button_pressed(BUTTON_1)) {
-      current_1 = (current_1 + 1) % count_of(values);
-      pressed_button = true;
-   }
-   if (is_button_pressed(BUTTON_2)) {
-      current_2 = (current_2 + 1) % count_of(values);
-      pressed_button = true;
-   }
-
-   if (is_button_pressed(BUTTON_3)) {
-      current_1 = 0; current_2 = 1;
-      pressed_button = true;
-   }
-
-   if (is_button_pressed(BUTTON_4)) {
-      current_1 = 3; current_2 = 1;
-      pressed_button = true;
-   }
-
-   if (pressed_button) {
-      trace_info("glBlendFunc(%s, %s)", values_string[current_1], values_string[current_2]);
-   }
-
-   glBlendFunc(values[current_1], values[current_2]);
 }
 
 
@@ -664,11 +628,16 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
 
       trace_info("ps_resources->hdr_intensity = %f hdr_linear_intensity = %f for %s", ps_resources->hdr_intensity, hdr_linear_intensity, ps->texture_path);
 
-      for (uint i = 0; i < MAX_PARTICLES; i++) {
+      for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
          if (0 == i) {
             // First node owns mesh
             ps_resources->nodes[i] = create_scene_node(&ps_resources->model);
-            update_renderable_render_state(ps_resources->nodes[i], RENDER_STATE_VFX);
+            if (ps_resources->is_additive) {
+               update_renderable_render_state(ps_resources->nodes[i], RENDER_STATE_VFX_ADDITIVE);
+            } else {
+               update_renderable_render_state(ps_resources->nodes[i], RENDER_STATE_VFX);
+            }
+
          } else {
             // Instances from first
             ps_resources->nodes[i] = create_scene_node(ps_resources->nodes[0]);
@@ -676,7 +645,25 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
 
          // Hide until a particle claims it
          update_color_tint(ps_resources->nodes[i], vector4(0.f));
-         update_custom_data(ps_resources->nodes[i], vector4(hdr_linear_intensity, hdr_alpha_compose, hdr_alpha_coefficient_intensity, 0), vector4(0));
+
+         Vector4 sheet_data =
+            ps->sheet_animation.enabled ?
+            vector4(
+               // That's UB I believe, fuck it tho
+               *(float*)(&ps->sheet_animation.tiles_x),
+               *(float*)(&ps->sheet_animation.tiles_y),
+               ps->sheet_animation.cycles,
+               ps->sheet_animation.frame_over_time
+            )
+            : vector4(0)
+         ;
+
+         Vector4 hdr_data = vector4(hdr_linear_intensity, hdr_alpha_compose, hdr_alpha_coefficient_intensity, 0);
+
+         update_custom_data(ps_resources->nodes[i],
+            hdr_data,
+            sheet_data
+         );
       }
    }
 
@@ -694,7 +681,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
    update_particle_system(ps, position, time_delta() * simulation_speed);
 
    uint live_count = 0;
-   for (uint i = 0; i < MAX_PARTICLES; i++) {
+   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
       if (ps->particles[i].alive) {
          Particle tmp = ps->particles[live_count];
          ps->particles[live_count] = ps->particles[i];
@@ -703,7 +690,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
       }
    }
 
-   for (uint i = 0; i < MAX_PARTICLES; i++) {
+   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
       Particle *p = &ps->particles[i];
       Scene_Node node = ps_resources->nodes[i];
 
@@ -718,6 +705,16 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
 
       // DIRTY
       update_rendering_mode(node, ps_resources->instance_rendering_mode);
+
+      if (ps->sheet_animation.enabled) {
+         float t = p->age / p->lifetime;
+         Vector4 *custom = get_custom_data(ps_resources->nodes[i]);
+         custom[0].w = t;
+         update_custom_data(ps_resources->nodes[i],
+            custom[0],
+            custom[1]
+         );
+      }
 
       Transform transform = calculate_particle_transform(p, ps, camera_position, camera_forward, camera_right, camera_up);
       update_transform(node, transform);
@@ -777,6 +774,7 @@ void draw_quad_test(Vector3 unit_position, Vector3 camera_position, Vector3 came
    }
 }
 
+
 void draw_impact_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_position, Vector3 camera_forward, Vector3 camera_right, Vector3 camera_up) {
    static struct {
       Particle_System particle_system;
@@ -789,39 +787,140 @@ void draw_impact_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 came
       loaded = true;
       for (uint idx = 0; idx < count_of(vfx); idx++) {
          vfx[idx].particle_system = particle_system_default;
-         vfx[idx].particle_system.duration = 5;
-         vfx[idx].particle_system.transform.scale = vector3(20);
-         vfx[idx].render_resources.instance_rendering_mode = 3 + 2;
+
+         vfx[idx].particle_system.is_local_simulation_space = true;
+         vfx[idx].particle_system.duration                  = 5;
+         vfx[idx].particle_system.transform.scale           = vector3(20);
+         vfx[idx].render_resources.instance_rendering_mode  = 3 ;
+         vfx[idx].render_resources.hdr_intensity            = 1;
+         vfx[idx].render_resources.is_additive              = true;
       }
-      Particle_System *ps = &vfx[0].particle_system;
-      auto *resources = &vfx[0].render_resources;
+      {
+         Particle_System *ps = &vfx[0].particle_system;
 
-      ps->duration   = 0.2;
-      ps->looping    = true;
-      ps->spawn_rate = 10;
+         ps->duration   = 0.2;
+         ps->looping    = true;
+         ps->spawn_rate = 10;
 
-      ps->start.lifetime.min = 0.25;
-      ps->start.lifetime.max = 0.25;
+         ps->start.lifetime.min = 0.25;
+         ps->start.lifetime.max = 0.25;
 
-      ps->start.size.min = 7;
-      ps->start.size.max = 7;
+         ps->start.size.min = 7;
+         ps->start.size.max = 7;
+         ps->max_particles_count = 1;
 
-      auto color = mul(1./255., vector3(255, 204, 140));
-      ps->start.color.from = vector4(color, 1);
-      ps->start.color.to   = vector4(color, 1);
-      ps->transform.scale  = vector3(5);
-      ps->over_lifetime.size = (type_of(ps->over_lifetime.size)) {
-         .values  = { vector3(1.0f/3.0f), vector3(0.8), vector3(1.0) },
-         .timings = { 0.0f, 0.9f, 1.0f },
-         .count   = 3
-      };
+         auto color = mul(1./255., vector4(255, 204, 140, 255));
+         ps->start.color.from = color;
+         ps->start.color.to   = color;
+         ps->transform.scale  = vector3(5);
+         ps->over_lifetime.size = (type_of(ps->over_lifetime.size)) {
+            .values  = { vector3(0.341), vector3(0.8134378), vector3(1.0) },
+            .timings = { 0.0f, 0.1588457f, 1.0f },
+            .count   = 3
+         };
+         ps->texture_path = "./res/textures/vfx/glow_point1_blue 1_1.png";
+      }
 
-      // ps->texture_path = "res/textures/vfx/Flare00.png";
-      ps->texture_path = "./res/textures/vfx/glow_point1_blue 1_1.png";
+      {
+         Particle_System *ps = &vfx[1].particle_system;
+
+         ps->duration   = 0.2;
+         ps->looping    = true;
+         ps->spawn_rate = 100;
+
+         ps->start.lifetime.min = 0.27;
+         ps->start.lifetime.max = 0.27;
+
+         auto color = mul(1./255., vector4(227, 242, 133, 187));
+         ps->start.color.from = color;
+         ps->start.color.to   = color;
+
+         ps->start.size.min = 3.6;
+         ps->start.size.max = 3.6;
+         ps->max_particles_count = 1;
+         ps->transform.scale  = vector3(5);
+
+         ps->over_lifetime.size = (type_of(ps->over_lifetime.size)) {
+            .values  = { vector3(0.2833703), vector3(0.6505904), vector3(1.0) },
+            .timings = { 0.0f, 0.2806508, 1.0f },
+            .count   = 3
+         };
+
+         ps->over_lifetime.color = (type_of(ps->over_lifetime.color)) {
+            .values  = {
+               vector4(vector3(1), 0),
+               vector4(1),
+               vector4(1),
+               vector4(vector3(1), 0),
+            },
+            .timings = { 0.0f, 0.145, 0.286,1.0f },
+            .count   = 4
+         };
+         ps->texture_path = "./res/textures/vfx/Particle_Circle_07_Noise.png";
+
+      }
+
+      {
+         Particle_System *ps = &vfx[2].particle_system;
+
+         ps->duration   = 0.2;
+         ps->looping    = true;
+         ps->spawn_rate = 100;
+
+         ps->start.lifetime.min = 0.35;
+         ps->start.lifetime.max = 0.35;
+
+         ps->start.speed.min = 7;
+         ps->start.speed.max = 5;
+
+         ps->start.size.min = 0.2;
+         ps->start.size.max = 0.3;
+
+         auto color = mul(1./255., vector4(217, 255, 123, 255));
+         ps->start.color.from = color;
+         ps->start.color.to   = color;
+
+         ps->max_particles_count = 15;
+         ps->transform.scale  = vector3(5);
+
+         ps->spawn_shape = (type_of(ps->spawn_shape)){
+            // TODO: Add these to position
+            //.radius = 0.6,
+            //.radius_thickness = 0.2,
+            .half_angle = DEG2RAD * 360,
+            .value = PARTICLE_SPAWN_SHAPE_SPHERE,
+         };
+
+         ps->transform_mode = (type_of(ps->transform_mode)){
+            .speed_scale  = 0.0f,
+            .length_scale = 4.0f,
+            .value = PARTICLE_TRANSFORM_MODE_STRETCHED_BILLBOARD,
+         };
+
+         ps->over_lifetime.color = (type_of(ps->over_lifetime.color)) {
+            .values  = {
+               vector4(vector3(1), 0),
+               vector4(vector3(1), 0),
+               vector4(1),
+               vector4(1),
+               vector4(vector3(1), 0),
+            },
+            .timings = { 0.0f, 0.076, 0.214, 48.5, 1.0f },
+            .count   = 5
+         };
+
+         ps->sheet_animation = (type_of(ps->sheet_animation)){
+            .tiles_x = 2,
+            .tiles_y = 3,
+            .cycles = 1,
+            .frame_over_time = 2,
+            .enabled = true,
+         };
+
+         ps->texture_path = "./res/textures/vfx/FX_20008_Skill_2.png";
+
+      }
    }
-   // auto tex = create_texture("./res/textures/vfx/glow_point1_blue 1_1.png");
-   // debug_print_texture(tex);
-   // wait_for_enter_on_terminal();
 
    for (int idx = 0; idx < count_of(vfx); idx++) {
       Particle_System *ps = &vfx[idx].particle_system;
@@ -936,6 +1035,7 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
             .value      = PARTICLE_SPAWN_SHAPE_CONE,
          },
          .is_local_simulation_space = false,
+         .max_particles_count =  particle_system_default.max_particles_count,
 
          .transform = {
             .rotation = QuaternionFromVector3ToVector3(vector3(1, 0, 0), normalize(vector3(1, 0,1))),
@@ -1010,19 +1110,11 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
          .transform = {
             .scale = vector3(20.),
          },
+         .max_particles_count =  particle_system_default.max_particles_count,
       };
       // vfx[count_of(vfx)-1].particle_system = debug_particle_system;
    }
 
-   // setup_particle_render_state();
-   // for (int idx = 0; idx < count_of(vfx); idx++) {
-   //    Particle_System *ps = &vfx[idx].particle_system;
-   //    ps->transform.position = add(unit_position, vector3(30, 0, 0) );
-   //    auto particle_direction = mul(-1, unit_direction);
-   //    auto rotation = rotation_from_direction(particle_direction);
-   //    ps->transform.rotation = rotation;
-   //    draw_particle_system(&vfx[idx].particle_system, &vfx[idx].render_resources, unit_position, camera_position, camera_forward, camera_right, camera_up);
-   // }
    for (int idx = 0; idx < count_of(vfx); idx++) {
       Particle_System *ps = &vfx[idx].particle_system;
       ps->transform.position = add(unit_position, vector3(0, 0, 0));
@@ -1109,6 +1201,7 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
          },
          .texture_path = "res/textures/vfx/Swirl01.png",
          .is_local_simulation_space = is_local_simulation_space,
+         .max_particles_count =  particle_system_default.max_particles_count,
       };
 
       particle_color = vector4(17/255., 24/255., 34/255., 1.);
@@ -1156,6 +1249,7 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
             .rotation =  transform_identity.rotation,
          },
          .is_local_simulation_space = is_local_simulation_space,
+         .max_particles_count =  particle_system_default.max_particles_count,
       };
 
       particle_color   = vector4(0, 0, 0, 1.);
@@ -1202,11 +1296,12 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
             .rotation =  transform_identity.rotation,
          },
          .is_local_simulation_space = is_local_simulation_space,
+         .max_particles_count =  particle_system_default.max_particles_count,
       };
+
    }
 
 
-   // setup_particle_render_state();
    for (int idx = 0; idx < count_of(vfx); idx++) {
       auto ps = &vfx[idx].particle_system;
       ps->transform.position = add(vector3(30, 0, 30), unit_position);

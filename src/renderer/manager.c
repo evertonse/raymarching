@@ -42,6 +42,7 @@ static_assert(size_of(Draw_Command) % 16 == 0);
 typedef enum {
    RENDER_STATE_OPAQUE,
    RENDER_STATE_VFX,
+   RENDER_STATE_VFX_ADDITIVE,
    RENDER_STATE_COUNT,
 } Render_State;
 
@@ -834,6 +835,9 @@ void draw_indirect(Texture diffuse, Shader shader) {
 
       manager.draw_commands.render_state.apply[render_state_index]();
 
+      Vector4 push_constants = vector4(*(float*)&render_state_index, vector3(0));
+      upload_push_constants(&push_constants, size_of(push_constants));
+
       auto draw_commands_size            = count  * stride;
       auto draw_commands_offset_in_bytes = offset * stride;
 
@@ -1429,6 +1433,15 @@ void update_rendering_mode(Scene_Node node, Instance_Rendering_Mode instance_ren
    return;
 }
 
+void* get_custom_data(Scene_Node node) {
+   isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
+   isz instance_index   = manager.scene.nodes.items[node.index].instance_index;
+   auto renderable = &manager.scene.renderables.items[renderable_index];
+   auto instance  = &renderable->instances.items[instance_index];
+
+   // NOTE: This assumes custom_1,2,3... Always gonna be continous
+   return &instance->custom_1;
+}
 
 void update_custom_data(Scene_Node node, Vector4 custom_1, Vector4 custom_2) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
@@ -1513,9 +1526,11 @@ void render_state_apply_normal(void) {
    // glMinSampleShading(1.0):
 
    glEnable(GL_BLEND);
-   glBlendEquation(GL_FUNC_ADD);
-
-   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+   glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+   glBlendFuncSeparate(
+      GL_ONE, GL_ONE_MINUS_SRC_ALPHA,  // RGB
+      GL_ONE, GL_ONE_MINUS_SRC_ALPHA   // Alpha
+   );
 
    { // Some expected settings
       glEnable(GL_DEPTH_TEST);
@@ -1598,6 +1613,32 @@ void render_state_apply_vfx(void) {
    glBlendFunc(values[current_1], values[current_2]);
 }
 
+void internal render_state_apply_vfx_additive(void) {
+   glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+   glBlendFuncSeparate(
+      GL_ONE, GL_ONE,  // RGB: pure addition
+      GL_ZERO, GL_ONE  // Alpha: dst alpha unchanged
+   );
+
+   glEnable(GL_BLEND);
+   glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+   glDisable(GL_SAMPLE_ALPHA_TO_ONE);
+
+   // No backface culling quads are single sided
+   // but we want both sides visible if camera goes behind
+   glDisable(GL_CULL_FACE);
+
+   // Particles don't write depth
+   const bool depth_fiddling = true;
+   if (depth_fiddling) {
+      glDepthMask(GL_FALSE);
+      glEnable(GL_DEPTH_TEST);
+      glDepthFunc(GL_LESS);
+   }
+
+
+}
+
 
 // Initialize the global buffer system
 void init_manager() {
@@ -1647,8 +1688,9 @@ void init_manager() {
    isz draw_commands_buffer_size = initial_index_capacity * size_of(manager.draw_commands.items[0]);
    manager.draw_commands.buffer  = create_buffer(buffer_flag, nullptr, draw_commands_buffer_size);
 
-   manager.draw_commands.render_state.apply[RENDER_STATE_OPAQUE] = render_state_apply_normal;
-   manager.draw_commands.render_state.apply[RENDER_STATE_VFX]    = render_state_apply_vfx;
+   manager.draw_commands.render_state.apply[RENDER_STATE_OPAQUE]       = render_state_apply_normal;
+   manager.draw_commands.render_state.apply[RENDER_STATE_VFX]          = render_state_apply_vfx;
+   manager.draw_commands.render_state.apply[RENDER_STATE_VFX_ADDITIVE] = render_state_apply_vfx_additive;
 
    // Create VAO
    glCreateVertexArrays(1, &manager.vao);
