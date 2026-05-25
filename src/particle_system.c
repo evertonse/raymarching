@@ -52,7 +52,6 @@ typedef enum {
 // #define PARTICLE_SYSTEM_MAX_PARTICLES_COUNT 1
 
 typedef struct {
-
    // emitter
    float duration;
    bool  looping;
@@ -91,8 +90,6 @@ typedef struct {
       struct {
          Vector3 from, to;
       } rotation;
-
-
    } start;
 
    struct {
@@ -107,36 +104,35 @@ typedef struct {
       Vector3 rotation;
 
       struct {
-          Vector3 values[PARTICLE_MAX_KEYS];
-          float timings[PARTICLE_MAX_KEYS];
-          int   count;
+         Vector3 values[PARTICLE_MAX_KEYS];
+         float   timings[PARTICLE_MAX_KEYS];
+         int     count;
       } size;
 
    } over_lifetime;
 
    struct {
-      float speed_scale;  // additional length per unit of speed. 0 = no speed stretching
-      float length_scale; // base length multiplier. 1.0 = square, 2.0 = twice as long as wide
-                          //
-                          // final_length = size * (length_scale + speed_scale * |velocity|)
-                          // final_width  = size  (unchanged)
-                          //
-                          // defaults: length_scale=1, speed_scale=0
+      // defaults: length_scale=1, speed_scale=0
+      float speed_scale;
+      float length_scale;
+      
       Particle_Transform_Mode value;
    } transform_mode;
 
    struct {
       Vector3 direction;
       float   half_angle;
+
       Particle_Spawn_Shape value;
    } spawn_shape;
 
    struct {
-      int tiles_x,tiles_y;
+      u16   tiles_x, tiles_y;
       float cycles;
-      float frame_over_time;
-      bool enabled;
-   } sheet_animation;
+      float start_frame;
+      bool  enabled;
+      bool  is_animated;
+   } sheet;
 
    ZString texture_path;
 
@@ -147,7 +143,7 @@ typedef struct {
    uint max_particles_count, particles_count;
    bool is_local_simulation_space;
    Transform transform;
-} Particle_System;
+} Particle_System; // TODO: Maybe this should just be called Particle_Emitter
 
 
 static const Particle_System particle_system_default = {
@@ -250,16 +246,15 @@ Color internal sample_color_gradient(const Color *colors, const float *timings, 
          float local_t = (t - t0) / (t1 - t0);
          // local_t *= local_t;
          float new_local_t = smoothstep(0.0, 1.0, local_t);
-
          return lerp(colors[i], colors[i + 1], new_local_t);
-
       }
    }
-
    return colors[count - 1];
 }
 
 
+// Maybe the sampler should be a function pointer, let the user interpret the points as bezier curves or whatever the fuck it wants
+// as long as a new Vector3 size is returned.
 Vector3 sample_size_curve(const Vector3 *values, const float *timings, uint count, float t) {
    if (count < 1)
       return vector3(1);
@@ -273,9 +268,12 @@ Vector3 sample_size_curve(const Vector3 *values, const float *timings, uint coun
       float t1 = timings[i + 1];
       if (t >= t0 && t <= t1) {
          float local_t = (t - t0) / (t1 - t0);
+
+         // Hardcorded  f(t)
          // local_t = local_t*local_t;
          local_t = sqrt(local_t);
          // local_t = smoothstep(0.0f, 1.0f, local_t);
+
          return lerp(values[i], values[i + 1], local_t);
       }
    }
@@ -358,7 +356,7 @@ Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float st
       // Change this to ray instead or line segment
       case PARTICLE_SPAWN_SHAPE_DIRECTION:
       default: {
-         result.direction = ps->spawn_shape.direction;
+         result.direction = normalize(ps->spawn_shape.direction);
          break;
       }
       case PARTICLE_SPAWN_SHAPE_CONE: {
@@ -383,8 +381,6 @@ Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float st
          break;
       }
       };
-
-      // result.direction = normalize(Vector3RotateByQuaternion(result.direction, ps->transform.rotation));
 
       *p = (Particle) {
          .position = result.position,
@@ -646,20 +642,19 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
          // Hide until a particle claims it
          update_color_tint(ps_resources->nodes[i], vector4(0.f));
 
-         Vector4 sheet_data =
-            ps->sheet_animation.enabled ?
-            vector4(
-               // That's UB I believe, fuck it tho
-               *(float*)(&ps->sheet_animation.tiles_x),
-               *(float*)(&ps->sheet_animation.tiles_y),
-               ps->sheet_animation.cycles,
-               ps->sheet_animation.frame_over_time
-            )
-            : vector4(0)
-         ;
-
+         Vector4 sheet_data = vector4(0);
          Vector4 hdr_data = vector4(hdr_linear_intensity, hdr_alpha_compose, hdr_alpha_coefficient_intensity, 0);
 
+         if (ps->sheet.enabled) {
+            uint tiles_bits = ((ps->sheet.tiles_x & 0xFFFFu) << 16 ) | (ps->sheet.tiles_y & 0xFFFFu);
+            sheet_data = vector4(
+               // That's UB I believe, fuck it tho
+               *(float*)(&tiles_bits),
+               ps->sheet.start_frame,
+               ps->sheet.cycles,
+               0
+            );
+         }
          update_custom_data(ps_resources->nodes[i],
             hdr_data,
             sheet_data
@@ -706,7 +701,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
       // DIRTY
       update_rendering_mode(node, ps_resources->instance_rendering_mode);
 
-      if (ps->sheet_animation.enabled) {
+      if (ps->sheet.enabled && ps->sheet.is_animated) {
          float t = p->age / p->lifetime;
          Vector4 *custom = get_custom_data(ps_resources->nodes[i]);
          custom[0].w = t;
@@ -909,12 +904,13 @@ void draw_impact_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 came
             .count   = 5
          };
 
-         ps->sheet_animation = (type_of(ps->sheet_animation)){
-            .tiles_x = 2,
-            .tiles_y = 3,
-            .cycles = 1,
-            .frame_over_time = 2,
-            .enabled = true,
+         ps->sheet = (type_of(ps->sheet)){
+            .tiles_x     = 2,
+            .tiles_y     = 3,
+            .cycles      = 1,
+            .start_frame = 2,
+            .is_animated = false,
+            .enabled     = true,
          };
 
          ps->texture_path = "./res/textures/vfx/FX_20008_Skill_2.png";

@@ -6,6 +6,14 @@
 #   define lerp mix
 #endif
 
+// float packed contains high 16 bits (.x) low 16 bits (.y)
+uvec2 unpack_u16_from_float(float packed_float) {
+   uint bits = floatBitsToUint(packed_float);
+   uint low  = bits & 0xFFFFu;
+   uint high = (bits >> 16) & 0xFFFFu;
+   return uvec2(high, low);
+}
+
 #define BT709_OETF
 
 #if defined(PURE_GAMMA)

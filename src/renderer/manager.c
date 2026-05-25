@@ -1549,7 +1549,7 @@ void render_state_apply_normal(void) {
    if (false) {
       glDepthFunc (GL_LESS);
       glCullFace  (GL_FRONT);  // Instead of GL_BACK
-      glFrontFace (GL_CCW);     // Instead of GL_CCW
+      glFrontFace (GL_CCW);    // Instead of GL_CCW
       glClearDepth(1.0);
       glDepthRange(0.0, 1.0);
    }
@@ -1616,7 +1616,7 @@ void render_state_apply_vfx(void) {
 void internal render_state_apply_vfx_additive(void) {
    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
    glBlendFuncSeparate(
-      GL_ONE, GL_ONE,  // RGB: pure addition
+      GL_ONE, GL_ONE,  // RGB  :  addition
       GL_ZERO, GL_ONE  // Alpha: dst alpha unchanged
    );
 

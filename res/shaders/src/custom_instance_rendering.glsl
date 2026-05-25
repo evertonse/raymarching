@@ -2,23 +2,22 @@
 const bool show_border_outline = false;
 const bool debug_color_for_missing_textures = true;
 
-vec2 texture_sheet_uv(vec2 uv, uint tiles_x, uint tiles_y, float t, float cycles) {
+vec2 texture_sheet_uv(vec2 uv, uvec2 tiles, float start_frame, float t, float cycles) {
    // Total frames in the sheet
-   float total_frames = float(tiles_x * tiles_y);
+   float total_frames = float(tiles.x * tiles.y);
 
-   // Which frame are we on loops 'cycles' times over lifetime
-   float frame = mod(t * cycles * total_frames, total_frames);
-   uint frame_index = uint(floor(frame));
+   // Which frame are we considering we need to complete 'cycles' times over lifetime ('t' gets to 1 it means we have to complete had completed 'cycles' cycles)
+   uint frame_index = uint(floor(mod(start_frame + t * cycles * total_frames, total_frames)));
 
    // 2D position of the frame in the grid
-   uint col = frame_index % tiles_x;
-   uint row = frame_index / tiles_x;
+   uint col = frame_index % tiles.x;
+   uint row = frame_index / tiles.x;
 
    // Tile size in UV space
-   vec2 tile_size = vec2(1.0 / float(tiles_x), 1.0 / float(tiles_y));
+   vec2 tile_size = vec2(1.0 / float(tiles.x), 1.0 / float(tiles.y));
 
-   // Unity orders rows top-to-bottom, flip row
-   uint flipped_row = (tiles_y - 1) - row;
+   // Unity orders rows top-to-bottom, flip row to allow easy porting
+   uint flipped_row = (tiles.y - 1) - row;
 
    // Offset uv into the correct tile
    return (uv * tile_size) + vec2(float(col), float(flipped_row)) * tile_size;
@@ -136,24 +135,14 @@ vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custo
    }
 
    if (instance_rendering_mode >= 3) {
-
-      uint  tiles_x         = floatBitsToInt(custom_2.x);
-      uint  tiles_y         = floatBitsToInt(custom_2.y);
-      // float cycles       = custom_2.z;
-      float cycles          = 1;
-      float frame_over_time = custom_2.w;
-      // float t = per_frame.elapsed_time;
-      float t = custom_1.w;
-
-
-      // uint tiles_x = 2; uint tiles_y = 3; float t = per_frame.elapsed_time; float cycles = 1;
-
-      if (!(0 == tiles_x)) {
-         // tiles_x = 2; tiles_y = 3; t = per_frame.elapsed_time/2; cycles = 1;
-         // cycles = tiles_x*tiles_y);
-         t = (2/6.);
-         uv = texture_sheet_uv(uv, tiles_x, tiles_y, t, cycles);
+      uvec2 tiles       = unpack_u16_from_float(custom_2.x);
+      float start_frame = custom_2.y;
+      float cycles      = custom_2.z;
+      float t           = custom_1.w;
+      if (0 != tiles.x) {
+         uv = texture_sheet_uv(uv, tiles, start_frame, t, cycles);
       }
+
 
       const float thickness = 0.025;
       const bool in_border = (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness));

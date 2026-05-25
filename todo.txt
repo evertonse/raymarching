@@ -8,6 +8,8 @@
 [ ] GTAO
 [ ] Oct normals
 
+[ ] Maybe transform Shader into a handle and make a update_shader_system to check for realod on every single shader through the update function instead of calling reload_if_needed on individual shaders in use site.
+
 [ ] Immediate Drawing mode
 [ ] Implement Panini projection. These are the effects order to remember for lens:
     Before Lens:
