@@ -13,6 +13,7 @@
 #include "./shader.c"
 #include "./mesh.c"
 #include "./texture.c"
+#include "./framebuffer.c"
 #include "./animation.c"
 #include "./model.c"
 #include "./buffer.c"
@@ -44,12 +45,6 @@ typedef struct {
 } Vertex_Array;
 
 
-typedef struct {
-   i32 x;                // Rectangle top-left corner position x
-   i32 y;                // Rectangle top-left corner position y
-   i32 width;            // Rectangle width
-   i32 height;           // Rectangle height
-} Rectangle_I32;
 
 
 inline bool is_valid_vertex_array(Vertex_Array va) {
@@ -75,12 +70,6 @@ inline bool is_valid_vertex_array(Vertex_Array va) {
    }
 #endif
    return true;
-}
-
-
-// Rectangle_I32
-inline bool is_valid_rectangle(Rectangle_I32 r) {
-    return r.width > 0 && r.height > 0;
 }
 
 
@@ -296,7 +285,6 @@ void bind_vertex_array(const Vertex_Array va) {
 }
 
 
-#include "framebuffer.c"
 #include "bloom.c"
 // #include "bloom_2.c"
 // #include "bloom_3.c"

@@ -24,7 +24,7 @@ typedef struct {
 
    Framebuffer    fb;
 
-   Rectangle_I32  destination;
+   Rectangle_Int  destination;
    Camera         camera;
    Mesh           sphere_mesh;
 
@@ -101,85 +101,6 @@ void projection_update_shaders(Projection_Application *app) {
       }
    }
 }
-
-
-
-static void draw_va(Projection_Application *app, Vertex_Array *va, Vector3 position, Vector3 scale, Vector4 rotation) {
-   Matrix translation_matrix = MatrixTranslate(position.x, position.y, position.z);
-   Matrix scale_matrix       = MatrixScale(scale.x, scale.y, scale.z);
-   Matrix rotation_matrix    = MatrixRotate((Vector3){rotation.x, rotation.y, rotation.z}, rotation.w);
-   Matrix model = mul(translation_matrix, mul(rotation_matrix, scale_matrix));
-
-   update_buffer(&app->per_frame_buffer.buffer, MatrixToFloat(model), offset_of(typeof(app->per_frame), model), size_of(app->per_frame.model));
-   bind_buffer(&va->vb.buffer, BUFFER_TYPE_STORAGE, 3);
-
-   glBindVertexArray(va->handle);
-   // glDrawElements(GL_TRIANGLES, va->ib.count, GL_UNSIGNED_INT, NULL);
-
-   glEnable(GL_DEPTH_TEST);
-
-   glDrawElementsBaseVertex(GL_TRIANGLES,
-      va->ib.count,               // How many indices
-      GL_UNSIGNED_INT,            // Index type
-      (void *)(0 * size_of(u32)), // Where indices start
-      0                           // Base vertex offset
-   );
-}
-
-static void init_model_and_its_gpu_data(typeof(((Projection_Application *)0)->boy) *bundle, ZString filepath) {
-   bundle->model = create_model(filepath);
-
-   bundle->textures.count = bundle->model.materials.count;
-   bundle->textures.items = calloc(bundle->textures.count, size_of(bundle->textures.items[0]));
-
-   // TODO: mo' textures
-   for (isz index = 0; index < bundle->model.materials.count; index += 1) {
-      auto material = bundle->model.materials.items[index];
-      auto texture = &bundle->textures.items[index];
-      if (material.diffuse) {
-         texture->diffuse  = create_texture_from_filepath(material.diffuse);
-      }
-      if (material.specular) {
-         texture->specular = create_texture_from_filepath(material.specular);
-      }
-   }
-
-   bundle->vas.items = nullptr;
-   bundle->vas.count = 0;
-   {
-      for (isz idx = 0; idx < bundle->model.meshes.count; idx += 1) {
-         Mesh *mesh = &bundle->model.meshes.items[idx];
-         bundle->vas.count += mesh->surfaces.count;
-      }
-      bundle->vas.items = malloc(bundle->vas.count * size_of(bundle->vas.items[0]));
-   }
-
-   {
-      isz bundle_va_index = 0;
-      for (isz mesh_index = 0; mesh_index < bundle->model.meshes.count; mesh_index += 1) {
-         Mesh *mesh = &bundle->model.meshes.items[mesh_index];
-
-         create_vertex_arrays_from_mesh(mesh, &bundle->vas.items[bundle_va_index]);
-         bundle_va_index += mesh->surfaces.count;
-      }
-   }
-   {
-      assert(bundle->model.meshes.count == 1);
-      auto joints_data  = bundle->model.meshes.items[0].vertices.joints;
-      auto joints_count = bundle->model.meshes.items[0].vertices.count;
-      auto joints_size  = joints_count * size_of(joints_data[0]);
-      bundle->animation.vertex_joints = create_buffer(
-         BUFFER_USAGE_STATIC,
-         joints_data,
-         joints_size
-      );
-      assert(bundle->animation.vertex_joints.size == joints_size);
-   }
-   bundle->transform.scale       = (Vector3)   {5.,  5.,  5.      };
-   bundle->transform.rotation    = (Quaternion){-1., 0,   0, PI/2.};
-   bundle->transform.translation = (Vector3)   {30., 16., 20.     };
-}
-
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1013,7 +934,7 @@ void projection_update(Projection_Application *app, f64 dt) {
       set_redererer_mode(RENDERER_MODE_FILL);
    }
 
-   draw_indirect((Texture){0}, app->shader);
+   draw_indirect(app->fb, app->shader);
 
 
    if (please_sync) {
@@ -1033,7 +954,7 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       // const f64 rectangle_shrink_factor = 0.80;
       const f64 rectangle_shrink_factor = 1.0;
-      Rectangle_I32 destination = {
+      Rectangle_Int destination = {
          // .x = 100/4.,
          // .y = 100/4.,
          // .width = 600, .height = 400,
@@ -1041,7 +962,7 @@ void projection_update(Projection_Application *app, f64 dt) {
          .height = src_fb.color.height * rectangle_shrink_factor,
       };
 
-      Rectangle_I32 source = destination;
+      Rectangle_Int source = destination;
 
       static bool please_bloom = false;
       if (is_button_pressed(BUTTON_F1)) {

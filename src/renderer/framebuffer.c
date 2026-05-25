@@ -425,13 +425,34 @@ Framebuffer create_framebuffer_from_texture(const Texture texture) {
 }
 
 
-void destroy_framebuffer(Framebuffer *fb) {
-   glDeleteFramebuffers(1, &fb->handle);
-   destroy_texture(&fb->color);
-   destroy_texture(&fb->depth);
-   *fb = (Framebuffer){0};
+Framebuffer create_framebuffer_depth_only(int width, int height) {
+   Texture depth = create_texture(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+   Framebuffer result = create_framebuffer_from_texture(depth);
+   glNamedFramebufferDrawBuffer(result.handle, GL_NONE);  // no color writes
+   glNamedFramebufferReadBuffer(result.handle, GL_NONE);  // no color reads
+   return result;
 }
 
+
+void destroy_framebuffer(Framebuffer *fb) {
+   if (!fb || fb->handle == 0) {
+      return;
+   }
+
+   glDeleteFramebuffers(1, &fb->handle);
+
+   for (int i = 0; i < MAX_TEXTURES_PER_FRAMEBUFFER; i++) {
+      if (is_valid_texture(fb->colors[i])) {
+         destroy_texture(&fb->colors[i]);
+      }
+   }
+
+   if (is_valid_texture(fb->depth)) {
+      destroy_texture(&fb->depth);
+   }
+
+   *fb = (Framebuffer){0};
+}
 
 i32 current_framebuffer_handle(void) {
    GLint fb_handle;
@@ -447,6 +468,23 @@ int inline default_framebuffer_samples(void) {
       glGetIntegerv(GL_SAMPLES, &swapchain_samples);
    }
    return swapchain_samples;
+}
+
+
+void blit_framebuffer_depth(const Framebuffer dst_fb, const Framebuffer src_fb) {
+   assert_msg(is_valid_framebuffer(src_fb), "Invalid source framebuffer");
+   assert_msg(is_valid_framebuffer(dst_fb), "Invalid destination framebuffer");
+   
+   int w = src_fb.depth.width;
+   int h = src_fb.depth.height;
+   
+   glBlitNamedFramebuffer(
+      src_fb.handle, dst_fb.handle,
+      0, 0, w, h,
+      0, 0, w, h,
+      GL_DEPTH_BUFFER_BIT,
+      GL_NEAREST  // must be nearest for depth
+   );
 }
 
 
@@ -531,8 +569,8 @@ void inline blit_framebuffer(
 void inline overload blit_framebuffer(
    const Framebuffer dst_fb,
    const Framebuffer src_fb,
-   Rectangle_I32 src_rectangle,
-   Rectangle_I32 dst_rectangle
+   Rectangle_Int src_rectangle,
+   Rectangle_Int dst_rectangle
 ) {
    int dst_x0 = dst_rectangle.x, dst_y0 = dst_rectangle.y, dst_x1 = dst_rectangle.x + dst_rectangle.width, dst_y1 = dst_rectangle.y + dst_rectangle.height;
    int src_x0 = src_rectangle.x, src_y0 = src_rectangle.y, src_x1 = src_rectangle.x + src_rectangle.width, src_y1 = src_rectangle.y + src_rectangle.height;
@@ -672,4 +710,27 @@ void clear_framebuffer(Framebuffer fb) {
 
    // Restore
    glDepthMask(depth_mask);
+}
+
+
+Texture resolve_msaa_depth(Framebuffer src) {
+   static Framebuffer resolve_fb = {0};
+   static int cached_w = 0;
+   static int cached_h = 0;
+
+   int w = src.depth.width;
+   int h = src.depth.height;
+
+   if (cached_w != w || cached_h != h) {
+      if (is_valid_framebuffer(resolve_fb)) {
+         destroy_framebuffer(&resolve_fb);
+      }
+
+      resolve_fb = create_framebuffer_depth_only(w, h);
+      cached_w = w;
+      cached_h = h;
+   }
+
+   blit_framebuffer_depth(resolve_fb, src);
+   return resolve_fb.depth;
 }

@@ -1,22 +1,56 @@
 
-const bool show_border_outline = false;
+
+const bool show_border_outline              = false;
 const bool debug_color_for_missing_textures = true;
 
+// https://github.com/keaukraine/webgl-buddha/blob/a37daa8eb2f6391077cfec0b4f1d589085194153/js/app/SoftDiffuseColoredShader.js#L28
+float linearize_depth(float ndc_depth, float near, float far) {
+   float clip_z = ndc_depth * 2.0 - 1.0;
+   return (2.0 * near * far) / (far + near - clip_z * (far - near));
+}
+
+// Beware that this linearize_depth might not be exact actually. Because we warp based on x and y and don't actually use a matrix to do perpective
+// Search this function in codebase vec4 perspective_from_fov(vec3 position, float fov_y_rad, float aspect, float z_near, float z_far);
+// It might even be linear because I remember playing with it. So it might not be perfect right now but it does smooth out particles enough.
+// It's not that critical, as long as they're in the same space even if not linear.
+// SimonDev video about soft particles: https://youtu.be/arn_3WzCJQ8?si=tREAjBbc2lCfHY27
+float soft_particle_fade(float fade_distance) {
+   // Sample scene depth at this pixel (assuming framebuffer_depth_texture is the same width as the framebuffer)
+   const vec2 screen_uv = gl_FragCoord.xy / textureSize(framebuffer_depth_texture, 0);
+   const float scene_ndc_depth = texture(framebuffer_depth_texture, screen_uv).r;
+
+   const float near = near_plane, far = far_plane;
+
+   // Linearize both depths
+   const float scene_linear    = linearize_depth(scene_ndc_depth, near_plane, far_plane);
+   const float fragment_linear = linearize_depth(gl_FragCoord.z, near_plane, far_plane);
+
+   // Distance from particle to scene geometry
+   const float depth_difference = scene_linear - fragment_linear;
+
+   // The closer 'depth_difference' gets to 0 the more faded it's gonna be.
+   float t = saturate(depth_difference / fade_distance);
+
+   t = smoothstep(0., 1., t);
+   // t *= t;
+   return t;
+}
+
+
 vec2 texture_sheet_uv(vec2 uv, uvec2 tiles, float start_frame, float t, float cycles) {
-   // Total frames in the sheet
    float total_frames = float(tiles.x * tiles.y);
 
    // Which frame are we considering we need to complete 'cycles' times over lifetime ('t' gets to 1 it means we have to complete had completed 'cycles' cycles)
    uint frame_index = uint(floor(mod(start_frame + t * cycles * total_frames, total_frames)));
 
-   // 2D position of the frame in the grid
+   // 2D positions in the grid
    uint col = frame_index % tiles.x;
    uint row = frame_index / tiles.x;
 
-   // Tile size in UV space
+   // UV space
    vec2 tile_size = vec2(1.0 / float(tiles.x), 1.0 / float(tiles.y));
 
-   // Unity orders rows top-to-bottom, flip row to allow easy porting
+   // Unity orders rows top to bottom, flip row to allow easy porting for us
    uint flipped_row = (tiles.y - 1) - row;
 
    // Offset uv into the correct tile
@@ -109,7 +143,6 @@ vec4 health_bar_sdf(vec2 uv, float health_current, float health_max, float bar_a
 }
 
 
-
 vec3 mix_particle_color_multiply(vec3 texture_color, vec3 particle_color) {
    vec3 hsv_particle = rgb_to_hsv(particle_color);
    vec3 hsv_texture = rgb_to_hsv(texture_color);
@@ -129,6 +162,17 @@ float gradient_noise(in vec2 uv) {
 }
 
 vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
+   vec2 screen_size  = textureSize(framebuffer_depth_texture, 0);
+   vec2 screen_uv    = gl_FragCoord.xy / screen_size;
+   vec4 scene_depth = texture(framebuffer_depth_texture, uv);
+
+   if (false && 1200. == screen_size.x && 1012. == screen_size.y) {
+      // vec3 out_now = vec3(linearize_depth(scene_depth.r, near_plane, far_plane));
+      vec3 out_now = vec3(linearize_depth(scene_depth.r, near_plane, far_plane));
+      // return vec4(out_now, 1);
+      return vec4(vec3(scene_depth.r), 1);
+   }
+
    if (2 == instance_rendering_mode) {
       const float intensity = 100.;
       return vec4(vec3(1.) * intensity, 1.) * color_tint;
@@ -144,18 +188,19 @@ vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custo
       }
 
 
-      const float thickness = 0.025;
-      const bool in_border = (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness));
-      if (show_border_outline && in_border) {
-         // Orient by color. Useful for debugging.
-         if (uv.y > (1. - thickness)) {
-            return vec4(0., 0., 1., 0.8);
+      if (show_border_outline) {
+         const float thickness = 0.025;
+         const bool  in_border = (uv.x < thickness || uv.x > (1. - thickness) || uv.y < thickness || uv.y > (1. - thickness));
+         if (in_border) {
+            // Orient by color. Useful for debugging.
+            if (uv.y > (1. - thickness)) {
+               return vec4(0., 0., 1., 0.8);
+            }
+            if (uv.x < thickness) {
+               return vec4(1., 1., 1., 0.8);
+            }
+            return vec4(1., 0., 0., 0.8);
          }
-
-         if (uv.x < thickness) {
-            return vec4(1., 1., 1., 0.8);
-         }
-         return vec4(1., 0., 0., 0.8);
       }
 
       const float hdr_intensity                   = custom_1.x;
@@ -173,19 +218,20 @@ vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custo
       }
 
       // TODO: Mode gamma_correction to after sbti loading
-      const float noise = gradient_noise(gl_FragCoord.xy + vec2(gl_SampleID));
+      // const float noise = gradient_noise(gl_FragCoord.xy + vec2(gl_SampleID));
 
       const float scale = 1. / 255.;
-      float added_noise = lerp(-0.5 * scale, 0.5 * scale, noise);
-      // NOTE: Somehow adding a noise lags
-      added_noise *= 0;
 
       const vec3 tint   = srgb_to_linear(color_tint.rgb);
       // const vec3 tint   = srgb_to_linear(vec3(0.4, 0, 0));
-      const vec3 albedo = srgb_to_linear(diffuse_texture.rgb) * tint + added_noise;
-      // const vec3 albedo = mix_particle_color_multiply(srgb_to_linear(diffuse_texture.rgb), tint) + added_noise;
+      const vec3 albedo = srgb_to_linear(diffuse_texture.rgb) * tint;
 
-      const float alpha = saturate(diffuse_texture.a * color_tint.a);
+      // TODO: Make this be dependent on the acutal size of particle, SimonDev show how some times it's too smooth to the point of seemingly never appear in front of geometry
+      // And if it's too little smooth, well you get hard particles.
+      const float fade_distance = 0.000095;
+      const float soft_particle_alpha = soft_particle_fade();
+
+      const float alpha = saturate(diffuse_texture.a * color_tint.a * soft_particle_alpha);
       // const float alpha = saturate(luminance(albedo) * diffuse_texture.a * color_tint.a);
       // const float alpha = saturate(brightness(albedo) * diffuse_texture.a * color_tint.a);
 

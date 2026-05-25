@@ -14,7 +14,7 @@ struct Draw_Command {
    uint vertices_count;
    uint tangents_offset, has_tangents;
    uint joints_offset, has_joints;
-   uint is_inverleaved;
+   uint is_inverleaved; // unused
 };
 
 

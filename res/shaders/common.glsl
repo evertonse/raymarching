@@ -6,6 +6,21 @@
 #   define lerp mix
 #endif
 
+// Some helpful constants
+#ifndef PI
+#   define PI 3.14159265358979323846
+#endif
+
+const float fov        = PI/3.;
+// const float fov    = PI/2.8;
+const float near_plane = 0.005;
+const float far_plane  = 256.000000;
+
+//
+// TODO: Add lerp smooth as seen in 49:00 of the Freya's video:
+//       https://youtu.be/LSNQuFEDOyQ?si=seG75brEc83xATC-
+//
+
 // float packed contains high 16 bits (.x) low 16 bits (.y)
 uvec2 unpack_u16_from_float(float packed_float) {
    uint bits = floatBitsToUint(packed_float);

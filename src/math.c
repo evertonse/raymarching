@@ -1,6 +1,7 @@
 #define RAYMATH_IMPLEMENTATION
 #include "raymath.h"
 
+
 // https://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-extended-vectors
 typedef float Matrix4 __attribute__((matrix_type(4, 4)));
 typedef float float4 __attribute__((ext_vector_type(4)));
@@ -407,6 +408,17 @@ typedef union {
     int w;
   };
 } Vector4Int;
+
+typedef struct {
+   int x;                // Rectangle top-left corner position x
+   int y;                // Rectangle top-left corner position y
+   int width;            // Rectangle width
+   int height;           // Rectangle height
+} Rectangle_Int;
+
+inline bool is_valid_rectangle(Rectangle_Int r) {
+    return r.width > 0 && r.height > 0;
+}
 
 // Get float array of matrix data
 Matrix FloatsToMatrix(float floats[16]) {

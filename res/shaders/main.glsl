@@ -8,6 +8,7 @@
 #include "res/shaders/common.glsl"
 #include "src/renderer/shared/types.glsl"  // DrawCommand is defined here.
 #include "src/renderer/shared/defines.glsl"
+
 #include "./src/buffers.glsl"
 
 
@@ -24,8 +25,6 @@ layout(location = 0) uniform vec4 push_constants[2];
 
 layout (location = 0) out #include "./src/pipe.glsl";
 
-// layout (location = 8) out  Flat {
-// };
 
 #include "./src/coordinates.glsl"
 #include "./src/perspective.glsl"
@@ -71,11 +70,6 @@ vec4 pull_tangent(int id) {
 
 #endif
 
-
-const float fov    = PI/3.;
-// const float fov    = PI/2.8;
-const float near_plane = 0.005;
-const float far_plane = 256.000000;
 
 void main() {
 
@@ -811,8 +805,9 @@ bool intersect_plane(vec3 ray_origin, vec3 ray_dir, vec3 plane_point, vec3 plane
    return true;
 }
 
-#include "./src/parallax.glsl"
+layout(binding = BINDING_FRAMEBUFFER_DEPTH_TEXTURE) uniform sampler2D framebuffer_depth_texture;
 
+#include "./src/parallax.glsl"
 #include "./src/custom_instance_rendering.glsl"
 
 

@@ -269,7 +269,7 @@ Vector3 sample_size_curve(const Vector3 *values, const float *timings, uint coun
       if (t >= t0 && t <= t1) {
          float local_t = (t - t0) / (t1 - t0);
 
-         // Hardcorded  f(t)
+         // Hardcorded f(t)
          // local_t = local_t*local_t;
          local_t = sqrt(local_t);
          // local_t = smoothstep(0.0f, 1.0f, local_t);

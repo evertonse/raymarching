@@ -10,18 +10,19 @@
 #endif
 
 // TODO: fix convention for these
-#define BINDING_INSTANCE_BUFFER    6
-#define BINDING_INDICES_BUFFER     5
-#define BINDING_VERTEX_BUFFER      3
-#define BINDING_VERTEX_TANGENT     7
-#define BINDING_TANGENTS_BUFFER    8
-#define BINDING_PER_FRAME          4
-#define BINDING_DRAW_COMMAND       18
-#define BINDING_MATERIAL           10
-#define BINDING_CAMERA             2
-#define BINDING_BLOOM              3
-#define BINDING_ANIMATION_MATRICES 12
-#define BINDING_JOINT_BUFFER       9
+#define BINDING_INSTANCE_BUFFER           6
+#define BINDING_INDICES_BUFFER            5
+#define BINDING_VERTEX_BUFFER             3
+#define BINDING_VERTEX_TANGENT            7
+#define BINDING_TANGENTS_BUFFER           8
+#define BINDING_PER_FRAME                 4
+#define BINDING_DRAW_COMMAND              18
+#define BINDING_MATERIAL                  10
+#define BINDING_CAMERA                    2
+#define BINDING_BLOOM                     3
+#define BINDING_ANIMATION_MATRICES        12
+#define BINDING_JOINT_BUFFER              9
+#define BINDING_FRAMEBUFFER_DEPTH_TEXTURE 0
 
 
 // Some helpful constants

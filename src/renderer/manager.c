@@ -752,8 +752,8 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
 }
 
 // Draw all indices ever created
-// Accept diffuse texture for debugging shader
-void draw_indirect(Texture diffuse, Shader shader) {
+// Accept framebuffer but expects to be bound already.
+void draw_indirect(Framebuffer framebuffer, Shader shader) {
    update_manager_gpu_resources();
 
 
@@ -821,7 +821,7 @@ void draw_indirect(Texture diffuse, Shader shader) {
 #endif
 
    const isz stride = size_of(manager.draw_commands.items[0]);
-   for (int render_state_index = 0; render_state_index < RENDER_STATE_COUNT; render_state_index++) {
+   for (uint render_state_index = 0; render_state_index < RENDER_STATE_COUNT; render_state_index++) {
       u32 offset = manager.draw_commands.render_state.offsets[render_state_index];
       u32 count = (render_state_index + 1 < RENDER_STATE_COUNT) ?
            manager.draw_commands.render_state.offsets[render_state_index + 1] - offset
@@ -830,6 +830,24 @@ void draw_indirect(Texture diffuse, Shader shader) {
 
       if (0 == count) {
          continue;
+      }
+
+
+      Texture depth_texture = {0};
+      if (render_state_index == (RENDER_STATE_OPAQUE + 1)) {
+         // For soft particles, it it a problem to bind a depth texture while still rendering
+         // But let's assume transparent and opaque normal geometry has written to depth already.
+         assert_msg(
+               RENDER_STATE_VFX          == render_state_index
+            || RENDER_STATE_VFX_ADDITIVE == render_state_index,
+            "Since vfx doesn't write to depth I feel safer binding the current framebuffer depth texture for reading"
+         );
+
+         depth_texture = resolve_msaa_depth(framebuffer);
+      }
+
+      if (is_valid_texture(depth_texture)) {
+         bind_texture(depth_texture, BINDING_FRAMEBUFFER_DEPTH_TEXTURE);
       }
 
 
