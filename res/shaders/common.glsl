@@ -162,7 +162,7 @@ float noise(in vec2 uv) {
    return noise;
 }
 
-float remap(float value, float in_min, float in_max, float out_min, float out_max) {
+float remap(in float value, in float in_min, in float in_max, in float out_min, in float out_max) {
    const float v = value;
    return (v - in_min) / (in_max - in_min) * (out_max - out_min) + out_min;
 }

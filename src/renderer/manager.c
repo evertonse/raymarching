@@ -220,7 +220,6 @@ void sort_draw_commands_by_render_state(void) {
    }
 
    // We're using Insertion Sort but might want Counting Sort instead
-   // 3N, not that bad ok?
    u32 cursor = 0;
    for (uint render_state_index = 0; render_state_index < RENDER_STATE_COUNT; render_state_index += 1) {
       manager.draw_commands.render_state.offsets[render_state_index] = cursor;
@@ -240,7 +239,7 @@ void sort_draw_commands_by_render_state(void) {
 }
 
 
-bool overload has_animation(Scene_Node node) {
+bool inline overload has_animation(Scene_Node node) {
    isz renderable_index = manager.scene.nodes.items[node.index].renderable_index;
    const auto *renderable = &manager.scene.renderables.items[renderable_index];
    if (renderable->animation_index.count < 1 || renderable->joint_list.count <= 0) {
@@ -843,6 +842,9 @@ void draw_indirect(Framebuffer framebuffer, Shader shader) {
             "Since vfx doesn't write to depth I feel safer binding the current framebuffer depth texture for reading"
          );
 
+         // NOTE: Could it be faster to make OPAQUE pass write depth to a 2d Image using gl_FragCoord instead of resolving the multisamped depth?
+         //       Prolly **slower** because might mess with hardware early-z.
+         //       If we depth prepass always then we need to change all of this.
          depth_texture = resolve_msaa_depth(framebuffer);
       }
 

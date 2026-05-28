@@ -140,6 +140,11 @@ void projection_init(Projection_Application *app) {
       //       that we'll have less framebuffers binds for each effect. Hopefully it gets faster.
       // options = create_framebuffer_multisample, create_framebuffer, create_framebuffer_multisample_with_renderbuffers
       app->fb = create_framebuffer_multisample(resolution.width, resolution.height, samples);
+      const Texture normal_attachment_texture = create_texture(resolution.width, resolution.height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_BILINEAR, TEXTURE_WRAP_CLAMP_EDGE);
+      bool ok = attach_texture_to_framebuffer(&app->fb, 1, normal_attachment_texture);
+      if (ok) {
+         trace_okay("Able to create normal attachment texture !");
+      }
    }
 
    static const Vector3 clear_color = {123., 123., 123.};

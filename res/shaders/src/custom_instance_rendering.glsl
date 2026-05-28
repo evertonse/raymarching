@@ -9,11 +9,15 @@ float linearize_depth(float ndc_depth, float near, float far) {
    return (2.0 * near * far) / (far + near - clip_z * (far - near));
 }
 
-// Beware that this linearize_depth might not be exact actually. Because we warp based on x and y and don't actually use a matrix to do perpective
+//
+// Beware that 'linearize_depth' might not be exact actually. Because we warp based on x and y and don't actually use a matrix to do perpective
 // Search this function in codebase vec4 perspective_from_fov(vec3 position, float fov_y_rad, float aspect, float z_near, float z_far);
 // It might even be linear because I remember playing with it. So it might not be perfect right now but it does smooth out particles enough.
 // It's not that critical, as long as they're in the same space even if not linear.
+// If we see any hard particles, 'linearize_depth' is most likely the culprit
+//
 // SimonDev video about soft particles: https://youtu.be/arn_3WzCJQ8?si=tREAjBbc2lCfHY27
+//
 float soft_particle_fade(float fade_distance) {
    // Sample scene depth at this pixel (assuming framebuffer_depth_texture is the same width as the framebuffer)
    const vec2 screen_uv = gl_FragCoord.xy / textureSize(framebuffer_depth_texture, 0);
@@ -229,7 +233,7 @@ vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custo
       // TODO: Make this be dependent on the acutal size of particle, SimonDev show how some times it's too smooth to the point of seemingly never appear in front of geometry
       // And if it's too little smooth, well you get hard particles.
       const float fade_distance = 0.000095;
-      const float soft_particle_alpha = soft_particle_fade();
+      const float soft_particle_alpha = soft_particle_fade(fade_distance);
 
       const float alpha = saturate(diffuse_texture.a * color_tint.a * soft_particle_alpha);
       // const float alpha = saturate(luminance(albedo) * diffuse_texture.a * color_tint.a);

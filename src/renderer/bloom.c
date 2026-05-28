@@ -1,4 +1,3 @@
-// #define BLOOM_MAX_MIP_COUNT 5
 #define BLOOM_MAX_MIP_COUNT 13 // for 1080p
 
 #include "./shared/bloom_data.glsl"
@@ -11,7 +10,13 @@ typedef struct {
    Shader      downsample_shader;
    Shader      upsample_shader;
    Shader      composite_shader;
+
+   //
+   // Previous bloom is not enough for having a bloom from objects outside the screen.
+   // For that we would probably need motion vectors and temporal accumulation I guess; just like SSGI.
+   //
    Texture     previous_bloom;
+
    Texture     mips[BLOOM_MAX_MIP_COUNT];
    Framebuffer output_framebuffer;
    int         width;

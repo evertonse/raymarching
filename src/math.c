@@ -109,6 +109,7 @@ Matrix MatrixViewFromSpherical(Vector3 position, float theta, float phi) {
    )                                                                \
 )(((a)), ((b)))
 
+
 #define sub(a, b) _Generic(((a)),                                   \
    Vector4: _Generic(((b)),                                         \
       int:     Vector4SubtractValue,                                \
@@ -155,10 +156,9 @@ Matrix MatrixViewFromSpherical(Vector3 position, float theta, float phi) {
 // NOTE: We're forced to use default in all cases from second deep generic because mingwgcc got confused
 // Now using 'default:' to handle all cases is fine but we can't use a compile time error. This can't be used because somethin something expression or whatever.
 // now we're forced to do them things in runtime asserts
+// #define COMPILE_ERROR_TYPE_UNSUPPORTED ((void)_Static_assert(0, "Unsupported multiplication types"), *(int*)0)
 void __invalid_generic();
 #define COMPILE_ERROR_TYPE_UNSUPPORTED __invalid_generic
-
-// #define COMPILE_ERROR_TYPE_UNSUPPORTED ((void)_Static_assert(0, "Unsupported multiplication types"), *(int*)0)
 #define invert MatrixInvert
 
 

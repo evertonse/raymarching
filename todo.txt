@@ -5,7 +5,7 @@
 [ ] DDGI
 [ ] SSGI
 
-[ ] GTAO
+[ ] GTAO + Contact Occlusion
 [ ] Oct normals
 
 [ ] Maybe transform Shader into a handle and make a update_shader_system to check for realod on every single shader through the update function instead of calling reload_if_needed on individual shaders in use site.
@@ -121,7 +121,8 @@
 
 [ ] Button to toggle every single effect in the renderer
 
-[ ] Shadow mappign with randomize pcf sampling with parallax occlusion mapping
+[ ] Shadow mapping with randomize pcf sampling with parallax occlusion mapping
+[ ] Screen Space Shadow (they say its good for faces and distant shit, but wouldn't AO just be enough for faces?)
 
 [x] Normal Mapping by per vertex tangents.
 
@@ -284,7 +285,6 @@
 [x] Make Defines for bindings used by both c and glsl
 
 [x] (edit: That was harder than I thought, plus we need to test more, but it's done for now) Shader remap error to correct line in folder
-[ ] Raytraced Shadows
 
 [ ] PBR checkouts Disney App with various BRDFs
 

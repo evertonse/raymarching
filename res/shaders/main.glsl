@@ -198,7 +198,8 @@ layout (location = 0) in #include "./src/pipe.glsl";
 
 
 
-layout(location = 0) out vec4 FragColor; // Outputting to the Color Attachment 0 in the Framebuffer
+layout(location = 0) out vec4 color_attachment; // Outputting to the Color Attachment 0 in the Framebuffer
+layout(location = 1) out vec4 normal_attachment;
 layout(binding  = 3) uniform sampler2D diffuse_texture;
 layout(binding  = 4) uniform sampler2D specular_texture;
 layout(binding  = 5) uniform sampler2D emissive_texture;
@@ -379,8 +380,8 @@ vec3 calculate_color(
    return color;
 }
 
-#define return_white FragColor.xyzw = vec4(1.); return
-#define return_color(x) FragColor.w = 1.0; FragColor.xyz = vec3(x.xyz); return
+#define return_white color_attachment.xyzw = vec4(1.); return
+#define return_color(x) color_attachment.w = 1.0; color_attachment.xyz = vec3(x.xyz); return
 
 struct Tangent_Frame {
    vec3 T;
@@ -830,7 +831,7 @@ void main() {
 
    if (instance_rendering_mode > 0) {
       // TODO: Expand parameters
-      FragColor = custom(uv, render_state, instance_rendering_mode, custom_1, custom_2);
+      color_attachment = custom(uv, render_state, instance_rendering_mode, custom_1, custom_2);
       return;
    }
 
@@ -1049,7 +1050,7 @@ void main() {
    fragment.diffuse_color  = diffuse_color;
    fragment.specular_color = specular_color;
    fragment.emissive_color = emissive_color;
-   FragColor.xyzw = vec4(color, alpha_channel);
+   color_attachment.xyzw = vec4(color, alpha_channel);
 
 
 
@@ -1127,7 +1128,7 @@ void main() {
 
    float distance_to_view  = length(position - vec3(per_frame.camera.position.x, 0., per_frame.camera.position.z)); // Ignoring height of view
    float attenuation_alpha = clamp(distance_to_view/distance_to_view, 0.2, 1.0);
-   FragColor = vec4(color, attenuation_alpha);
-   FragColor.w = alpha_channel;
-   FragColor *= color_tint;
+   color_attachment = vec4(color, attenuation_alpha);
+   color_attachment.w = alpha_channel;
+   color_attachment *= color_tint;
 }

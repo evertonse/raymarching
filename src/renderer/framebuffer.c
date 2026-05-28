@@ -1,10 +1,10 @@
-#define MAX_TEXTURES_PER_FRAMEBUFFER 8
+#define MAX_COLOR_TEXTURES_PER_FRAMEBUFFER 8
 
 typedef struct {
    GLuint handle;
    union {
       Texture color;
-      Texture colors[MAX_TEXTURES_PER_FRAMEBUFFER];
+      Texture colors[MAX_COLOR_TEXTURES_PER_FRAMEBUFFER];
    };
    Texture depth;
    Color clear_color;
@@ -28,7 +28,7 @@ bool inline is_valid_framebuffer(Framebuffer fb) {
    // Ensure color attachments (if valid) have consistent sample counts
    int expected_samples = -1;
 
-   for (int i = 0; i < MAX_TEXTURES_PER_FRAMEBUFFER; i++) {
+   for (int i = 0; i < MAX_COLOR_TEXTURES_PER_FRAMEBUFFER; i++) {
       if (is_valid_texture(fb.colors[i])) {
          if (expected_samples < 0) {
             expected_samples = texture_multisamples(fb.colors[i]);
@@ -277,9 +277,54 @@ void debug_framebuffer_state(Framebuffer fb) {
    printf("=========================\n");
 }
 
-bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture texture) {
+
+bool is_texture_compatible_with_framebuffer_samples(const Framebuffer framebuffer, const Texture new_texture) {
+   if (!is_valid_texture(new_texture)) {
+      return false;
+   }
+
+   // Get sample count from new texture
+   GLint new_samples;
+   glGetTextureLevelParameteriv(new_texture.handle, 0, GL_TEXTURE_SAMPLES, &new_samples);
+
+   // Check color attachments
+   for (int i = 0; i < MAX_COLOR_TEXTURES_PER_FRAMEBUFFER; i++) {
+      if (!is_valid_texture(framebuffer.colors[i])) {
+         continue;
+      }
+
+      GLint existing_samples;
+      glGetTextureLevelParameteriv(framebuffer.colors[i].handle, 0, GL_TEXTURE_SAMPLES, &existing_samples);
+
+      if (existing_samples != new_samples) {
+         trace_warn("%s: Sample count mismatch, new texture has %d samples, but existing attachment has %d samples\n", __func__, new_samples, existing_samples);
+         return false;
+      }
+   }
+
+   // Check depth attachment if it exists
+   if (is_valid_texture(framebuffer.depth)) {
+      GLint existing_samples;
+      glGetTextureLevelParameteriv(framebuffer.depth.handle, 0, GL_TEXTURE_SAMPLES, &existing_samples);
+
+      if (existing_samples != new_samples) {
+         trace_warn("%s: Sample count mismatch, new texture has %d samples, but depth attachment has %d samples\n", __func__, new_samples, existing_samples);
+         return false;
+      }
+   }
+
+   return true;
+}
+
+
+bool attach_texture_to_framebuffer(Framebuffer *framebuffer, uint slot, const Texture texture) {
    assert(framebuffer && (is_valid_framebuffer(*framebuffer) || is_framebuffer_missing_attachment(*framebuffer)));
    assert(is_valid_texture(texture));
+
+   if (!is_texture_compatible_with_framebuffer_samples(*framebuffer, texture)) {
+      trace_error("%s: Texture attachment is not compatible with framebuffer", __func__);
+      return false;
+   }
 
    GLenum attachment = GL_COLOR_ATTACHMENT0;
 
@@ -290,7 +335,7 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
    case TEXTURE_FORMAT_RGB8      :
    case TEXTURE_FORMAT_RG8       :
    case TEXTURE_FORMAT_R8        : {
-      attachment = GL_COLOR_ATTACHMENT0;
+      attachment = GL_COLOR_ATTACHMENT0 + slot;
       framebuffer->color = texture;
       break;
    }
@@ -310,6 +355,10 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
    }
    }
 
+   if (0 != slot && GL_DEPTH_ATTACHMENT == attachment) {
+      trace_warn("%s: Trying to attach a slot (%d) for a depht texture", __func__, slot);
+   }
+
    // TODO: Assert that all attachments have the same amount of samples; also check that on is_valid_framebuffer
    glNamedFramebufferTexture(framebuffer->handle, attachment, texture.handle, 0);
 
@@ -327,6 +376,10 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture textu
 #endif
 
    return true;
+}
+
+bool overload attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture texture) {
+   return attach_texture_to_framebuffer(framebuffer, 0, texture);
 }
 
 Framebuffer create_framebuffer_from_textures(Texture color, Texture depth) {
@@ -397,7 +450,6 @@ Framebuffer create_framebuffer_multisample_with_renderbuffers(int width, int hei
 
    // Use dummy textures for compatibility with framebuffer struct
    fb.color = (Texture){.handle = color_rb, .width = width, .height = height, .format = TEXTURE_FORMAT_RGBA32F, .type = TEXTURE_TYPE_2D};
-
    fb.depth = (Texture){.handle = depth_rb, .width = width, .height = height, .format = TEXTURE_FORMAT_DEPTH24, .type = TEXTURE_TYPE_2D};
 
    GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
@@ -441,7 +493,7 @@ void destroy_framebuffer(Framebuffer *fb) {
 
    glDeleteFramebuffers(1, &fb->handle);
 
-   for (int i = 0; i < MAX_TEXTURES_PER_FRAMEBUFFER; i++) {
+   for (int i = 0; i < MAX_COLOR_TEXTURES_PER_FRAMEBUFFER; i++) {
       if (is_valid_texture(fb->colors[i])) {
          destroy_texture(&fb->colors[i]);
       }
