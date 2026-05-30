@@ -34,7 +34,7 @@ float depth2relaxedcone(vec2 texture_coordinate_i, vec2 texture_coordinate_j) {
 
    p = o;
 
-   for (int i = 0; i < search_steps; i++) {
+   for (int i = 0; i < search_steps; i += 1) {
       float d = sample_height(p.xy);
       if (d <= p.z) {
          p += v;
@@ -61,9 +61,9 @@ vec2 texCoord(ivec2 texelInd) {
 float getRelaxedCone(float baseHeight, vec2 baseTexCoord, ivec2 texelInd, float minRatio) {
    vec2 t = texCoord(texelInd);
 
-   vec3 src = vec3(baseTexCoord, 1 + 0.001);
+   vec3 src     = vec3(baseTexCoord, 1 + 0.001);
    float height = texture(height_map, t).r;
-   vec3 dst = vec3(t, height);
+   vec3 dst     = vec3(t, height);
 
    if ((dst.z <= baseHeight) || length(dst.xy - baseTexCoord) > minRatio * (dst.z - baseHeight)) {
       return 1.0;
@@ -75,7 +75,7 @@ float getRelaxedCone(float baseHeight, vec2 baseTexCoord, ivec2 texelInd, float 
    vec3 step_fwd = vec * oneOverSearchSteps; // Length of a forward step
    // Search until a new point outside the surface
    vec3 ray_pos = dst + step_fwd;
-   for (uint i = 1; i < 2; i++) {
+   for (uint i = 1; i < 2; i += 1) {
       float current_height = texture(height_map, ray_pos.xy).r;
       if (current_height >= ray_pos.z) {
          ray_pos += step_fwd;

@@ -1,5 +1,7 @@
 
 
+layout(binding = BINDING_FRAMEBUFFER_DEPTH_TEXTURE) uniform sampler2D framebuffer_depth_buffer;
+
 const bool show_border_outline              = false;
 const bool debug_color_for_missing_textures = true;
 
@@ -19,9 +21,9 @@ float linearize_depth(float ndc_depth, float near, float far) {
 // SimonDev video about soft particles: https://youtu.be/arn_3WzCJQ8?si=tREAjBbc2lCfHY27
 //
 float soft_particle_fade(float fade_distance) {
-   // Sample scene depth at this pixel (assuming framebuffer_depth_texture is the same width as the framebuffer)
-   const vec2 screen_uv = gl_FragCoord.xy / textureSize(framebuffer_depth_texture, 0);
-   const float scene_ndc_depth = texture(framebuffer_depth_texture, screen_uv).r;
+   // Sample scene depth at this pixel (assuming framebuffer_depth_buffer is the same width as the framebuffer)
+   const vec2 screen_uv = gl_FragCoord.xy / textureSize(framebuffer_depth_buffer, 0);
+   const float scene_ndc_depth = texture(framebuffer_depth_buffer, screen_uv).r;
 
    const float near = near_plane, far = far_plane;
 
@@ -166,16 +168,9 @@ float gradient_noise(in vec2 uv) {
 }
 
 vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
-   vec2 screen_size  = textureSize(framebuffer_depth_texture, 0);
-   vec2 screen_uv    = gl_FragCoord.xy / screen_size;
-   vec4 scene_depth = texture(framebuffer_depth_texture, uv);
 
-   if (false && 1200. == screen_size.x && 1012. == screen_size.y) {
-      // vec3 out_now = vec3(linearize_depth(scene_depth.r, near_plane, far_plane));
-      vec3 out_now = vec3(linearize_depth(scene_depth.r, near_plane, far_plane));
-      // return vec4(out_now, 1);
-      return vec4(vec3(scene_depth.r), 1);
-   }
+   vec2 screen_size  = textureSize(framebuffer_depth_buffer, 0);
+   vec2 screen_uv    = gl_FragCoord.xy / screen_size;
 
    if (2 == instance_rendering_mode) {
       const float intensity = 100.;

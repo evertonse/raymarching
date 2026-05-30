@@ -424,6 +424,11 @@ inline Texture overload create_texture(int width, int height) {
    return create_texture(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_TRILINEAR, TEXTURE_WRAP_REPEAT);
 }
 
+
+Texture create_texture_with_same_configuration(const Texture source) {
+   return create_texture(source.width, source.height, nullptr, source.format, source.type, source.filter,  source.wrap);
+}
+
 // Returns 0 if not multisampled else returns samples count.
 int texture_multisamples(const Texture texture) {
    int samples =  0;

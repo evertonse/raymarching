@@ -200,6 +200,7 @@ layout (location = 0) in #include "./src/pipe.glsl";
 
 layout(location = 0) out vec4 color_attachment; // Outputting to the Color Attachment 0 in the Framebuffer
 layout(location = 1) out vec4 normal_attachment;
+
 layout(binding  = 3) uniform sampler2D diffuse_texture;
 layout(binding  = 4) uniform sampler2D specular_texture;
 layout(binding  = 5) uniform sampler2D emissive_texture;
@@ -806,7 +807,6 @@ bool intersect_plane(vec3 ray_origin, vec3 ray_dir, vec3 plane_point, vec3 plane
    return true;
 }
 
-layout(binding = BINDING_FRAMEBUFFER_DEPTH_TEXTURE) uniform sampler2D framebuffer_depth_texture;
 
 #include "./src/parallax.glsl"
 #include "./src/custom_instance_rendering.glsl"
@@ -963,8 +963,6 @@ void main() {
       diffuse_color = dtexture.xyz;
       diffuse_color = gamma_correct_texture(diffuse_color);
       alpha_channel = dtexture.w;
-
-      // diffuse_color = vec3(1.);
    }
 
    if (alpha_channel < 0.005) {
@@ -1131,4 +1129,5 @@ void main() {
    color_attachment = vec4(color, attenuation_alpha);
    color_attachment.w = alpha_channel;
    color_attachment *= color_tint;
+   normal_attachment.rgb = normal;
 }

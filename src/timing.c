@@ -84,7 +84,7 @@ void update_fps() {
          __state.fps.min_fps = current_fps;
       if (current_fps > __state.fps.max_fps)
          __state.fps.max_fps = current_fps;
-      __state.fps.total_frames++;
+      __state.fps.total_frames += 1;
 
 
       // Add to circular buffer
@@ -92,12 +92,12 @@ void update_fps() {
       __state.fps.current_index = (__state.fps.current_index + 1) % FPS_MAX_SAMPLES;
 
       if (__state.fps.sample_count < FPS_MAX_SAMPLES) {
-         __state.fps.sample_count++;
+         __state.fps.sample_count += 1;
       }
 
       // Calculate average
       f64 total_time = 0.0;
-      for (int i = 0; i < __state.fps.sample_count; i++) {
+      for (int i = 0; i < __state.fps.sample_count; i += 1) {
          total_time += __state.fps.frame_times[i];
       }
 
@@ -114,7 +114,7 @@ char* get_fps_string() {
    f64 variance = 0.0;
    if (__state.fps.sample_count > 1) {
       f64 avg_frame_time = 1.0 / __state.fps.avg_fps;
-      for (int i = 0; i < __state.fps.sample_count; i++) {
+      for (int i = 0; i < __state.fps.sample_count; i += 1) {
          f64 diff = __state.fps.frame_times[i] - avg_frame_time;
          variance += diff * diff;
       }
@@ -175,7 +175,7 @@ Countdown create_countdown(f64 seconds, bool repeat) {
    }                                                                          \
    if ((c)->seconds_left <= 0.0) {                                            \
       code_block;                                                             \
-      (c)->repeat_count++;                                                    \
+      (c)->repeat_count += 1;                                                 \
       (c)->seconds_left = (c)->repeat ? (c)->seconds : 0.0;                   \
    } else {                                                                   \
       f64 _now = time_now();                                                  \

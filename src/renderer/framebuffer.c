@@ -17,6 +17,7 @@ Framebuffer default_framebuffer = {
    .is_default_framebuffer = true,
 };
 
+
 bool inline is_valid_framebuffer(Framebuffer fb) {
    if (fb.is_default_framebuffer) {
       return true;
@@ -336,7 +337,7 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, uint slot, const Te
    case TEXTURE_FORMAT_RG8       :
    case TEXTURE_FORMAT_R8        : {
       attachment = GL_COLOR_ATTACHMENT0 + slot;
-      framebuffer->color = texture;
+      framebuffer->colors[slot] = texture;
       break;
    }
    case TEXTURE_FORMAT_DEPTH24: {
@@ -359,7 +360,6 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, uint slot, const Te
       trace_warn("%s: Trying to attach a slot (%d) for a depht texture", __func__, slot);
    }
 
-   // TODO: Assert that all attachments have the same amount of samples; also check that on is_valid_framebuffer
    glNamedFramebufferTexture(framebuffer->handle, attachment, texture.handle, 0);
 
    if (glCheckNamedFramebufferStatus(framebuffer->handle, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -522,6 +522,41 @@ int inline default_framebuffer_samples(void) {
    return swapchain_samples;
 }
 
+// Usage: ``set_framebuffer_draw_attachments(&fb, 0b11, true);`` Enable color attachments 0 and 1 with depth write
+bool set_framebuffer_draw_attachments(Framebuffer framebuffer, uint color_mask) {
+   assert(is_valid_framebuffer(framebuffer));
+
+   GLenum draw_buffers[MAX_COLOR_TEXTURES_PER_FRAMEBUFFER];
+   uint count = 0;
+
+   for (uint i = 0; i < MAX_COLOR_TEXTURES_PER_FRAMEBUFFER; i += 1) {
+      if (!(color_mask & (1u << i))) {
+         continue;
+      }
+      if (is_valid_texture(framebuffer.colors[i])) {
+         draw_buffers[count++] = GL_COLOR_ATTACHMENT0 + i;
+      }
+   }
+
+   glNamedFramebufferDrawBuffers(framebuffer.handle, count, draw_buffers);
+
+   if (glCheckNamedFramebufferStatus(framebuffer.handle, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+      trace_error("Framebuffer is not complete!");
+      return false;
+   }
+
+   return true;
+}
+
+
+void set_framebuffer_read_attachment(Framebuffer framebuffer, int slot_index) {
+   if (slot_index < 0) {
+      glNamedFramebufferReadBuffer(framebuffer.handle, GL_NONE);
+   } else {
+      glNamedFramebufferReadBuffer(framebuffer.handle, GL_COLOR_ATTACHMENT0 + slot_index);
+   }
+}
+
 
 void blit_framebuffer_depth(const Framebuffer dst_fb, const Framebuffer src_fb) {
    assert_msg(is_valid_framebuffer(src_fb), "Invalid source framebuffer");
@@ -537,6 +572,55 @@ void blit_framebuffer_depth(const Framebuffer dst_fb, const Framebuffer src_fb) 
       GL_DEPTH_BUFFER_BIT,
       GL_NEAREST  // must be nearest for depth
    );
+}
+
+
+// http://wikis.khronos.org/opengl/Framebuffer#Blitting
+void overload blit_framebuffer(const Framebuffer dst_fb, const Framebuffer src_fb, uint color_mask, bool blit_depth) {
+   assert_msg(is_valid_framebuffer(src_fb), "Invalid source framebuffer");
+   assert_msg(is_valid_framebuffer(dst_fb), "Invalid destination framebuffer");
+
+   int w = src_fb.colors[0].width;
+   int h = src_fb.colors[0].height;
+
+   // Collect which attachments exist in dst so we can restore them
+   uint src_color_mask = 0;
+
+   //
+   // From http://wikis.khronos.org/opengl/Framebuffer#Blitting
+   // "When using GL_COLOR_BUFFER_BIT only colors read will come from the read color buffer in the read FBO, specified by glReadBuffer. The colors written will only go to the draw color buffers in the write FBO, specified by glDrawBuffers. If multiple draw buffers are specified, then multiple color buffers are updated with the same data."
+   //
+   for (uint i = 0; i < MAX_COLOR_TEXTURES_PER_FRAMEBUFFER; i++) {
+      bool src_ok = is_valid_texture(src_fb.colors[i]);
+      bool dst_ok = is_valid_texture(dst_fb.colors[i]);
+      if (src_ok) {
+         src_color_mask |= (1u << i);
+      }
+
+      if ((color_mask & (1u << i)) && src_ok && dst_ok) {
+         glNamedFramebufferReadBuffer(src_fb.handle, GL_COLOR_ATTACHMENT0 + i);
+         glNamedFramebufferDrawBuffer(dst_fb.handle, GL_COLOR_ATTACHMENT0 + i);
+         glBlitNamedFramebuffer(src_fb.handle, dst_fb.handle, 0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+      }
+   }
+
+   if (blit_depth && is_valid_texture(src_fb.depth) && is_valid_texture(dst_fb.depth)) {
+      glNamedFramebufferReadBuffer(src_fb.handle, GL_NONE);
+      glNamedFramebufferDrawBuffer(dst_fb.handle, GL_NONE);
+      glBlitNamedFramebuffer(src_fb.handle, dst_fb.handle, 0, 0, w, h, 0, 0, w, h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+   }
+
+   // Restore after blit
+   // WARN: This assumes 0 as read before, might not have been
+   // TODO: We should probably make the read and draw attachments be part of the struct, cache and make sure it stays in sync whenever
+   set_framebuffer_read_attachment(src_fb, 0);
+   set_framebuffer_draw_attachments(src_fb, src_color_mask);
+}
+
+
+// Blits every single attachment
+void overload blit_framebuffer(const Framebuffer dst_fb, const Framebuffer src_fb) {
+   blit_framebuffer(dst_fb,src_fb, ~0u, true);
 }
 
 
@@ -567,8 +651,8 @@ void inline blit_framebuffer(
       // Allowed if equal, or one is single-sample and the other multisample
       bool allowed =
             (src_samples == dst_samples)
-         || ((src_samples == 0) && dst_samples > 0)
-         || ((src_samples > 0) && dst_samples == 0)
+         || ((src_samples == 0) && dst_samples >  0)
+         || ((src_samples >  0) && dst_samples == 0)
       ;
       if (!allowed) {
          trace_error(
@@ -733,13 +817,9 @@ void clear_framebuffer_depth(Framebuffer fb, float depth_value) {
 }
 
 
+// Clears all attachments and depth
 void clear_framebuffer(Framebuffer fb) {
    assert_msg(is_valid_framebuffer(fb), "Tried to clear a framebuffer that is not valid");
-
-   if (fb.is_default_framebuffer) {
-      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-      return;
-   }
 
    // Save and force depth writes on
    // Maybe we should not care about it and let callers expect side effects
@@ -747,19 +827,23 @@ void clear_framebuffer(Framebuffer fb) {
    glGetBooleanv(GL_DEPTH_WRITEMASK, &depth_mask);
    glDepthMask(GL_TRUE);
 
-   // Check what attachments actually exist on the FBO
-   GLint color_type = 0, depth_type = 0;
-   glGetNamedFramebufferAttachmentParameteriv(fb.handle, GL_COLOR_ATTACHMENT0, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &color_type);
-   glGetNamedFramebufferAttachmentParameteriv(fb.handle, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &depth_type);
-
-   if (color_type != GL_NONE) {
-      clear_framebuffer_color(fb, fb.clear_color);
+   if (fb.is_default_framebuffer) {
+      // Maybe we need to bind ?
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+      return;
    }
 
-   if (depth_type != GL_NONE) {
+   // Check color attachments
+   for (uint i = 0; i < MAX_COLOR_TEXTURES_PER_FRAMEBUFFER; i++) {
+      if (is_valid_texture(fb.colors[i])) {
+         clear_framebuffer_color_indexed(fb, i, fb.clear_color);
+      }
+   }
+
+   // Check depth attachment
+   if (is_valid_texture(fb.depth)) {
       clear_framebuffer_depth(fb, 1.0f); // always 1.0 for GL_LESS
    }
-
    // Restore
    glDepthMask(depth_mask);
 }
@@ -785,4 +869,46 @@ Texture resolve_msaa_depth(Framebuffer src) {
 
    blit_framebuffer_depth(resolve_fb, src);
    return resolve_fb.depth;
+}
+
+
+Framebuffer create_framebuffer_same_attachments_but_not_multisampled(const Framebuffer src) {
+   assert(is_valid_framebuffer(src));
+
+   Framebuffer dst = {0};
+   dst.clear_color = src.clear_color;
+
+   int w = src.colors[0].width;
+   int h = src.colors[0].height;
+
+   // Create framebuffer object
+   glCreateFramebuffers(1, &dst.handle);
+
+   // Create color attachments but not multisample type
+   for (uint i = 0; i < MAX_COLOR_TEXTURES_PER_FRAMEBUFFER; i++) {
+      if (!is_valid_texture(src.colors[i])) {
+         continue;
+      }
+
+      Texture src_tex = src.colors[i];
+      dst.colors[i] = create_texture(w, h, nullptr, src_tex.format, TEXTURE_TYPE_2D, src_tex.filter, src_tex.wrap);
+      bool ok = attach_texture_to_framebuffer(&dst, i, dst.colors[i]);
+      if (!ok) {
+         trace_error("%s: Failed at %d-color attachment.", __func__, i);
+      }
+   }
+
+   // Create depth attachment but not multisample type
+   if (is_valid_texture(src.depth)) {
+      Texture src_depth = src.depth;
+      dst.depth = create_texture(w, h, nullptr, src_depth.format, TEXTURE_TYPE_2D, src_depth.filter, src_depth.wrap);
+      bool ok = attach_texture_to_framebuffer(&dst, dst.depth);
+      if (!ok) {
+         trace_error("%s: Failed at depth attachment.", __func__);
+      }
+   }
+
+   assert(glCheckNamedFramebufferStatus(dst.handle, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
+   return dst;
 }

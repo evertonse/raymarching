@@ -566,40 +566,48 @@ Animation create_animation_from_ufbx(ufbx_scene *scene, ufbx_anim *anim) {
    return result;
 }
 
+
 void trace_ufbx_scene_stats(ufbx_scene *scene) {
    auto checkpoint = tsave();
-   ZString info = "";
-   info = tprintf("%s %d textures for this scene: ", info, scene->textures.count);
+      ZString info = "";
+      info = tprintf("%s %d textures for this scene: ", info, scene->textures.count);
+      trace_debug("%s", info);
+   trestore(checkpoint);
+
    for (usz i = 0; i < scene->textures.count; i += 1) {
-      auto texture = *scene->textures.data[i];
-      auto base_name = path_base_name(texture.relative_filename.data);
-      info = tprintf("%s    texture (%zu): base_name %s\n", info, i, base_name);
-      info = tprintf("%s                : %s\n", info, texture.relative_filename.data);
-      info = tprintf("%s                : file_textures.count %ld\n", info, texture.file_textures.count);
-      assert_msg(false == texture.has_uv_transform, "We do not handle that");
+      checkpoint = tsave();
+         auto texture = *scene->textures.data[i];
+         auto base_name = path_base_name(texture.relative_filename.data);
+         info = tprintf("%s    texture (%zu): base_name %s\n", info, i, base_name);
+         info = tprintf("%s                : %s\n", info, texture.relative_filename.data);
+         info = tprintf("%s                : file_textures.count %ld\n", info, texture.file_textures.count);
+         trace_debug("%s", info);
+         assert_msg(false == texture.has_uv_transform, "We do not handle that");
+      trestore(checkpoint);
    }
 
-   trestore(checkpoint);
-   trace_debug("%s", info);
 
-   info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
+   checkpoint = tsave();
+      info = tprintf("%s %d materials for this scene: ", info, scene->materials.count);
+      trace_debug("%s", info);
+   trestore(checkpoint);
+
    for (usz i = 0; i < scene->materials.count; i += 1) {
       auto material = *scene->materials.data[i];
 
-      info = tprintf("%s    material '%s' (%zu): has %ld textures\n", info, material.name.data, i, material.textures.count);
-      for (usz j = 0; j < material.textures.count; j += 1) {
-         auto texture = *(material.textures.data[j].texture);
-         auto base_name = path_base_name(texture.relative_filename.data);
-         info = tprintf("%s        texture (%zu): base_name %s\n", info, j, base_name);
-         info = tprintf("%s                    : %s\n", info, texture.relative_filename.data);
-         info = tprintf("%s                    : file_textures.count %ld\n", info, texture.file_textures.count);
-         info = tprintf("%s                    : content %p with size %ld\n", info, texture.content.data, texture.content.size);
-      }
+      checkpoint = tsave();
+         info = tprintf("%s    material '%s' (%zu): has %ld textures\n", info, material.name.data, i, material.textures.count);
+         for (usz j = 0; j < material.textures.count; j += 1) {
+            auto texture = *(material.textures.data[j].texture);
+            auto base_name = path_base_name(texture.relative_filename.data);
+            info = tprintf("%s        texture (%zu): base_name %s\n", info, j, base_name);
+            info = tprintf("%s                    : %s\n", info, texture.relative_filename.data);
+            info = tprintf("%s                    : file_textures.count %ld\n", info, texture.file_textures.count);
+            info = tprintf("%s                    : content %p with size %ld\n", info, texture.content.data, texture.content.size);
+         }
+         trace_debug("%s", info);
+      trestore(checkpoint);
    }
-
-   trace_debug("%s", info);
-
-   trestore(checkpoint);
 }
 
 static isz material_index_from_ufbx_scene(ufbx_material* material, ufbx_scene *scene) {

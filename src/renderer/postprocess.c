@@ -1,5 +1,5 @@
 
-Framebuffer apply_postprocess(Framebuffer hdr_fb) {
+Framebuffer apply_postprocess(Framebuffer hdr_fb, Framebuffer geometry_buffer_fb) {
 
    static Countdown shader_reload = {0};
 
@@ -81,10 +81,15 @@ Framebuffer apply_postprocess(Framebuffer hdr_fb) {
    // Dispatch
    bind_shader(s.shader);
 
-   // Binding 0 original HDR scene
-   bind_texture(hdr_fb.color, 0);
-   // Binding 1 final output image
-   bind_texture_as_image(s.output_fb.color, 1, TEXTURE_ACCESS_WRITE);
+   // Binding original HDR scene
+   bind_texture(hdr_fb.color, BINDING_FRAMEBUFFER_HDR_SCENE_TEXTURE);
+   // Binding final output image
+   bind_texture_as_image(s.output_fb.color, BINDING_LDR_SCENE_IMAGE, TEXTURE_ACCESS_WRITE);
+
+   if (is_valid_framebuffer_and_its_textures(geometry_buffer_fb)) {
+      bind_texture(geometry_buffer_fb.depth,     BINDING_FRAMEBUFFER_DEPTH_TEXTURE);
+      bind_texture(geometry_buffer_fb.colors[1], BINDING_FRAMEBUFFER_NORMAL_TEXTURE);
+   }
 
    static float exposure = 1.0f;
    upload_uniform_float(s.shader, "exposure", exposure);

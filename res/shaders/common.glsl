@@ -1,6 +1,8 @@
 #ifndef COMMON_HEADER
 #define COMMON_HEADER
 
+#include "src/renderer/shared/defines.glsl"
+
 // I refuse to call this mix smh.
 #ifndef lerp
 #   define lerp mix
@@ -10,11 +12,6 @@
 #ifndef PI
 #   define PI 3.14159265358979323846
 #endif
-
-const float fov        = PI/3.;
-// const float fov    = PI/2.8;
-const float near_plane = 0.005;
-const float far_plane  = 256.000000;
 
 //
 // TODO: Add lerp smooth as seen in 49:00 of the Freya's video:

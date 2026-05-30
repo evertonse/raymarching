@@ -365,7 +365,7 @@
 
 
 #ifndef CYE_TEMP_CAPACITY
-#   define CYE_TEMP_CAPACITY megabytes(16)
+#   define CYE_TEMP_CAPACITY megabytes(32)
 #endif
 
 #ifndef CYE_MAX_TRACE_LOG_MSG_LENGTH
@@ -461,7 +461,10 @@ typedef enum {
 
 #define Cye_DArray(Type) \
 struct {                 \
-    Type *items;         \
+    union {              \
+        Type *items;     \
+        void *data;      \
+    };                   \
     usz count;           \
     usz capacity;        \
 }

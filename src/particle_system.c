@@ -236,7 +236,7 @@ Color internal sample_color_gradient(const Color *colors, const float *timings, 
    }
 
    // find segment
-   for (uint i = 0; i < count - 1; i++) {
+   for (uint i = 0; i < count - 1; i += 1) {
 
       float t0 = timings[i];
       float t1 = timings[i + 1];
@@ -263,7 +263,7 @@ Vector3 sample_size_curve(const Vector3 *values, const float *timings, uint coun
    if (t >= timings[count - 1])
       return values[count - 1];
 
-   for (uint i = 0; i < count - 1; i++) {
+   for (uint i = 0; i < count - 1; i += 1) {
       float t0 = timings[i];
       float t1 = timings[i + 1];
       if (t >= t0 && t <= t1) {
@@ -327,7 +327,7 @@ Particle_Spawn_Result particle_cone_spawn(Vector3 direction, float half_angle) {
 // Return stub instead of null no need to check pointer
 Particle* spawn_particle(Particle_System *ps, Vector3 emitter_position, float starting_age) {
 
-   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
+   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i += 1) {
       Particle *p = &ps->particles[i];
       if (p && p->alive) {
          continue;
@@ -549,7 +549,7 @@ void update_particle_system(Particle_System *ps, Vector3 emitter_position, float
    // Every new particle would start with at least 'dt' of age which would could synchronization problems.
    {
       ps->particles_count = 0;
-      for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
+      for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i += 1) {
          Particle *p = &ps->particles[i];
          if (p->alive) {
             update_particle(p, ps, dt);
@@ -624,7 +624,7 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
 
       trace_info("ps_resources->hdr_intensity = %f hdr_linear_intensity = %f for %s", ps_resources->hdr_intensity, hdr_linear_intensity, ps->texture_path);
 
-      for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
+      for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i += 1) {
          if (0 == i) {
             // First node owns mesh
             ps_resources->nodes[i] = create_scene_node(&ps_resources->model);
@@ -676,16 +676,16 @@ void draw_particle_system(Particle_System *ps, Particle_System_Render_Resources 
    update_particle_system(ps, position, time_delta() * simulation_speed);
 
    uint live_count = 0;
-   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
+   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i += 1) {
       if (ps->particles[i].alive) {
          Particle tmp = ps->particles[live_count];
          ps->particles[live_count] = ps->particles[i];
          ps->particles[i] = tmp;
-         live_count++;
+         live_count += 1;
       }
    }
 
-   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i++) {
+   for (uint i = 0; i < PARTICLE_SYSTEM_MAX_PARTICLES_COUNT; i += 1) {
       Particle *p = &ps->particles[i];
       Scene_Node node = ps_resources->nodes[i];
 
@@ -780,7 +780,7 @@ void draw_impact_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 came
    static bool loaded = false;
    if (!loaded) {
       loaded = true;
-      for (uint idx = 0; idx < count_of(vfx); idx++) {
+      for (uint idx = 0; idx < count_of(vfx); idx += 1) {
          vfx[idx].particle_system = particle_system_default;
 
          vfx[idx].particle_system.is_local_simulation_space = true;
@@ -918,7 +918,7 @@ void draw_impact_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 came
       }
    }
 
-   for (int idx = 0; idx < count_of(vfx); idx++) {
+   for (int idx = 0; idx < count_of(vfx); idx += 1) {
       Particle_System *ps = &vfx[idx].particle_system;
       if (!file_exists(ps->texture_path)) {
          continue;
@@ -962,7 +962,7 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
    static bool loaded = false;
    if (!loaded) {
       loaded = true;
-      for (uint idx = 0; idx < count_of(vfx); idx++) {
+      for (uint idx = 0; idx < count_of(vfx); idx += 1) {
          vfx[idx].particle_system = particle_system_default;
          vfx[idx].render_resources.instance_rendering_mode = 3;
          vfx[idx].render_resources.hdr_intensity = 7;
@@ -1111,7 +1111,7 @@ void draw_spark_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camer
       // vfx[count_of(vfx)-1].particle_system = debug_particle_system;
    }
 
-   for (int idx = 0; idx < count_of(vfx); idx++) {
+   for (int idx = 0; idx < count_of(vfx); idx += 1) {
       Particle_System *ps = &vfx[idx].particle_system;
       ps->transform.position = add(unit_position, vector3(0, 0, 0));
 
@@ -1143,7 +1143,7 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
    const bool is_local_simulation_space = true;
    if (!loaded) {
       loaded = true;
-      for (uint idx = 0; idx < count_of(vfx); idx++) {
+      for (uint idx = 0; idx < count_of(vfx); idx += 1) {
          vfx[idx].particle_system = particle_system_default;
          vfx[idx].render_resources.instance_rendering_mode = 3;
          vfx[idx].render_resources.hdr_intensity = 2.616925 * 2;
@@ -1298,7 +1298,7 @@ void draw_vfx(Vector3 unit_position, Vector3 unit_direction, Vector3 camera_posi
    }
 
 
-   for (int idx = 0; idx < count_of(vfx); idx++) {
+   for (int idx = 0; idx < count_of(vfx); idx += 1) {
       auto ps = &vfx[idx].particle_system;
       ps->transform.position = add(vector3(30, 0, 30), unit_position);
 

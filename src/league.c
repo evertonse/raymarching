@@ -80,7 +80,7 @@ void update_unit(Unit *u, float dt, Projectile_Pool *pool) {
 
       if (previous < u->attack.cast_time && u->attack.elapsed >= u->attack.cast_time) {
          u->attack.cooldown_elapsed = u->attack.cooldown;
-         for (int i = 0; i < MAX_PROJECTILES; i++) {
+         for (int i = 0; i < MAX_PROJECTILES; i += 1) {
             if (!pool->items[i].active) {
                pool->items[i] = (Projectile){
                   .position = {
@@ -158,13 +158,15 @@ void render_unit(const Unit *u, Unit_Visual *v) {
    static float turn_speed = 9.0f;
 
    Transform t = transform_identity;
-   t.scale     = vector3(0.01f);
-   t.position  = vector3(u->position.x, 0.0f, u->position.y);
 
    float target_angle         = atan2f(u->direction.x, u->direction.y);
    Quaternion target_rotation = QuaternionFromAxisAngle((Vector3){0, 1, 0}, target_angle);
-   Transform current          = get_transform(v->node);
-   t.rotation                 = QuaternionSlerp(current.rotation, target_rotation, min(turn_speed * time_delta(), 1.0f));
+
+   Transform current = get_transform(v->node);
+   t.scale    = current.scale;
+   t.position = vector3(u->position.x, 0.0f, u->position.y);
+   t.rotation = QuaternionSlerp(current.rotation, target_rotation, min(turn_speed * time_delta(), 1.0f));
+
    update_transform(v->node, t);
 
    Transform ht = transform_identity;
@@ -189,7 +191,7 @@ void render_unit(const Unit *u, Unit_Visual *v) {
 
 
 void render_projectile_pool(const Projectile_Pool *pool) {
-   for (int i = 0; i < MAX_PROJECTILES; i++) {
+   for (int i = 0; i < MAX_PROJECTILES; i += 1) {
       const Projectile *p = &pool->items[i];
       const Projectile_Visual *v = &pool->visuals[i];
 
@@ -260,6 +262,25 @@ Scene_Node draw_cube(void) {
    return node;
 }
 
+
+void draw_only_league_map(Projection_Application *app) {
+   static bool loaded = false;
+   static Model league_map = {0};
+   static Scene_Node league_map_node = {0};
+
+   if (!loaded) {
+      loaded = true;
+      minimize_window();
+
+      league_map = create_model("res/models/league/map/LeagueMap.fbx");
+      league_map_node = create_scene_node(&league_map);
+      update_position(league_map_node, vector3(0, -100, 0));
+      update_color_tint(league_map_node, vector4(vector3(20), 1.));
+      update_scale(league_map_node, 100);
+   }
+}
+
+
 void draw_scene_league(Projection_Application *app) {
 
    static bool loaded = false;
@@ -267,6 +288,8 @@ void draw_scene_league(Projection_Application *app) {
    static Unit_Visual vayne_v = {0};
    static Projectile_Pool bolt_pool = {0};
    static Model health_bar_model = {0};
+   static Model league_map = {0};
+   static Scene_Node league_map_node = {0};
 
    auto per_frame = app->per_frame;
    Vector2 spherical = {per_frame.camera.phi, per_frame.camera.theta};
@@ -276,6 +299,11 @@ void draw_scene_league(Projection_Application *app) {
    if (!loaded) {
       loaded = true;
       minimize_window();
+
+      league_map = create_model("res/models/league/map/LeagueMap.fbx");
+      league_map_node = create_scene_node(&league_map);
+      update_position(league_map_node, vector3(0, -692.5, 0));
+      update_scale(league_map_node, 200);
 
       // Game state
       vayne.move_speed     = 39.5f;
@@ -289,11 +317,13 @@ void draw_scene_league(Projection_Application *app) {
           .cooldown    = .4f,
       };
 
+
       // Visuals
       vayne_v.model        = create_model("res/models/league/vayne/Vayne.fbx");
       vayne_v.hitbox_model = create_torus_model(255, 255, 255, 200);
 
       vayne_v.node         = create_scene_node(&vayne_v.model, transform_identity);
+      update_scale(vayne_v.node, 0.0045);
       vayne_v.hitbox_node  = create_scene_node(&vayne_v.hitbox_model, transform_identity);
 
       health_bar_model = create_model_from_mesh(generate_quad_mesh(1.0f, 1.0f)); // unit scale, actual size set via transform.scale
@@ -302,7 +332,7 @@ void draw_scene_league(Projection_Application *app) {
       vayne_v.health_bar.node = create_scene_node(&health_bar_model, transform_identity);
       update_renderable_render_state(vayne_v.health_bar.node, RENDER_STATE_VFX);
 
-      for (int i = 0; i < MAX_PROJECTILES; i++) {
+      for (int i = 0; i < MAX_PROJECTILES; i += 1) {
          bolt_pool.visuals[i].node = create_scene_node(vayne_v.hitbox_node);
       }
 
@@ -330,11 +360,11 @@ void draw_scene_league(Projection_Application *app) {
 
    // Game update
    update_unit(&vayne, time_delta(), &bolt_pool);
-   for (int i = 0; i < MAX_PROJECTILES; i++) {
+   for (int i = 0; i < MAX_PROJECTILES; i += 1) {
       update_projectile(&bolt_pool.items[i], time_delta());
    }
 
-   for (int i = 0; i < MAX_PROJECTILES; i++) {
+   for (int i = 0; i < MAX_PROJECTILES; i += 1) {
       if (bolt_pool.items[i].active && projectile_hits_unit(&bolt_pool.items[i], &vayne)) {
          bolt_pool.items[i].hit = true;
          vayne.health.current -= .1f;

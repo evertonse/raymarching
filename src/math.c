@@ -513,12 +513,6 @@ void camera_basis(Vector2 spherical, Vector3 *forward, Vector3 *right,Vector3 *u
 }
 
 
-// TODO: THESE should go in shared or be changable
-const float near_plane = 0.005;
-const float far_plane = 256.000000;
-const float fov    = PI/3.;
-
-
 Ray compute_mouse_ray(
     float mouse_x, float mouse_y,
     float screen_width, float screen_height,

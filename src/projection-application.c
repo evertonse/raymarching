@@ -78,7 +78,7 @@ void projection_update_shaders(Projection_Application *app) {
 
 
    trace_debug("%s updating shaders", __func__);
-   for (int i = 0; i < count_of(shader_slots); ++i) {
+   for (int i = 0; i < count_of(shader_slots); i += 1) {
       Shader *s = shader_slots[i];
       const char *path = s->path;
 
@@ -140,11 +140,14 @@ void projection_init(Projection_Application *app) {
       //       that we'll have less framebuffers binds for each effect. Hopefully it gets faster.
       // options = create_framebuffer_multisample, create_framebuffer, create_framebuffer_multisample_with_renderbuffers
       app->fb = create_framebuffer_multisample(resolution.width, resolution.height, samples);
-      const Texture normal_attachment_texture = create_texture(resolution.width, resolution.height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_BILINEAR, TEXTURE_WRAP_CLAMP_EDGE);
+      auto texture_type = app->fb.color.type;
+      const Texture normal_attachment_texture = create_texture(resolution.width, resolution.height, nullptr, TEXTURE_FORMAT_RGBA32F, texture_type, TEXTURE_FILTER_BILINEAR, TEXTURE_WRAP_CLAMP_EDGE);
       bool ok = attach_texture_to_framebuffer(&app->fb, 1, normal_attachment_texture);
       if (ok) {
          trace_okay("Able to create normal attachment texture !");
       }
+      set_framebuffer_draw_attachments(app->fb, 0b11);
+
    }
 
    static const Vector3 clear_color = {123., 123., 123.};
@@ -421,8 +424,8 @@ void *generate_cone_map_relaxed(const char *heightmap_path, const char *out_png_
    upload_uniform_int(compute_shader, "is_partial", is_partial);
    upload_uniform_vec3(compute_shader, "offset", ((Vector3){0, 0, 0}));
 
-   for (int i = 0; i < width; ++i) {
-      for (int j = 0; j < height; ++j) {
+   for (int i = 0; i < width; i += 1) {
+      for (int j = 0; j < height; j += 1) {
          trace_info("iteration i = %d/%d j = %d/%d", i+1, width, j+1, height);
          if (i == 0 && j == 0) {
             upload_uniform_int(compute_shader, "is_first_time", 1);
@@ -457,7 +460,7 @@ void *generate_cone_map_relaxed(const char *heightmap_path, const char *out_png_
 
    // write png
    u8 *png_data = malloc(width * height * 4);
-   for (int i = 0; i < width * height * 4; i++) {
+   for (int i = 0; i < width * height * 4; i += 1) {
        float val = pixels[i];
        png_data[i] = (u8)(clamp(val, 0.0f, 1.0f) * 255.0f);
    }
@@ -939,7 +942,7 @@ void projection_update(Projection_Application *app, f64 dt) {
       set_redererer_mode(RENDERER_MODE_FILL);
    }
 
-   draw_indirect(app->fb, app->shader);
+   Framebuffer depth_normal_fb = draw_indirect(app->fb, app->shader);
 
 
    if (please_sync) {
@@ -977,9 +980,9 @@ void projection_update(Projection_Application *app, f64 dt) {
 
       Framebuffer ldr_fb = {0xCD};
       if (please_bloom) {
-         ldr_fb = apply_postprocess(bloomed);
+         ldr_fb = apply_postprocess(bloomed, depth_normal_fb);
       } else {
-         ldr_fb = apply_postprocess(src_fb);
+         ldr_fb = apply_postprocess(src_fb, depth_normal_fb);
       }
       blit_framebuffer_to_swapchain(ldr_fb);
    }

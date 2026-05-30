@@ -41,6 +41,11 @@ void wait_for_enter_on_terminal(void) {
 #define STBTT_free(x,u)    ((void)(u),free(x))
 
 
+
+// Defines shared between shader and cpu
+// Must be before math.c so gpu also does the calculations in same space as cpu.
+#include "./renderer/shared/defines.glsl"
+
 #undef unreachable
 #undef normalize
 #include "./math.c"
@@ -103,7 +108,7 @@ const char* cye_human_readable_size(i64 bytes) {
 
     while (size >= 1024.0 && unit_index < 3) {
         size /= 1024.0;
-        unit_index++;
+        unit_index += 1;
     }
 
     snprintf(output, size_of(output), "%.2f %s", size, units[unit_index]);
@@ -217,7 +222,7 @@ static void conditionally_change_windows_title(f64 dt) {
          fmt = "%s";
       }
       count += snprintf((char*)title.mem + count, max - count, fmt, *curr);
-      curr++;
+      curr += 1;
    }
    const char *new_title = (const char*)title.mem;
 
@@ -253,7 +258,7 @@ int main() {
    Application *apps[] = {(Application*)&projection_application};
    // Application *apps[] = {(Application*)&raymarching_application};
 
-   for (isz idx = 0; idx < count_of(apps); idx++) {
+   for (isz idx = 0; idx < count_of(apps); idx += 1) {
       Application *app = apps[idx];
       app->init(app);
    }
@@ -278,7 +283,7 @@ int main() {
 
 
       assert(nullptr != __state.window.handle);
-      for (isz idx = 0; idx < count_of(apps); idx++) {
+      for (isz idx = 0; idx < count_of(apps); idx += 1) {
          Application* app = apps[idx];
 
 

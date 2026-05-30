@@ -45,25 +45,29 @@ vec4 perspective_from_frustum(vec3 position) {
 vec4 perspective_from_fov(vec3 position, float fov_y_rad, float aspect, float z_near, float z_far) {
    // Compute Y bounds at near and far using FOV
    float project = tan(fov_y_rad * 0.5) * position.z;
+   // This is made to add a bit of perspective sideways as well
+   float y_depth = (position.y*0.0);
+   float x_depth = (position.x*0.0);
+   project += y_depth + x_depth;
+   // project += exp(y_depth) + exp(x_depth);
+
    float x_ndc  = position.x / (aspect * project);
    float y_ndc  = position.y / project;
 
    float z_ndc = ((position.z - z_near)/abs(z_far-z_near))*2 - 1;
    // float z_ndc = remap(position.z, z_near, z_far, -1.0, 1.0);
 
-   // This is made to add a bit of perspective sideways as well
-   float y_depth = (position.y*0.0);
-   float x_depth = (position.x*0.0);
-   project += y_depth + x_depth;
+
+   // z = ((position.z - z_near)/abs(z_far-z_near))*2 - 1 / tan(fov_y_rad * 0.5) * position.z
 
    // Considering float precision and depth test, one of these might be actually better.
    // The first one of the returns below is more close with usual non linear z depth scaling seen when using mat4 matrix for perspective
    // We can add some effect of vanishing lines upwards and sideways as well, like when a building is too tall, we have the usual vanishing in z but also in y.
    // It also happens noticebly in x with fish eye lens I think.
+   return vec4(x_ndc*project, y_ndc*project, z_ndc*project, project);
+   return vec4(x_ndc*position.z, y_ndc*position.z, z_ndc*position.z, position.z);
    return vec4(position.x / aspect, position.y, z_ndc, project);
    return vec4(position.x / aspect, position.y, z_ndc*project, project);
-   return vec4(x_ndc*position.z, y_ndc*position.z, z_ndc*position.z, position.z);
-   return vec4(x_ndc, y_ndc, z_ndc, 1.0);
 }
 
 

@@ -22,7 +22,12 @@
 #define BINDING_BLOOM                     3
 #define BINDING_ANIMATION_MATRICES        12
 #define BINDING_JOINT_BUFFER              9
-#define BINDING_FRAMEBUFFER_DEPTH_TEXTURE 0
+
+#define BINDING_FRAMEBUFFER_DEPTH_TEXTURE     0
+#define BINDING_FRAMEBUFFER_NORMAL_TEXTURE    1
+#define BINDING_FRAMEBUFFER_COLOR_TEXTURE     2
+#define BINDING_FRAMEBUFFER_HDR_SCENE_TEXTURE 4
+#define BINDING_LDR_SCENE_IMAGE 0
 
 
 // Some helpful constants
@@ -51,5 +56,10 @@
 #ifndef RAD2DEG
 #   define RAD2DEG (180.0/PI)
 #endif
+
+const float fov        = PI/3.;
+const float near_plane = 0.005;
+const float far_plane  = 5*256.000000;
+
 
 #endif // SHARED_DEFINES_HEADER

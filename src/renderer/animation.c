@@ -56,7 +56,7 @@ static bool is_valid_keyframe_order(
    u32 count,
    const char *name
 ) {
-   for (u32 i = 1; i < count; i++) {
+   for (u32 i = 1; i < count; i += 1) {
       double prev_time = keys[i - 1].time;
       double curr_time = keys[i].time;
       assert(prev_time >= 0.0  && curr_time >= 0);
@@ -138,7 +138,7 @@ bool is_valid_animation(const Animation *anim) {
       ok = false;
    }
 
-   for (u32 i = 0; i < anim->joints_animation.count; i++) {
+   for (u32 i = 0; i < anim->joints_animation.count; i += 1) {
       if (!is_valid_joint_animation(&anim->joints_animation.items[i])) {
          trace_error(
             "Animation '%s' joint %u failed validation\n",
@@ -169,7 +169,7 @@ Joint_List joint_list_deep_copy(const Joint_List *src) {
    total_bytes += src->count * sizeof(ZString);
 
    // Add space for each name string
-   for (u32 i = 0; i < src->count; i++) {
+   for (u32 i = 0; i < src->count; i += 1) {
       if (src->names[i] != nullptr) {
          total_bytes += strlen(src->names[i]) + 1; // +1 for null terminator
       }
@@ -194,7 +194,7 @@ Joint_List joint_list_deep_copy(const Joint_List *src) {
    ptr += src->count * sizeof(ZString);
 
    // Now we copy each name string
-   for (u32 i = 0; i < src->count; i++) {
+   for (u32 i = 0; i < src->count; i += 1) {
       if (src->names[i] != nullptr) {
          size_t name_len = strlen(src->names[i]) + 1;
          dst.names[i] = (ZString)ptr;
@@ -230,7 +230,7 @@ Animation animation_deep_copy(const Animation *src) {
    total_bytes += src->joints_animation.count * size_of(Joint_Animation);
 
    // Count space for all keyframe data
-   for (u32 i = 0; i < src->joints_animation.count; i++) {
+   for (u32 i = 0; i < src->joints_animation.count; i += 1) {
       const Joint_Animation *joint = &src->joints_animation.items[i];
       total_bytes += joint->translation_keyframes.count * size_of(*joint->translation_keyframes.items);
       total_bytes += joint->scale_keyframes.count       * size_of(*joint->scale_keyframes.items);
@@ -256,7 +256,7 @@ Animation animation_deep_copy(const Animation *src) {
       ptr += src->joints_animation.count * size_of(Joint_Animation);
 
       // Copy each joint's data
-      for (u32 i = 0; i < src->joints_animation.count; i++) {
+      for (u32 i = 0; i < src->joints_animation.count; i += 1) {
          const Joint_Animation *src_joint = &src->joints_animation.items[i];
          Joint_Animation *dst_joint = &dst.joints_animation.items[i];
 
@@ -401,7 +401,7 @@ static isz inline find_keyframe_interval_linear(
 ) {
    assert_msg(count >= 2, "The caller should have checked this");
 
-   for (u32 i = 0; i < count - 1; i++) {
+   for (u32 i = 0; i < count - 1; i += 1) {
       double t0 = keys[i].time;
       double t1 = keys[i + 1].time;
 

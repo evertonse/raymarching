@@ -609,49 +609,44 @@ void update_manager_gpu_resources() {
 
 
    if (manager.materials.dirty) {
-      static Material materials_handles[2048];
-      assert_msg(manager.materials.count <= count_of(materials_handles),
-         "1: If we have more than %lld materials per MDI, maybe it's time to do a proper material unloading ok buddy?", (usz)count_of(materials_handles)
-      );
-      assert_msg(manager.materials.capacity <= count_of(materials_handles),
-         "2: If we have more than %lld materials (in capacity) per MDI, maybe it's time to do a proper material unloading ok buddy?", (usz)count_of(materials_handles)
-      );
+      static DArray(Material) material_handles = {0};
 
       // Load all textures from paths should that should be set when pushing all materials.
       isz this_many_needed_loaded = 0, this_many_textures = 0;
+
+      // Rebuild all handles from scratch. Beware not to 'continue' the loop without setting a handle for 'material_handles'.
+      material_handles.count = 0;
       for (u32 material_index = 0; material_index < manager.materials.count; material_index += 1) {
          auto material = &manager.materials.items[material_index];
-
-         if (material->loaded) {
-            continue;
-         }
          this_many_needed_loaded += 1;
 
          // TODO: Set a default texture for each of these
-         for (isz material_texture_index = 0; material_texture_index < MAX_TEXTURE_PER_MATERIAL; material_texture_index += 1) {
-            auto texture = &material->textures[material_texture_index];
-            if (texture->path) {
-               *texture = create_texture_from_filepath(texture->path);
-               this_many_textures += 1;
+         if (!material->loaded) {
+            for (isz material_texture_index = 0; material_texture_index < MAX_TEXTURE_PER_MATERIAL; material_texture_index += 1) {
+               auto texture = &material->textures[material_texture_index];
+               if (texture->path) {
+                  *texture = create_texture_from_filepath(texture->path);
+                  this_many_textures += 1;
+               }
             }
          }
 
          material->loaded = true;
-         materials_handles[material_index] = (Material) {
+         da_append(&material_handles, (Material) {
             .diffuse_handle  = material->diffuse.bindless_handle,
             .specular_handle = material->specular.bindless_handle,
             .emissive_handle = material->emissive.bindless_handle,
             .normal_handle   = material->normal.bindless_handle,
-         };
+         });
       }
 
       isz required_buffer_capacity_in_bytes = manager.materials.capacity * size_of(Material);
       if (!is_valid_buffer(manager.materials.buffer)) {
-         manager.materials.buffer = create_buffer(BUFFER_USAGE_SUBDATA, materials_handles, required_buffer_capacity_in_bytes);
+         manager.materials.buffer = create_buffer(BUFFER_USAGE_SUBDATA, material_handles.data, required_buffer_capacity_in_bytes);
       } else {
          resize_buffer_if_needed(&manager.materials.buffer, required_buffer_capacity_in_bytes);
          isz buffer_size = manager.materials.count * size_of(Material);
-         update_buffer(&manager.materials.buffer, materials_handles, 0, buffer_size);
+         update_buffer(&manager.materials.buffer, material_handles.data, 0, buffer_size);
       }
 
       trace_info("[Manager] Materials were dirty and needed to load %lld textures for %lld/%lld materials.", this_many_textures, this_many_needed_loaded, (isz)manager.materials.count);
@@ -752,7 +747,8 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
 
 // Draw all indices ever created
 // Accept framebuffer but expects to be bound already.
-void draw_indirect(Framebuffer framebuffer, Shader shader) {
+Framebuffer draw_indirect(Framebuffer framebuffer, Shader shader) {
+   static Framebuffer resolved_framebuffer = {0};
    update_manager_gpu_resources();
 
 
@@ -827,12 +823,7 @@ void draw_indirect(Framebuffer framebuffer, Shader shader) {
          : manager.draw_commands.count - offset
       ;
 
-      if (0 == count) {
-         continue;
-      }
 
-
-      Texture depth_texture = {0};
       if (render_state_index == (RENDER_STATE_OPAQUE + 1)) {
          // For soft particles, it it a problem to bind a depth texture while still rendering
          // But let's assume transparent and opaque normal geometry has written to depth already.
@@ -845,11 +836,24 @@ void draw_indirect(Framebuffer framebuffer, Shader shader) {
          // NOTE: Could it be faster to make OPAQUE pass write depth to a 2d Image using gl_FragCoord instead of resolving the multisamped depth?
          //       Prolly **slower** because might mess with hardware early-z.
          //       If we depth prepass always then we need to change all of this.
-         depth_texture = resolve_msaa_depth(framebuffer);
+         if (!is_valid_framebuffer(resolved_framebuffer)) {
+            resolved_framebuffer = create_framebuffer_same_attachments_but_not_multisampled(framebuffer);
+         }
+
+         blit_framebuffer(resolved_framebuffer, framebuffer, 0b11, true);
+
+         if (false /* not necessary from my understanding but if anything happens you may try this */ ) {
+            bind_framebuffer(framebuffer);
+         }
       }
 
-      if (is_valid_texture(depth_texture)) {
-         bind_texture(depth_texture, BINDING_FRAMEBUFFER_DEPTH_TEXTURE);
+      if (is_valid_framebuffer(resolved_framebuffer)) {
+         bind_texture(resolved_framebuffer.depth,     BINDING_FRAMEBUFFER_DEPTH_TEXTURE);
+         bind_texture(resolved_framebuffer.colors[1], BINDING_FRAMEBUFFER_NORMAL_TEXTURE);
+      }
+
+      if (0 == count) {
+         continue;
       }
 
 
@@ -887,6 +891,7 @@ void draw_indirect(Framebuffer framebuffer, Shader shader) {
 
    // glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
    // glFinish();
+   return resolved_framebuffer;
 }
 
 
@@ -904,6 +909,7 @@ void grow_materials_if_needed(u32 required_materials) {
    manager.materials.capacity = new_capacity;
 }
 
+
 // Add a material to the manager and return its index
 u32 push_material_to_manager(const char* diffuse_path, const char* specular_path, const char* emissive_path, const char* normal_path) {
    grow_materials_if_needed(1);
@@ -912,15 +918,18 @@ u32 push_material_to_manager(const char* diffuse_path, const char* specular_path
    auto material = &manager.materials.items[material_index];
 
    // Zero Initialize
-   material->diffuse  = (Texture){0};
-   material->specular = (Texture){0};
-   material->emissive = (Texture){0};
+   *material = zero_of(*material);
 
    // Store paths (we'll load textures later in load_manager_textures())
    material->diffuse.path  = diffuse_path  ? strdup(diffuse_path)  : nullptr;
    material->specular.path = specular_path ? strdup(specular_path) : nullptr;
    material->emissive.path = emissive_path ? strdup(emissive_path) : nullptr;
    material->normal.path   = normal_path   ? strdup(normal_path)   : nullptr;
+   if (material->normal.path != nullptr) {
+      if (is_debugging()) {
+         debug_break();
+      }
+   }
    material->loaded = false;
 
 
@@ -1383,6 +1392,7 @@ void update_transform(Scene_Node node, Transform transform) {
    instance->transform = transform;
    return;
 }
+
 
 void update_position(Scene_Node node, Vector3 position) {
    Transform transform = get_transform(node);
