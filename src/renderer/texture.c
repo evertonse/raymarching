@@ -10,6 +10,8 @@ typedef enum {
 
 
    TEXTURE_FORMAT_R32F,
+   TEXTURE_FORMAT_RG32F,
+
    TEXTURE_FORMAT_RGB8,
    TEXTURE_FORMAT_RGBA8,
    TEXTURE_FORMAT_RG8,
@@ -57,14 +59,14 @@ typedef enum {
 } Texture_Access;
 
 typedef struct {
-   GLuint   handle;
+   GLuint handle;
 
 #if defined(RENDERER_USING_BINDLESS)
    GLuint64 bindless_handle;
 #endif
 
    ZString  path;
-   // This line was purposefully left in blank (e.g. for padding the struct to correct blank aligment, necesasry for maching gpu texture /s
+   // This line was purposefully left in blank (e.g. for padding the struct to correct blank aligment, necessary for maching gpu texture /s
 
    i32 width;
    i32 height;
@@ -76,19 +78,27 @@ typedef struct {
    Texture_Type   type;
 } Texture;
 
+constexpr Texture texture_invalid = {
+   .path   = nullptr,
+   .width  = -1,
+   .height = -1,
+};
+
 
 inline bool is_valid_texture(Texture texture) {
-    if (0 == texture.handle)                        return false;
-    if (texture.width <= 0 || texture.height <= 0)  return false;
-    if (TEXTURE_FORMAT_UNDEFINED == texture.format) return false;
-    if (TEXTURE_TYPE_UNDEFINED   == texture.type)   return false;
+   if (0 == texture.handle)                        return false;
 
-    // Actual OpenGL state check (costly, use only in debug)
-    #if defined(RENDERER_DEBUG)
+   if (texture.width <= 0 || texture.height <= 0)  return false;
+
+   if (TEXTURE_FORMAT_UNDEFINED == texture.format) return false;
+   if (TEXTURE_TYPE_UNDEFINED   == texture.type)   return false;
+   
+   // Actual OpenGL state check (costly, use only in debug)
+   #if defined(RENDERER_DEBUG)
       return glIsTexture(texture.handle);
-    #else
+   #else
       return true;
-    #endif
+   #endif
 }
 
 
@@ -196,6 +206,13 @@ void internal texture_format_to_gl_options(
       data_type       = GL_FLOAT;
       break;
    }
+   case TEXTURE_FORMAT_RG32F: {
+      internal_format = GL_RG32F;
+      gl_format       = GL_RG;
+      data_type       = GL_FLOAT;
+      break;
+   }
+
    case TEXTURE_FORMAT_R11G11B10F: {
       internal_format = GL_R11F_G11F_B10F;
       gl_format       = GL_RGB;
@@ -250,6 +267,7 @@ void internal texture_format_to_gl_options(
 }
 
 Texture create_texture(int width, int height, void *data, Texture_Format format, Texture_Type type, Texture_Filter filter, Texture_Wrap wrap) {
+   // TODO: trace info every texture creation, that would make it obivous if we're constantly creating textures mid frame
    Texture result = {
        .width  = width,
        .height = height,
@@ -312,8 +330,11 @@ Texture create_texture(int width, int height, void *data, Texture_Format format,
 
       int mip_levels = 1;
 
+      #define MAX_MIP_LEVELS 16
+
       if (is_mipmapped) {
          mip_levels = (int)floorf(log2f((float)max(width, height))) + 1;
+         mip_levels = max(1, min(mip_levels, MAX_MIP_LEVELS));
       }
 
       glTextureStorage2D(result.handle, mip_levels, internal_format, width, height);
@@ -404,7 +425,11 @@ Texture create_texture(int width, int height, void *data, Texture_Format format,
 #if defined(RENDERER_USING_BINDLESS)
    if (TEXTURE_TYPE_2D_MIPMAPPED == result.type || TEXTURE_TYPE_2D == result.type) {
       result.bindless_handle = glGetTextureHandleARB(result.handle);
-      glMakeTextureHandleResidentARB(result.bindless_handle);
+      if (0 == result.bindless_handle) {
+         trace_error("%s unexpected zero value bindless handle.", __func__);
+      } else {
+         glMakeTextureHandleResidentARB(result.bindless_handle);
+      }
    }
 #endif
 
@@ -453,38 +478,40 @@ Texture create_texture_from_filepath(const char *filepath) {
 
    int width, height, channels;
    stbi_set_flip_vertically_on_load(true);
-   u8 *data = nullptr;
-   bool stbi_need_free = false;
+   Texture_Format format;
+   void *data = nullptr;
 
-   Cye_DString ds = {0};
-   if (true) {
-      data = stbi_load(filepath, &width, &height, &channels, 0);
-      stbi_need_free = true;
+   // detect HDR by extension
+   const char *ext   = strrchr(filepath, '.');
+   const bool is_hdr = ext && (0 == strcmp(ext, ".hdr"));
+   if (is_hdr) {
+      data = stbi_loadf(filepath, &width, &height, &channels, 0);
+      format = TEXTURE_FORMAT_RGBA32F;
+      assert(4 == channels);
    } else {
-      ds_read_file(filepath, &ds);
-      data = ds.data;
-      stbi_load_from_memory(ds.data, ds.size, &width, &height, &channels, 0);
+      data = stbi_load(filepath, &width, &height, &channels, 0);
+      switch (channels) {
+      case 4: format = TEXTURE_FORMAT_RGBA8; break;
+      case 3: format = TEXTURE_FORMAT_RGB8 ; break;
+      case 2: format = TEXTURE_FORMAT_RG8  ; break;
+      case 1: format = TEXTURE_FORMAT_R8   ; break;
+      default:
+         trace_error("Unsupported texture channel count (%d) from image", channels);
+         return (Texture){0};
+      }
    }
 
    if (!data) {
-      trace_error("Failed to load texture from: %s\n", filepath);
+      trace_error("Failed to load texture %sfrom: %s\n", filepath, is_hdr ? "HDR " : "");
       return (Texture){0};
    }
 
-   Texture_Format format = TEXTURE_FORMAT_RGBA8;
-   switch (channels) {
-   case 4: format = TEXTURE_FORMAT_RGBA8; break;
-   case 3: format = TEXTURE_FORMAT_RGB8 ; break;
-   case 2: format = TEXTURE_FORMAT_RG8  ; break;
-   case 1: format = TEXTURE_FORMAT_R8   ; break;
-   default:
-      assert_msg(false, "Unsupported texture channel count from image");
-      break;
-   }
 
-   // const default_filter_from_filepath_textures = TEXTURE_FILTER_ANISOTROPIC_16X;
-   const auto default_filter_from_filepath_textures = TEXTURE_FILTER_ANISOTROPIC_4X;
-   Texture result = create_texture(width, height, data, format, TEXTURE_TYPE_2D_MIPMAPPED, default_filter_from_filepath_textures, TEXTURE_WRAP_REPEAT);
+   const auto default_texture_type = TEXTURE_TYPE_2D_MIPMAPPED;
+   // const auto default_filter_from_filepath_textures = TEXTURE_FILTER_ANISOTROPIC_16X;
+   const auto default_filter_from_filepath_textures = TEXTURE_FILTER_TRILINEAR;
+   const auto default_wrap_from_filepath_textures = TEXTURE_WRAP_REPEAT;
+   Texture result = create_texture(width, height, data, format, default_texture_type, default_filter_from_filepath_textures, default_wrap_from_filepath_textures);
    // NOTE: I'm usure if the texture should hold this memory or not. A lota of times an externable memory is already alocatted idk.
    result.path = filepath;
 
@@ -492,12 +519,7 @@ Texture create_texture_from_filepath(const char *filepath) {
    trace_info("'%s' %dx%d handle = %d bindless_handle = 0x%x loaded.", result.path, result.width, result.height, result.handle, result.bindless_handle);
 #endif
 
-   if (stbi_need_free) {
-      stbi_image_free(data);
-   } else {
-      ds_free(ds);
-   }
-
+   stbi_image_free(data);
    return result;
 }
 
@@ -527,7 +549,7 @@ void update_texture(Texture* texture, int new_width, int new_height, const void*
       assert_msg(false, "Cannot use SubImage on multisampled textures");
       return;
    }
-   
+
    glTextureSubImage2D(
       texture->handle,
       0,    // mip level
@@ -538,6 +560,12 @@ void update_texture(Texture* texture, int new_width, int new_height, const void*
       data_type,
       new_data
    );
+}
+
+
+void memset_texture(Texture src, Vector4 value, int level) {
+    float clear_value[4] = { value.x, value.y, value.z, value.w };
+    glClearTexImage(src.handle, level, GL_RGBA, GL_FLOAT, clear_value);
 }
 
 
@@ -626,11 +654,37 @@ void bind_texture_as_image(const Texture texture, usz binding, Texture_Access ac
    }
 }
 
+bool generate_mipmaps(Texture *texture) {
+   if (!texture || !is_valid_texture(*texture)) {
+      trace_error("%s: invalid texture", __func__);
+      return false;
+   }
+
+   // Multisampled textures cannot have mipmaps
+   if (texture_multisamples(*texture) > 0) {
+      trace_error("%s: multisampled textures do not support mipmaps", __func__);
+      return false;
+   }
+
+   // Already has mipmap storage? (immutable levels > 1)
+   GLint existing_levels = 0;
+   glGetTextureParameteriv(texture->handle, GL_TEXTURE_IMMUTABLE_LEVELS, &existing_levels);
+   if (existing_levels > 1) {
+      // Already has full mip chain just regenerate from level 0
+      glGenerateTextureMipmap(texture->handle);
+      return true;
+   } else {
+      trace_error("%s: Sorry trying to generate mips with not storage for it", __func__);
+   }
+   return true;
+}
+
+
 #define bind_texture_as_sampler bind_texture
 
 bool generate_max_mipmaps(Texture *texture) {
 
-   if (texture == NULL) {
+   if (texture == nullptr) {
       trace_error("%s: texture null", __func__);
       return false;
    }
@@ -671,7 +725,7 @@ bool generate_max_mipmaps(Texture *texture) {
    usize base_pixel_count = (usize)base_width * (usize)base_height;
 
    float *base_level_data = malloc(base_pixel_count * size_of(float));
-   if (base_level_data == NULL) {
+   if (base_level_data == nullptr) {
       trace_error("%s: malloc failed", __func__);
       return false;
    }
@@ -727,7 +781,7 @@ bool generate_max_mipmaps(Texture *texture) {
       usize next_pixel_count = (usize)next_width * (usize)next_height;
       float *next_level_data = malloc(next_pixel_count * size_of(float));
 
-      if (next_level_data == NULL) {
+      if (next_level_data == nullptr) {
          free(previous_level_data);
          trace_error("%s: malloc failed", __func__);
          return false;
@@ -998,4 +1052,130 @@ void debug_print_texture(Texture t) {
       trace_warn("  MISMATCH height:  struct=%d gl=%d", t.height, height);
    if (texture_multisamples(t) != samples)
       trace_warn("  MISMATCH samples: struct=%d gl=%d", texture_multisamples(t), samples);
+}
+
+
+
+/////////////////////////////////////
+/////////////////////////////////////
+
+const char *texture_format_to_string(Texture_Format format) {
+   switch (format) {
+   case TEXTURE_FORMAT_UNDEFINED:
+      return "UNDEFINED";
+   case TEXTURE_FORMAT_DEPTH24:
+      return "DEPTH24";
+   case TEXTURE_FORMAT_SHADOW:
+      return "SHADOW";
+   case TEXTURE_FORMAT_RGBA32F:
+      return "RGBA32F";
+   case TEXTURE_FORMAT_RG32F:
+      return "RG32F";
+   case TEXTURE_FORMAT_R11G11B10F:
+      return "R11G11B10F";
+   case TEXTURE_FORMAT_R32F:
+      return "R32F";
+   case TEXTURE_FORMAT_RGB8:
+      return "RGB8";
+   case TEXTURE_FORMAT_RGBA8:
+      return "RGBA8";
+   case TEXTURE_FORMAT_RG8:
+      return "RG8";
+   case TEXTURE_FORMAT_R8:
+      return "R8";
+   default:
+      return "UNKNOWN";
+   }
+}
+
+const char *texture_type_to_string(Texture_Type type) {
+   switch (type) {
+   case TEXTURE_TYPE_UNDEFINED:
+      return "UNDEFINED";
+   case TEXTURE_TYPE_2D:
+      return "2D";
+   case TEXTURE_TYPE_2D_MIPMAPPED:
+      return "2D_MIPMAPPED";
+   case TEXTURE_TYPE_2D_MULTISAMPLED_2X:
+      return "2D_MULTISAMPLED_2X";
+   case TEXTURE_TYPE_2D_MULTISAMPLED_4X:
+      return "2D_MULTISAMPLED_4X";
+   case TEXTURE_TYPE_2D_MULTISAMPLED_8X:
+      return "2D_MULTISAMPLED_8X";
+   case TEXTURE_TYPE_2D_MULTISAMPLED_16X:
+      return "2D_MULTISAMPLED_16X";
+   case TEXTURE_TYPE_BUFFER:
+      return "BUFFER";
+   default:
+      return "UNKNOWN";
+   }
+}
+
+const char *texture_filter_to_string(Texture_Filter filter) {
+   switch (filter) {
+   case TEXTURE_FILTER_NONE:
+      return "NONE";
+   case TEXTURE_FILTER_BILINEAR:
+      return "BILINEAR";
+   case TEXTURE_FILTER_TRILINEAR:
+      return "TRILINEAR";
+   case TEXTURE_FILTER_ANISOTROPIC_4X:
+      return "ANISOTROPIC_4X";
+   case TEXTURE_FILTER_ANISOTROPIC_8X:
+      return "ANISOTROPIC_8X";
+   case TEXTURE_FILTER_ANISOTROPIC_16X:
+      return "ANISOTROPIC_16X";
+   default:
+      return "UNKNOWN";
+   }
+}
+
+const char *texture_wrap_to_string(Texture_Wrap wrap) {
+   switch (wrap) {
+   case TEXTURE_WRAP_REPEAT:
+      return "REPEAT";
+   case TEXTURE_WRAP_CLAMP_EDGE:
+      return "CLAMP_EDGE";
+   case TEXTURE_WRAP_CLAMP_BORDER:
+      return "CLAMP_BORDER";
+   case TEXTURE_WRAP_MIRRORED_REPEAT:
+      return "MIRRORED_REPEAT";
+   default:
+      return "UNKNOWN";
+   }
+}
+
+const char *texture_access_to_string(Texture_Access access) {
+   static char buffer[256];
+
+   if ((TEXTURE_ACCESS_READ | TEXTURE_ACCESS_WRITE) == (access & (TEXTURE_ACCESS_READ | TEXTURE_ACCESS_WRITE))) {
+      return "READ | WRITE";
+   }
+
+   if (TEXTURE_ACCESS_READ == (access & TEXTURE_ACCESS_READ)) {
+      return "READ";
+   }
+
+   if (TEXTURE_ACCESS_WRITE == (access & TEXTURE_ACCESS_WRITE)) {
+      return "WRITE";
+   }
+
+   return "NONE";
+}
+
+
+TString texture_to_tstring(const Texture texture) {
+   const char *path_string = (nullptr != texture.path) ? texture.path: "NONE";
+
+   return tprintf(
+      "Texture {\n"
+      "   Handle:     0x%X\n"
+      "   Path:       %s\n"
+      "   Dimensions: %d x %d\n"
+      "   Format:     %s\n"
+      "   Type:       %s\n"
+      "   Filter:     %s\n"
+      "   Wrap:       %s\n"
+      "}",
+   texture.handle, path_string, texture.width, texture.height, texture_format_to_string(texture.format), texture_type_to_string(texture.type), texture_filter_to_string(texture.filter), texture_wrap_to_string(texture.wrap));
 }

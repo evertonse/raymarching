@@ -5,6 +5,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D src_texture;
 layout(rgba32f, binding = 1) uniform image2D dst_image;
 
+#define sample_texture sample_texture_bicubic
 #include "res/shaders/common.glsl"
 #include "./bloom.h"
 
@@ -18,8 +19,6 @@ const bool use_scattering = false;
 const float scatter_value = .45; // set this to bigger than one to see some shit.
 const float scatter = lerp(0.05f, 0.95f, scatter_value);
 
-#define sample_texture sample_texture_bicubic
-// #define sample_texture texture
 
 
 vec3 sample_tent(vec2 uv, vec2 texel) {

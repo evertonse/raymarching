@@ -21,8 +21,11 @@ typedef struct {
       struct {
          const char *diffuse;
          const char *specular;
+         const char *roughness;
          const char *emissive;
          const char *normal;
+         const char *height;
+         const char *ambient_occlusion;
       } *items;
       isz count;
    } materials;
@@ -84,10 +87,13 @@ void trace_model(const Model *model) {
     auto mat = &model->materials.items[mi];
 
     trace_info("  material[%lld]", mi);
-    trace_info("    diffuse  : %s", mat->diffuse ? mat->diffuse : "(none)");
-    trace_info("    specular : %s", mat->specular ? mat->specular : "(none)");
-    trace_info("    emissive : %s", mat->emissive ? mat->emissive : "(none)");
-    trace_info("    normal   : %s", mat->normal ? mat->normal : "(none)");
+    trace_info("    diffuse           : %s", mat->diffuse           ? mat->diffuse                          : "(none)");
+    trace_info("    specular          : %s", mat->specular          ? mat->specular                         : "(none)");
+    trace_info("    roughness         : %s", mat->roughness         ? mat->roughness                        : "(none)");
+    trace_info("    emissive          : %s", mat->emissive          ? mat->emissive                         : "(none)");
+    trace_info("    normal            : %s", mat->normal            ? mat->normal                           : "(none)");
+    trace_info("    height            : %s", mat->height            ? mat->height                           : "(none)");
+    trace_info("    ambient_occlusion : %s", mat->ambient_occlusion ? mat->ambient_occlusion                : "(none)");
   }
 
   // == Joints =========================================
@@ -624,9 +630,62 @@ static isz material_index_from_ufbx_scene(ufbx_material* material, ufbx_scene *s
    assert(-1 != index);
    return index;
 }
+// Given a known texture filepath, try to find a variant with a different suffix.
+// e.g. "res/textures/wall_diffuse.png" -> "res/textures/wall_ao.png"
+// Returns a heap-allocated string if found, nullptr otherwise.
+static char *find_texture_variant(const char *known_filepath, const char **suffixes, usz suffix_count) {
+   if (!known_filepath) {
+      return nullptr;
+   }
+
+   const char *ext = strrchr(known_filepath, '.');
+   if (!ext) {
+      return nullptr;
+   }
+
+   // Find the last underscore before the extension
+   const char *underscore = nullptr;
+   for (const char *p = known_filepath; p < ext; p++) {
+      if (*p == '_') {
+         underscore = p;
+      }
+   }
+
+   // Base is everything up to the last underscore (or ext if no underscore)
+   isz base_len = (underscore ? underscore : ext) - known_filepath;
+
+   char *result = nullptr;
+   for (usz i = 0; i < suffix_count; i++) {
+      bool found = false;
+      auto checkpoint = tsave();
+      {
+         // Build candidate: base + "_" + suffix + ext
+         // e.g. "res/textures/wall" + "_" + "ao" + ".png"
+         isz candidate_len = base_len + 1 + strlen(suffixes[i]) + strlen(ext) + 1;
+         char *candidate = talloc(candidate_len);
+
+         snprintf(candidate, candidate_len, "%.*s_%s%s", (int)base_len, known_filepath, suffixes[i], ext);
+
+         // Check if file actually exists before returning
+         found = file_exists(candidate);
+         if (found) {
+            result = strdup(candidate);
+         }
+      }
+      trestore(checkpoint);
+
+      if (found) {
+         break;
+      }
+   }
+   return result;
+}
 
 // TODO: `setup -> create` for consistency
-// TODO: Support content.data content.size extraction as models some only have this embeded content.
+// DONE: Support content.data content.size extraction as models some only have this embeded content.
+// emission_color_texture and emission_strenght_texture are fbx exported by blender alpha_texture as well
+// Specular IOR Leve -> specular_texture and emission_strenght_texture are fbx exported by blender alpha_texture as well
+// These textures plugged directly into Principled BSDF in the shader graph
 static void setup_materials_from_ufbx_scene(Model *model, const ufbx_scene *const scene, const char* scene_filepath) {
    // Setup Textures
    if (0 == scene->materials.count) {
@@ -649,19 +708,35 @@ static void setup_materials_from_ufbx_scene(Model *model, const ufbx_scene *cons
       const ufbx_material_map diffuse_maps[] = {fbx_material.pbr.base_color, fbx_material.fbx.diffuse_color};
       for (usz i = 0; i < count_of(diffuse_maps); i += 1) {
          material->diffuse = filepath_from_ufbx_material_map(scene_filepath, diffuse_maps[i]);
+         // We're checking for other texture like ambient occlusion or height map from diffuser or albedo because blender garanteed exports it from principled bsdf to fbx so it's mostly likely the one texture that's available.
          if (material->diffuse) {
+            static const char *ao_suffixes[] = {
+                "ao", "AO", "ambient_occlusion", "AmbientOcclusion", "occlusion", "Occlusion", "mixed_ao", // Substance Painter
+            };
+            material->ambient_occlusion = find_texture_variant(material->diffuse, ao_suffixes, count_of(ao_suffixes));
+
+            // Common height/depth suffix conventions
+            static const char *height_suffixes[] = {
+                "height", "Height", "depth", "Depth", "disp", "Disp", "displacement", "bump", "Bump",
+            };
+
+            material->height = find_texture_variant(material->diffuse, height_suffixes, count_of(height_suffixes));
+
             break;
          }
       }
 
       // Specular
-      const ufbx_material_map specular_maps[] = {fbx_material.fbx.specular_color, fbx_material.pbr.roughness, fbx_material.pbr.specular_color, fbx_material.fbx.reflection_factor};
+      const ufbx_material_map specular_maps[] = {fbx_material.fbx.specular_color,  fbx_material.fbx.reflection_factor};
       for (usz i = 0; i < count_of(specular_maps); i += 1) {
          material->specular = filepath_from_ufbx_material_map(scene_filepath, specular_maps[i]);
          if (material->specular) {
             break;
          }
       }
+
+      // Roughness
+      material->roughness = filepath_from_ufbx_material_map(scene_filepath, fbx_material.pbr.roughness);
 
       // Emisse
       material->emissive = filepath_from_ufbx_material_map(scene_filepath, fbx_material.fbx.emission_color);
@@ -735,7 +810,7 @@ bool mesh_requires_tangents(const ufbx_mesh *mesh) {
    }
 
    // Check if any material assigned to the mesh uses a normal map.
-   for (size_t i = 0; i < mesh->materials.count; i++) {
+   for (usize i = 0; i < mesh->materials.count; i++) {
       const ufbx_material *mat = mesh->materials.data[i];
       if (!mat) {
          continue;
@@ -755,6 +830,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
    static constexpr int MAX_WEIGHTS = 4;
 
    auto fbx_mesh = node->mesh;
+   const bool mesh_has_uvs = fbx_mesh->uv_sets.count >= 1;
    assert(fbx_mesh);
    if (fbx_mesh->uv_sets.count > 1) {
       trace_warn("fbx mesh %s has more than 1 uv_sets (%llu) which we're ignoring.", node->name.data, (usz)fbx_mesh->uv_sets.count);
@@ -863,13 +939,21 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
                trace_fatal("Failed get normal on %s, %s", scene->metadata.original_file_path.data, panic.message);
             }
             assert_msg(!isnan(ufbx_normal.x) && !isnan(ufbx_normal.y) && !isnan(ufbx_normal.z), "Found when loading nan normals");
-            assert(fbx_mesh->uv_sets.count);
+            static bool warned = false;
+            if (!warned && !mesh_has_uvs) {
+               warned = true;
+               trace_warn("Mesh '%s' has no UV coordinates; using vec2(0,0)", scene->metadata.original_file_path.data);
+            }
 
+            ufbx_vec2 ufbx_uv = {0, 0};
             static const bool uv_from_sets = false;
-            ufbx_vec2 ufbx_uv = ufbx_get_vertex_vec2(&fbx_mesh->vertex_uv, index);
-            if (uv_from_sets) {
-               // Just as a reminder that we might need to support this later on.
-               ufbx_uv = ufbx_get_vertex_vec2(&fbx_mesh->uv_sets.data[0].vertex_uv, index);
+            if (mesh_has_uvs) {
+               if (uv_from_sets) {
+                  // Just as a reminder that we might need to support this later on.
+                  ufbx_uv = ufbx_get_vertex_vec2(&fbx_mesh->uv_sets.data[0].vertex_uv, index);
+               } else {
+                  ufbx_uv = ufbx_get_vertex_vec2(&fbx_mesh->vertex_uv, index);
+               }
             }
 
             assert_msg(!isnan(ufbx_uv.x) && !isnan(ufbx_uv.y), "Found when loading nan uvs");
@@ -884,7 +968,7 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
 
             // Handle skinning data
             if (skin && mesh.vertices.joints) {
-               uint32_t vertex = fbx_mesh->vertex_indices.data[index];
+               u32 vertex = fbx_mesh->vertex_indices.data[index];
                ufbx_skin_vertex skin_vertex = skin->vertices.data[vertex];
                usz num_weights = skin_vertex.num_weights;
                if (num_weights > MAX_WEIGHTS) {
@@ -979,23 +1063,10 @@ static Mesh create_mesh_from_ufbx_node(ufbx_node *node, ufbx_scene *scene) {
 }
 
 
-// void trace_model(const Model *model) {
-//    if (!model) {
-//       return;
-//    }
-//
-//    trace_struct(*model);
-//    for (isz mesh_index = 0; mesh_index < model->meshes.count; mesh_index += 1) {
-//       auto mesh = model->meshes.items[mesh_index];
-//       trace_struct(mesh);
-//       for (isz surface_index = 0; surface_index < (isz)mesh.surfaces.count; surface_index += 1) {
-//          auto surface = mesh.surfaces.items[surface_index];
-//          trace_info("mesh = %d, surface %d", mesh_index, surface_index);
-//          trace_struct(surface);
-//       }
-//    }
-// }
 
+// TODO: Check if filepath exists and if it's cached , ./build/models/filepath or uuid? then you just read the full file from disk
+//       and deserialize, set the pointer in model and return that instead of going the .fbx/.obj route.
+//       It's important to check the timing between the original and the cached because maybe we need to serialize again.
 Model create_model(const char *filepath) {
    Model model = {0};
    ZString scene_filepath = filepath;
@@ -1051,7 +1122,7 @@ Model create_model(const char *filepath) {
    // ufbx_free_scene(scene);
 
    if (model.animations.count > 0 && 0 == model.joints.count) {
-      trace_fatal("We DO NOT handle animations with no joints, does that even make sense? Maybe for retargeting.");
+      trace_fatalf("We DO NOT handle animations with no joints, does that even make sense? Maybe for retargeting.");
    }
 
    return model;
@@ -1220,9 +1291,11 @@ Model create_cube_model(
    Model model = {0};
 
    // 1 mesh and 1 material
-   size_t meshes_size    = size_of(Mesh);
-   size_t materials_size = size_of(*model.materials.items);
-   byte *memory = malloc(meshes_size + materials_size);
+   usize meshes_size    = size_of(Mesh);
+   usize materials_size = size_of(*model.materials.items);
+   usize full_memory_size = meshes_size + materials_size;
+   byte *memory = malloc(full_memory_size);
+   memset(memory, 0, full_memory_size);
 
    model.meshes.count = 1;
    model.meshes.items = (Mesh*)memory;
@@ -1232,6 +1305,7 @@ Model create_cube_model(
    model.materials.count = 1;
    model.materials.items = (typeof(model.materials.items))(memory + meshes_size);
 
+   model.materials.items[0] = zero_of(model.materials.items[0]);
    model.materials.items[0].diffuse  = diffuse_tex;
    model.materials.items[0].specular = specular_tex;
    model.materials.items[0].emissive = emissive_tex;

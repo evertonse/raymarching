@@ -1,26 +1,31 @@
+#pragma compute
 #version 460 core
+
+// For some reason we crash in  glFinish when including this ? What !! #include "res/shaders/common.glsl"
 layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(binding = 12) uniform sampler2D height_map;
-layout(binding = 11) uniform sampler2D cone_map_in;
-layout(rgba32f, binding = 5) uniform image2D cone_map_out;
+layout(binding = 0) uniform sampler2D height_map;
+layout(binding = 1) uniform sampler2D cone_map_in;
+layout(rgba32f, binding = 0) uniform image2D cone_map_out;
 
-uniform ivec2 resolution;      // texture resolution
-uniform vec3  offset;
-uniform int   is_first_time;
-uniform int   is_partial;
-uniform ivec2 resolution_coordinate_j; // Integer texture coordinate in resolution space.
+uniform ivec2 resolution; // texture resolution
+uniform bool use_buffer = false;
 
+layout(std430, binding = 0) readonly buffer Texture_Coordinates_In_Resolution_Space {
+    ivec2 xy_js[]; // xys are integer texture coordinates, these aren't 0.0 to 1.0 normalized float values, we name this uvs.
+};
+
+#define sample_texture texture
 float sample_height(vec2 uv) {
-   return texture(height_map, uv).r;
+   return sample_texture(height_map, uv).r;
+   // return 1. - sample_texture(height_map, uv).r;
 }
 
-// NOTE: QUOTE: mipmapping should not be applied to cone maps, because the filtered values would lead to incorrect intersections.
-// Instead, one should compute the mipmaps manually, by conservatively taking the minimum value for each group of pixels
+// NOTE: QUOTE: Mipmapping should *NOT* be applied to cone maps, because the filtered values would lead to incorrect intersections.
+//              Instead, one should compute the mipmaps manually, by conservatively taking the minimum value for each group of pixels
 float depth2relaxedcone(vec2 texture_coordinate_i, vec2 texture_coordinate_j) {
-   // const int search_steps = 128;
+   const int search_steps = 128;
    // const int search_steps = 128 * 2 * 2;
-   const int search_steps = 150;
 
    vec3 p = vec3(texture_coordinate_i, 0);
 
@@ -28,7 +33,11 @@ float depth2relaxedcone(vec2 texture_coordinate_i, vec2 texture_coordinate_j) {
    o.z = sample_height(texture_coordinate_j);
 
    vec3 v = o - p;    // View ray from ti to tj
-   v /= v.z;          // Make sure v.z is 1. (maximum depth)
+   if (false) {
+      v /= v.z;       // Make sure v.z is 1. (maximum depth)
+   } else {
+      v /= max(v.z, 0.0001f);
+   }
    v *= 1.0 - o.z;
    v /= search_steps; // Scale based on number of steps. Walks slower if more steps.
 
@@ -49,192 +58,71 @@ float depth2relaxedcone(vec2 texture_coordinate_i, vec2 texture_coordinate_j) {
    return r;
 }
 
-const uint searchSteps = 1024*8;
-const float oneOverSearchSteps = 1.0/searchSteps;
-
-vec2 texCoord(ivec2 texelInd) {
-   ivec2 xy = texelInd;
-   const vec2 uv = (vec2(xy) + vec2(0.5)) / vec2(resolution);
-   return uv;
+float load_previous_min_ratio(ivec2 xy) {
+#if 0
+   return imageLoad(cone_map_out, xy).g;
+#else
+   vec2 uv = (vec2(xy) + 0.5) / vec2(resolution);
+   return texture(cone_map_in, uv).g; // .g stores the min ratio
+#endif
 }
 
-float getRelaxedCone(float baseHeight, vec2 baseTexCoord, ivec2 texelInd, float minRatio) {
-   vec2 t = texCoord(texelInd);
-
-   vec3 src     = vec3(baseTexCoord, 1 + 0.001);
-   float height = texture(height_map, t).r;
-   vec3 dst     = vec3(t, height);
-
-   if ((dst.z <= baseHeight) || length(dst.xy - baseTexCoord) > minRatio * (dst.z - baseHeight)) {
-      return 1.0;
-   }
-
-   vec3 vec = dst - src;                     // Ray direction
-   vec /= -vec.z;                            // Scale ray direction so that vec.z = -1.0
-   vec *= dst.z;                             // Scale again
-   vec3 step_fwd = vec * oneOverSearchSteps; // Length of a forward step
-   // Search until a new point outside the surface
-   vec3 ray_pos = dst + step_fwd;
-   for (uint i = 1; i < 2; i += 1) {
-      float current_height = texture(height_map, ray_pos.xy).r;
-      if (current_height >= ray_pos.z) {
-         ray_pos += step_fwd;
-      } else {
-         break;
-      }
-   }
-   // Original texel depth
-   float src_texel_height = baseHeight;
-
-   // Compute the cone ratio
-   float cone_ratio = 1.0;
-   if (ray_pos.z > src_texel_height) {
-      // cone_ratio = length(ray_pos.xy - baseTexCoord);
-      cone_ratio = length(ray_pos.xy - baseTexCoord) / (ray_pos.z - src_texel_height);
-   }
-   return cone_ratio;
-}
-
-float getCone(float baseHeight, vec2 baseTexCoord, ivec2 texelInd, float minRatio) {
-   return getRelaxedCone(baseHeight, baseTexCoord, texelInd, minRatio);
-}
-
-
-void main2(ivec2 xy, vec2 uv) {
-   vec2  baseT = uv; // texture coords
-   float baseH = sample_height(uv);
-
-   float minTan = 1.0;
-   uint w = resolution.x;
-   uint h = resolution.y;
-   for (uint i = 0; i < w; ++i) {
-      for (uint j = 0; j < h; ++j) {
-         ivec2 id = ivec2(i, j);
-         // if ((xy.x != id.x || xy.y != id.y)) {
-         // }
-         minTan = min(minTan, getCone(baseH, baseT, id, minTan));
-      }
-   }
-   vec4 result = vec4(vec3(minTan), baseH);
-   // vec4 result = vec4(vec3(baseH), 1.0);
-   // vec4 result = vec4(1.0, 0, 0, 1.0);
+void store_current_min_ratio(ivec2 xy, vec2 uv, float min_ratio) {
+   vec4 result = vec4(vec3(min_ratio), sample_height(uv));
+   // vec4 test = vec4(gl_LocalInvocationIndex/256.);
+   // vec4 test = imageLoad(cone_map_out, xy);
    imageStore(cone_map_out, xy, result);
 }
 
 
-void main_full(ivec2 xy, vec2 uv) {
-   const vec2 ti = uv; // texture coords
-   float current_height = sample_height(uv);
+void generate_by_radius(in const ivec2 xy_i, in const vec2 uv_i) {
+#if 0
+   // It'll go through the full texture
+   // can cause crash in glFinish by a TDR (Timeout Detection and Recovery)
+   const bool is_circle = false;
+   const ivec2 radius = resolution;
+#else
+   const bool is_circle = true;
+   const ivec2 radius = ivec2(128);
+#endif
 
-   float min_ratio = 1.0;
-   uint width = resolution.x;
-   uint height = resolution.y;
+   const int radius_squared = radius.x * radius.y;
 
-   for (uint i = 0; i < width; ++i) {
-      for (uint j = 0; j < height; ++j) {
-         if ((xy.x != i || xy.y != j)) {
-            const vec2 tj = (vec2(i, j) + vec2(0.5)) / vec2(resolution);
-            min_ratio = min(min_ratio, depth2relaxedcone(ti, tj));
-         }
-      }
-   }
-
-   vec4 result = vec4(vec3(min_ratio), current_height);
-   imageStore(cone_map_out, xy, result);
-}
-
-
-void main_partial(ivec2 xy, vec2 uv) {
-   const vec2 ti = uv;
-   const vec2 tj = (vec2(resolution_coordinate_j.x, resolution_coordinate_j.y) + vec2(0.5)) / vec2(resolution);
-   float current_height = sample_height(uv);
-
-   float min_ratio = 1.0;
-   if (0 == is_first_time) {
-      min_ratio = texture(cone_map_in, uv).x;
-   }
-   
-   if ((xy.x != resolution_coordinate_j.x || xy.y != resolution_coordinate_j.y)) {
-      min_ratio = min(min_ratio, depth2relaxedcone(ti, tj));
-   }
-
-   vec4 result = vec4(vec3(min_ratio), current_height);
-   imageStore(cone_map_out, xy, result);
-}
-
-void main_region(ivec2 xy, vec2 uv) {
-   // Source Texel coordinate
-   const vec2 ti = uv;
-   float current_height = sample_height(uv);
-
-   float min_ratio = 1.0;
-   int width  = resolution.x;
-   int height = resolution.y;
-
-   // radius in texels
-   int radius_texels = int(min(width, height)) / 8;
-   radius_texels = max(radius_texels, 4); // clamp to at least 4 texels
-
-   for (int dy = -radius_texels; dy <= radius_texels; ++dy) {
-      for (int dx = -radius_texels; dx <= radius_texels; ++dx) {
-         int ix = xy.x + dx;
-         int iy = xy.y + dy;
-
-         // skip self
-         if (dx == 0 && dy == 0) {
+   float min_ratio = load_previous_min_ratio(xy_i);
+   // Loop over local neighbourhood
+   for (int dy = -radius.y; dy <= radius.y; dy += 1) {
+      for (int dx = -radius.x; dx <= radius.x; dx += 1) {
+         const ivec2 xy_j = xy_i + ivec2(dx, dy);
+         // Skip out of bounds, the center pixel itself and samples outside the circle radius
+         if (dx == 0 && dy == 0) continue;
+         if (is_circle && dx*dx + dy*dy > radius_squared) continue;
+         if (xy_j.x < 0 || xy_j.x >= resolution.x || xy_j.y < 0 || xy_j.y >= resolution.y || (dx == 0 && dy == 0)) {
             continue;
          }
 
-         // skip out of bounds
-         if (ix < 0 || iy < 0 || ix >= width || iy >= height) {
-            continue;
-         }
+         const vec2 uv_j = (vec2(xy_j) + 0.5) / vec2(resolution);
 
-         // circular region check
-         float dist2 = float(dx * dx + dy * dy);
-         const bool do_circular = false;
-         if (do_circular && (dist2 > float(radius_texels * radius_texels))) {
-            continue;
-         }
-
-         // Destination texel
-         vec2 tj = (vec2(ix, iy) + vec2(0.5)) / vec2(resolution);
-
-         // compute relaxed cone ratio
-         float ratio = depth2relaxedcone(ti, tj);
-
-         // keep smallest ratio (tightest cone)
+         float ratio = depth2relaxedcone(uv_i, uv_j);
          min_ratio = min(min_ratio, ratio);
       }
    }
 
-   // write result
-   vec4 result = vec4(vec3(min_ratio), current_height);
-   imageStore(cone_map_out, xy, result);
+   store_current_min_ratio(xy_i, uv_i, min_ratio);
 }
 
-void main_postprocess_max(ivec2 xy, vec2 uv) {
-   const int w = resolution.x;
-   const int h = resolution.y;
-   const ivec2 baseIJ = xy;
-   vec2 texel_val = texture(cone_map_in, uv).ba;
+void generate_by_storage_buffer(in const ivec2 xy_i, in const vec2 uv_i) {
+   float min_ratio = load_previous_min_ratio(xy_i);
 
-   for (int i = -1; i <= 1; ++i) {
-      for (int j = -1; j <= 1; ++j) {
-         ivec2 n_IJ = baseIJ + ivec2(i, j);
-         n_IJ.x = clamp(n_IJ.x, 0, w - 1);
-         n_IJ.y = clamp(n_IJ.y, 0, h - 1);
-         vec2 n_uv = (vec2(n_IJ) + vec2(0.5)) / vec2(resolution);
-
-         // coneMap_in.Load(int3(n_IJ, srcLevel)).g;
-         // const float n_val = texture(cone_map_in, n_uv).b;
-         const float n_val = texture(cone_map_in, n_uv).a;
-         texel_val.y = min(texel_val.y, n_val);
+   for (int k = 0; k < xy_js.length(); k += 1) {
+      ivec2 xy_j = xy_js[k];
+      if (xy_j.x == xy_i.x && xy_j.y == xy_i.y) {
+         continue;
       }
+      const vec2 uv_j = (vec2(xy_j) + 0.5) / vec2(resolution);
+      min_ratio = min(min_ratio, depth2relaxedcone(uv_i, uv_j));
    }
 
-   vec4 result = vec4(vec3(texel_val.x),texel_val.y);
-   imageStore(cone_map_out, xy, result);
+   store_current_min_ratio(xy_i, uv_i, min_ratio);
 }
 
 void main() {
@@ -243,31 +131,15 @@ void main() {
       return;
    }
 
-   // int offsetx = g_SamplingGroupX*g_SamplingGroupSize+(g_SamplingOrder[g_SamplingGroupPos]%g_SamplingGroupSize);
-   // int offsety = g_SamplingGroupY*g_SamplingGroupSize+(g_SamplingOrder[g_SamplingGroupPos]/g_SamplingGroupSize);
-   // offset.x = (offsetx - int(resolution.x)/2)/(float)resolution.x+0.5/resolution.x;
-   // offset.y = (offsety - int(resolution.y)/2)/(float)resolution.y+0.5/resolution.y;
-   // offset.z =0;
-
    const vec2 uv = (vec2(xy) + vec2(0.5)) / vec2(resolution);
-   main_partial(xy, uv);
 
-   // if (1 == is_first_time) {
-   //    main_postprocess_max(xy, uv);
-   // }
+   if (use_buffer) {
+      generate_by_storage_buffer(xy, uv);
+   } else {
+      generate_by_radius(xy, uv);
+   }
 
    return;
-
-	// const vec2 uv_y_inverted = uv * vec2(1.,-1.);
-	//
- //   float best_cone_ratio = depth2relaxedcone(uv, uv_y_inverted);
-	//
- //   float height = texture(height_map, uv).a;
- //   vec4  result = vec4(best_cone_ratio);
- //   // vec4  result = vec4(vec3(best_cone_ratio), height);
- //   // vec4  result = vec4(1, 0, 0., height);
-	//
- //   // imageStore(cone_map_out, xy, result);
- //   imageStore(cone_map_out, xy, result);
 }
+
 

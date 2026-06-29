@@ -118,6 +118,16 @@ typedef struct Vector2 {
     float x;
     float y;
 } Vector2;
+
+typedef union {
+    struct {
+        float x, y;
+    };
+    struct {
+        float width, height;
+    };
+} Vector2_Uint;
+
 #define RL_VECTOR2_TYPE
 #endif
 

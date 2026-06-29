@@ -508,45 +508,40 @@ float4 normal_mapping(
 // ray intersect depth map using binary cone space leaping
 // depth value stored in alpha channel (black is at object surface)
 // and cone ratio stored in blue channel
-void ray_intersect_relaxedcone(
-	sampler2D relaxedcone_relief_map,
-	inout float3 p,
-	inout float3 v)
-{
-	const int cone_steps=15;
-	const int binary_steps=8;
-	
-	float3 p0 = p;
+void ray_intersect_relaxedcone(sampler2D relaxedcone_relief_map, inout float3 p, inout float3 v) {
+   // const int cone_steps=15;
+   // const int binary_steps=8;
+   const int cone_steps   = 32;
+   const int binary_steps = 16;
 
-	v /= v.z;
-	
-	float dist = length(v.xy);
-	
-	for( int i=0;i<cone_steps;i++ )
-	{
-		float4 tex = tex2D(relaxedcone_relief_map, p.xy);
+   float3 p0 = p;
 
-		float height = saturate(tex.w - p.z);
-		
-		float cone_ratio = tex.z;
-		
-		p += v * (cone_ratio * height / (dist + cone_ratio));
-	}
+   v /= v.z;
 
-	v *= p.z*0.5;
-	p = p0 + v;
+   float dist = length(v.xy);
 
-	for( int i=0;i<binary_steps;i++ )
-	{
-		float4 tex = tex2D(relaxedcone_relief_map, p.xy);
-		v *= 0.5;
-		if (p.z<tex.w)
-			p+=v;
-		else
-			p-=v;
-	}
+   for (int i = 0; i < cone_steps; i++) {
+      float4 tex = tex2D(relaxedcone_relief_map, p.xy);
+
+      float height = saturate(tex.w - p.z);
+
+      float cone_ratio = tex.z;
+
+      p += v * (cone_ratio * height / (dist + cone_ratio));
+   }
+
+   v *= p.z * 0.5;
+   p = p0 + v;
+
+   for (int i = 0; i < binary_steps; i++) {
+      float4 tex = tex2D(relaxedcone_relief_map, p.xy);
+      v *= 0.5;
+      if (p.z < tex.w)
+         p += v;
+      else
+         p -= v;
+   }
 }
-
 
 // ray intersect depth map using quad cone space leaping
 // depth value stored in alpha channel (black is at object surface)
@@ -782,7 +777,7 @@ HMapIntersection findIntersection_coneStepMapping(float2 u, float2 u2)
 
 // ray intersect depth map using relaxed cone stepping depth value stored in alpha channel (black is at object surface) and cone ratio stored in blue channel
 void ray_intersect_relaxedcone(sampler2D relaxedcone_relief_map, inout float3 position_ts, inout float3 view_direction_ts) {
-   const int cone_steps   = 15;
+   const int cone_steps   = 32;
    const int binary_steps = 8;
 
    float3 p = position_ts;

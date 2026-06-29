@@ -21,6 +21,8 @@ typedef enum {
     BUFFER_USAGE_MAP_PERSISTENT_READ_WRITE,
 } Buffer_Usage;
 
+constexpr Buffer_Usage default_buffer_usage = BUFFER_USAGE_SUBDATA;
+
 typedef struct {
    u32   handle;
    isz   size;
@@ -180,6 +182,10 @@ Buffer create_buffer(Buffer_Usage usage, const void *data, isz size) {
    }
 
    return buffer;
+}
+
+Buffer overload create_buffer(isz size) {
+   return create_buffer(default_buffer_usage, nullptr, size);
 }
 
 

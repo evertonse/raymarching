@@ -13,10 +13,14 @@
 #   define PI 3.14159265358979323846
 #endif
 
+
 //
-// TODO: Add lerp smooth as seen in 49:00 of the Freya's video:
+// Add lerp smooth as seen in 49:00 of the Freya's video:
 //       https://youtu.be/LSNQuFEDOyQ?si=seG75brEc83xATC-
+// usage: a = lerp_decay(a, b, decay, perframe.delta_time);
 //
+#define lerp_decay(a, b, decay, dt) (b+(a-b)*exp(-decay*dt))
+
 
 // float packed contains high 16 bits (.x) low 16 bits (.y)
 uvec2 unpack_u16_from_float(float packed_float) {
@@ -52,11 +56,13 @@ vec3 from_linear(vec3 linearRGB) {
 
 #endif
 
+vec3 gamma_correct_texture(vec3 colour) {
+   const float gamma = 2.2;
+   return pow(colour, vec3(gamma));
+}
+
 #define saturate(x) clamp(x, 0.0, 1.0)
 // vec3 saturate(vec3 v) { return clamp(v, 0.0, 1.0); }
-
-// Taken from https://observablehq.com/@rreusser/bicubic-texture-interpolation-using-linear-filtering
-// Also present in https://stackoverflow.com/questions/13501081/efficient-bicubic-filtering-code-in-glsl#42179924
 
 vec4 cubic(float v) {
    vec4 n = vec4(1.0, 2.0, 3.0, 4.0) - v;
@@ -69,9 +75,11 @@ vec4 cubic(float v) {
 }
 
 #ifndef sample_texture
-#define sample_texture sample_texture_bicubic
+#define sample_texture texture
 #endif
 
+// Taken from https://observablehq.com/@rreusser/bicubic-texture-interpolation-using-linear-filtering
+// Also present in https://stackoverflow.com/questions/13501081/efficient-bicubic-filtering-code-in-glsl#42179924
 vec4 sample_texture_bicubic(sampler2D sampler, vec2 uv) {
    vec2 texture_resolution = textureSize(sampler, 0);
    vec2 inverse_texture_resolution = 1.0 / texture_resolution;

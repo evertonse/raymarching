@@ -1,6 +1,7 @@
 
 
 layout(binding = BINDING_FRAMEBUFFER_DEPTH_TEXTURE) uniform sampler2D framebuffer_depth_buffer;
+layout(binding = BINDING_FRAMEBUFFER_POSITION_TEXTURE) uniform sampler2D framebuffer_position_buffer;
 
 const bool show_border_outline              = false;
 const bool debug_color_for_missing_textures = true;
@@ -20,9 +21,7 @@ float linearize_depth(float ndc_depth, float near, float far) {
 //
 // SimonDev video about soft particles: https://youtu.be/arn_3WzCJQ8?si=tREAjBbc2lCfHY27
 //
-float soft_particle_fade(float fade_distance) {
-   // Sample scene depth at this pixel (assuming framebuffer_depth_buffer is the same width as the framebuffer)
-   const vec2 screen_uv = gl_FragCoord.xy / textureSize(framebuffer_depth_buffer, 0);
+float soft_particle_fade(in const float fade_distance, in const vec2 screen_uv) {
    const float scene_ndc_depth = texture(framebuffer_depth_buffer, screen_uv).r;
 
    const float near = near_plane, far = far_plane;
@@ -167,14 +166,10 @@ float gradient_noise(in vec2 uv) {
    return noise;
 }
 
-vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custom_1, vec4 custom_2) {
-
-   vec2 screen_size  = textureSize(framebuffer_depth_buffer, 0);
-   vec2 screen_uv    = gl_FragCoord.xy / screen_size;
-
+vec4 custom(vec2 uv, vec2 screen_uv, uint render_state, uint instance_rendering_mode, vec4 color_tint, vec4 custom_1, vec4 custom_2) {
    if (2 == instance_rendering_mode) {
       const float intensity = 100.;
-      return vec4(vec3(1.) * intensity, 1.) * color_tint;
+      return vec4(vec3(1.) * intensity, 1.) * in_vertex.color_tint;
    }
 
    if (instance_rendering_mode >= 3) {
@@ -206,7 +201,7 @@ vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custo
       const float hdr_alpha_compose               = custom_1.y;
       const float hdr_alpha_coefficient_intensity = custom_1.z;
 
-      const Material material = materials[material_index];
+      const Material material = materials[in_vertex.material_index];
       vec4 diffuse_texture = vec4(1.);
       if (material.diffuse_handle != uvec2(0)) {
          diffuse_texture = texture(sampler2D(material.diffuse_handle), uv);
@@ -228,7 +223,7 @@ vec4 custom(vec2 uv, uint render_state, uint instance_rendering_mode, vec4 custo
       // TODO: Make this be dependent on the acutal size of particle, SimonDev show how some times it's too smooth to the point of seemingly never appear in front of geometry
       // And if it's too little smooth, well you get hard particles.
       const float fade_distance = 0.000095;
-      const float soft_particle_alpha = soft_particle_fade(fade_distance);
+      const float soft_particle_alpha = soft_particle_fade(fade_distance, screen_uv);
 
       const float alpha = saturate(diffuse_texture.a * color_tint.a * soft_particle_alpha);
       // const float alpha = saturate(luminance(albedo) * diffuse_texture.a * color_tint.a);

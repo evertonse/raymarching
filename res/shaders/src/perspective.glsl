@@ -64,9 +64,9 @@ vec4 perspective_from_fov(vec3 position, float fov_y_rad, float aspect, float z_
    // The first one of the returns below is more close with usual non linear z depth scaling seen when using mat4 matrix for perspective
    // We can add some effect of vanishing lines upwards and sideways as well, like when a building is too tall, we have the usual vanishing in z but also in y.
    // It also happens noticebly in x with fish eye lens I think.
+   return vec4(position.x / aspect, position.y, z_ndc, project);
    return vec4(x_ndc*project, y_ndc*project, z_ndc*project, project);
    return vec4(x_ndc*position.z, y_ndc*position.z, z_ndc*position.z, position.z);
-   return vec4(position.x / aspect, position.y, z_ndc, project);
    return vec4(position.x / aspect, position.y, z_ndc*project, project);
 }
 

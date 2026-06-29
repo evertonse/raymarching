@@ -7,6 +7,7 @@ Currently I'm cross compiling from linux using mingw or clang and running on w11
 
 Look at build.sh to uncomment building from linux to linux. Need C23 capable compiler (using nullptr, typeof, constexpr).
 
+
 ```
 ./build.sh
 ```
@@ -34,19 +35,29 @@ Look at build.sh to uncomment building from linux to linux. Need C23 capable com
 - [WickedEngine](https://github.com/turanszkij/WickedEngine)
 - [RapidGL Bloom and other effects to read code from](https://github.com/tgalaj/RapidGL#bloom)
 
+- [Bleding Normal Maps](https://blog.selfshadow.com/publications/blending-in-detail/). Provides code and [example](https://blog.selfshadow.com/sandbox/normals.html)
+
 - [AA Options](https://www.youtube.com/watch?v=LiUvA3cTdhg)
 
 - [UC Mathematics of Raytracing for GI](https://www.youtube.com/playlist?list=PL_w_qWAQZtAYd0Kxmq17YXwqXkO1MVrqi)
 - [UC Mathematics of Computer Graphics](https://www.youtube.com/playlist?list=PL_w_qWAQZtAZhtzPI5pkAtcUVgmzdAP8g)
 
-
-
+- [Snippets for rand, noise, all in glsl](https://gist.github.com/patriciogonzalezvivo/670c22f3966e662d2f83) from this [Lygia Shader Library](https://lygia.xyz/)
 
 - Clang [Extensions](https://clang.llvm.org/docs/LanguageExtensions.html) and [Attributes](https://clang.llvm.org/docs/AttributeReference.html)
 
 - https://github.com/JimmyLefevre/kb/
 
 - https://github.com/EricLengyel/Slug
+
+- Read exr files https://github.com/grizzlypeak3d/DJV
+
+## Text
+
+- https://steamcdn-a.akamaihd.net/apps/valve/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf
+
+- https://youtu.be/qcMuyHzhvpI?si=nFkl8cG3mJq3eKtC
+- https://osor.io/text
 
 
 

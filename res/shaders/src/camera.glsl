@@ -1,5 +1,5 @@
 
-mat4 view_from_spherical(vec3 position, float theta, float phi) {
+mat4 view_from_spherical(vec3 position, vec2 spherical, float theta, float phi) {
    vec3 forward = vec3(0.0, 0.0, 1.0);
    vec3 right   = vec3(1.0, 0.0, 0.0);
    vec3 up      = vec3(0.0, 1.0, 0.0);
@@ -20,8 +20,6 @@ mat4 view_from_spherical(vec3 position, float theta, float phi) {
       right.z, up.z, forward.z, 0,
       0,       0,    0,         1.0
    );
-
-   position = camera_position;
 
    mat4 translate = mat4(
       1.0,         0.0,         0.0,         0.0,

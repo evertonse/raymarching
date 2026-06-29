@@ -9,9 +9,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb/stb_image_write.h"
 
+#include "./exr.c"
+
 #include "./shader.c"
 #include "./mesh.c"
 #include "./texture.c"
+#include "./blur.c"
+#include "./ambient_occlusion.c"
 #include "./framebuffer.c"
 #include "./animation.c"
 #include "./model.c"
@@ -535,7 +539,7 @@ void debug_opengl_output(GLenum source,
 	}
 
 	trace_info(
-      "OpenGL debug message (%d) (severity = %s) (type = %s) (source = %s) '%s'\n ",
+      "%s: Message (%d) (severity = %s) (type = %s) (source = %s) '%s'\n ", __func__,
       id, severity_str, type_str, source_str, message
    );
 }
@@ -587,10 +591,11 @@ void initialize_opengl_options(void) {
       glEnable(GL_STENCIL_TEST);
    }
 
-   // Enable polygon offset to mitigate z-fighting
-   glEnable(GL_POLYGON_OFFSET_FILL);
-   glPolygonOffset(0.1f, 0.1f);
-
+   if (false) {
+      // Enable polygon offset to mitigate z-fighting
+      glEnable(GL_POLYGON_OFFSET_FILL);
+      glPolygonOffset(0.1f, 0.1f);
+   }
 }
 
 void init_renderer(void) {

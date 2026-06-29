@@ -5,12 +5,11 @@
 
 
 #define GLFW_INCLUDE_NONE
-#include "GLFW/glfw3.h"
+#include "glfw/glfw/include/GLFW/glfw3.h"
+
 
 #define GLAD_GL_IMPLEMENTATION
 
-// TODO: Fix these defines, choose the exposure.
-// #include "src/renderer/shared/defines.glsl"
 #if defined(RENDERER_USING_BINDLESS)
 #  include "glad/gl_extended.h"
 #else
@@ -18,9 +17,14 @@
 #  include "glad/gl_extended.h"
 #endif
 
-#define overload __attribute__((overloadable))
-#define require  __must_check
+#define overload    __attribute__((overloadable))
+#define require     __must_check
 #define stack_alloc __builtin_alloca
+
+// Defer options for C: https://antonz.org/defer-in-c/#gccclang
+// more on defer: https://thephd.dev/c2y-the-defer-technical-specification-its-time-go-go-go
+// https://thephd.dev/_vendor/future_cxx/technical%20specification/C%20-%20defer/C%20-%20defer%20Technical%20Specification.pdf
+#define defer _Defer
 
 #define trace_struct(d)     __builtin_dump_struct(&d, &printf)
 #define type_as_string(d)   __builtin_type_as_string(&d, &tprintf)
@@ -28,6 +32,7 @@
 #define private __attribute__((visibility("hidden")))
 #define type_of typeof
 #define zero_of(x) ((typeof(x)) {0})
+#define interpret_as(Type, v) ((union{ typeof(v) s; Type d; }){.s = v}.d)
 
 void wait_for_enter_on_terminal(void) {
    int c;
@@ -42,13 +47,52 @@ void wait_for_enter_on_terminal(void) {
 
 
 
+#define STBDS_NO_SHORT_NAMES
+#define STB_DS_IMPLEMENTATION
+#include "stb/stb_ds.h"
+// Hashmap Operations (for typed keys)
+#define table_free(map)                     stbds_hmfree((map))
+#define table_length(map)                   stbds_hmlen(map)
+#define table_length_unsigned(map)          stbds_hmlenu(map)
+#define table_index_of(map, key)            stbds_hmgeti(map, key)
+#define table_index_of_ts(map, key, temp)   stbds_hmgeti_ts(map, key, temp)
+#define table_get(map, key)                 stbds_hmget(map, key)
+#define table_get_temporary(map, key, temp) stbds_hmget_ts(map, key, temp)
+#define table_get_struct(map, key)          stbds_hmgets(map, key)
+#define table_get_ptr(map, key)             stbds_hmgetp(map, key)
+#define table_get_ptr_temporary(map, key, temp)    stbds_hmgetp_ts(map, key, temp)
+#define table_get_ptr_or_null(map, key)     stbds_hmgetp_null(map, key)
+#define table_set_default_value(map, val)   stbds_hmdefault(map, val)
+#define table_set_default_struct(map, item) stbds_hmdefaults(map, item)
+#define table_put(map, key, value)          stbds_hmput(map, key, value)
+#define table_puts(map, item)               stbds_hmputs(map, item)
+#define table_delete(map, key)              stbds_hmdel(map, key)
+
+// String Hashmap Operations (for string keys)
+#define string_table_free(map)                     stbds_shfree(map)
+#define string_table_length(map)                   stbds_shlen(map)
+#define string_table_length_unsigned(map)          stbds_shlenu(map)
+#define string_table_index_of(map, key)            stbds_shgeti(map, key)
+#define string_table_get(map, key)                 stbds_shget(map, key)
+#define string_table_get_struct(map, key)          stbds_shgets(map, key)
+#define string_table_get_ptr(map, key)             stbds_shgetp(map, key)
+#define string_table_get_ptr_or_null(map, key)     stbds_shgetp_null(map, key)
+#define string_table_set_default_value(map, val)   stbds_shdefault(map, val)
+#define string_table_set_default_struct(map, item) stbds_shdefaults(map, item)
+#define string_table_put(map, key, value)          stbds_shput(map, key, value)
+#define string_table_puti(map, key, value)         stbds_shputi(map, key, value)
+#define string_table_puts(map, item)               stbds_shputs(map, item)
+#define string_table_new_arena(arena)              stbds_sh_new_arena(arena)
+#define string_table_new_strdup(arena)             stbds_sh_new_strdup(arena)
+#define string_table_delete(map, key)              stbds_shdel(map, key)
+
+
+
+
 // Defines shared between shader and cpu
 // Must be before math.c so gpu also does the calculations in same space as cpu.
 #include "./renderer/shared/defines.glsl"
 
-#undef unreachable
-#undef normalize
-#include "./math.c"
 
 #undef assert
 #define CYE_IMPLEMENTATION
@@ -56,6 +100,10 @@ void wait_for_enter_on_terminal(void) {
 #undef trace_debug
 #define trace_debug(fmt, ...) cye_trace_log(CYE_LOG_DEBUG, "`%s`: " fmt, __func__, ##__VA_ARGS__)
 #undef da_append
+
+#undef unreachable
+#undef normalize
+#include "./math.c"
 
 // Append an item to a dynamic array using thread_local Cye_Context cye_context
 #define da_append(da, ...)                                                                                       \
@@ -70,6 +118,10 @@ void wait_for_enter_on_terminal(void) {
       (da)->items[(da)->count++] = (typeof((da)->items[0]))__VA_ARGS__;                                          \
    } while (0)
 
+#define trace_warnf(fmt, ...)  trace_warn( "%s:%d %s: " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+#define trace_infof(fmt, ...)  trace_info( "%s:%d %s: " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+#define trace_errorf(fmt, ...) trace_error("%s:%d %s: " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+#define trace_fatalf(fmt, ...) trace_fatal("%s:%d %s: " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__)
 
 #if defined(PLATFORM_WINDOWS)
 
@@ -184,8 +236,8 @@ typedef struct {
 
 
 
-#include "./projection-application.c"
-#include "./raymarch-application.c"
+#include "./run/projection-application.c"
+#include "./run/raymarch-application.c"
 
 
 
@@ -241,6 +293,7 @@ int main() {
    init_fps();
    init_renderer();
    init_manager();
+   init_managed_shaders();
 
    static const bool fixed_gui = false;
    if (fixed_gui) {
@@ -271,6 +324,8 @@ int main() {
       update_renderer();
       update_time();
       update_fps();
+      update_managed_shaders();
+
       if (fixed_gui) {
          update_gui();
       }

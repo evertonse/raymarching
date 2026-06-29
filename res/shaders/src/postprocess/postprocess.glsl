@@ -6,9 +6,13 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-layout(binding = BINDING_FRAMEBUFFER_HDR_SCENE_TEXTURE) uniform sampler2D scene_hdr;
-layout(binding = BINDING_FRAMEBUFFER_NORMAL_TEXTURE)    uniform sampler2D framebuffer_normal_texture;
-layout(binding = BINDING_FRAMEBUFFER_DEPTH_TEXTURE)     uniform sampler2D framebuffer_depth_texture;
+layout(binding = BINDING_FRAMEBUFFER_HDR_SCENE_TEXTURE)    uniform sampler2D scene_hdr;
+layout(binding = BINDING_FRAMEBUFFER_DIRECT_LIGHT_TEXTURE) uniform sampler2D framebuffer_direct_light_texture;
+layout(binding = BINDING_FRAMEBUFFER_POSITION_TEXTURE)     uniform sampler2D framebuffer_position_texture;
+layout(binding = BINDING_FRAMEBUFFER_NORMAL_TEXTURE)       uniform sampler2D framebuffer_normal_texture;
+layout(binding = BINDING_FRAMEBUFFER_DEPTH_TEXTURE)        uniform sampler2D framebuffer_depth_texture;
+layout(binding = BINDING_AMBIENT_OCCLUSION_TEXTURE)        uniform sampler2D ambient_occlusion_texture;
+
 
 float linearize_depth2(float ndc_depth) {
    float near = near_plane; float far = far_plane;
@@ -28,7 +32,6 @@ float linearize_depth3(float depth) {
 // Is linearize_depth idempotent?
 #define linearize_depth linearize_depth3
 
-
 // Why the final frabebuffer doesnt work if not rgba instead of rgb?
 #define IMAGE_FORMAT rgba8
 // #define IMAGE_FORMAT rgba32f
@@ -38,8 +41,12 @@ layout(IMAGE_FORMAT, binding = BINDING_LDR_SCENE_IMAGE) uniform writeonly image2
 
 #define lerp mix
 
+vec4 sample_depth(vec2 uv) {
+   return vec4(texture(framebuffer_position_texture, uv).z);
+}
+
 float ssao_depth_only(sampler2D depth_buffer, vec2 uv, float radius_px, float strength) {
-   float center = linearize_depth(texture(depth_buffer, uv).r);
+   float center = sample_depth(uv).r;
    float occlusion = 0.0;
    int samples = 0;
 
@@ -50,18 +57,20 @@ float ssao_depth_only(sampler2D depth_buffer, vec2 uv, float radius_px, float st
             continue;
          }
          vec2 offset = vec2(x, y) * radius_px / textureSize(depth_buffer, 0);
-         float neighbor = linearize_depth(texture(depth_buffer, uv + offset).r);
+         float neighbor = sample_depth(uv + offset).r;
          // If neighbor is closer (depth value smaller) then it contributes occlusion
          occlusion += step(neighbor, center + 0.01);
-         samples++;
+         samples += 1;
       }
    }
    occlusion /= float(samples);
    return 1.0 - occlusion * strength;
 }
 
-uniform float exposure = 1.0;;
+const float exposure = 1.0;;
+
 #include "./tonemapping.glsl"
+#include "../ambient_occlusion/ao.glsl"
 
 void main() {
 
@@ -91,20 +100,33 @@ void main() {
    // vec3 mapped = tonemap_agx(hdr);
    float dither = (noise(pixel) - 0.5) / 255.0;
 
-   float depth = texture(framebuffer_depth_texture, uv).r;
-   vec3 normal = texture(framebuffer_normal_texture, uv).rgb;
+   float depth       = texture(framebuffer_depth_texture, uv).r;
+   vec3 normal       = texture(framebuffer_normal_texture, uv).rgb;
+   vec3 position     = texture(framebuffer_position_texture, uv).rgb;
+   vec3 direct_light = texture(framebuffer_direct_light_texture, uv).rgb;
 
-   float ao = ssao_depth_only(framebuffer_depth_texture, uv, 5., 1.0);
-   // float occlusion_factor = ao > 0.5 ? 1.0 - ao : 1.;
-   float occlusion_factor = 1.0 - saturate(ao);
+   vec2 ambient_uv = (vec2(pixel) + 0.5) / textureSize(ambient_occlusion_texture, 0);
+   vec4 ambient_occlusion = sample_texture_bicubic(ambient_occlusion_texture, uv);
+
+   vec4 vis;
+   float occlusion_factor = vis.w;
 
    vec3 mapped = tonemap_agx_minimal(hdr);
    // mapped *= occlusion_factor;
    mapped = linear_to_srgb(mapped);
    mapped += dither;
 
-   // imageStore(out_image, pixel, vec4(vec3(occlusion_factor), 1.0));
-   // imageStore(out_image, pixel, vec4(vec3(depth), 1.0));
-   // imageStore(out_image, pixel, vec4(vec3(normal), 1.0));
+   if (false) {
+      imageStore(out_image, pixel, vec4(vec3(occlusion_factor), 1.0));
+      imageStore(out_image, pixel, vec4(vec3(vis.rgb), 1.0));
+      imageStore(out_image, pixel, vec4(vec3(depth), 1.0));
+      imageStore(out_image, pixel, vec4(vec3(depth), 1.0));
+   }
+
+   imageStore(out_image, pixel, vec4(vec3(position), 1.0));
+   imageStore(out_image, pixel, vec4(vec3(normal), 1.0));
+   imageStore(out_image, pixel, vec4(direct_light, 1.0));
+   imageStore(out_image, pixel, vec4(ambient_occlusion.rgb, 1.));
+   imageStore(out_image, pixel, vec4(vec3(ambient_occlusion.w), 1.0));
    imageStore(out_image, pixel, vec4(mapped, 1.0));
 }

@@ -363,7 +363,7 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, uint slot, const Te
    glNamedFramebufferTexture(framebuffer->handle, attachment, texture.handle, 0);
 
    if (glCheckNamedFramebufferStatus(framebuffer->handle, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-      fprintf(stderr, "Framebuffer is not complete!\n");
+      trace_error("Framebuffer is not complete!\n");
       return false;
    }
 
@@ -381,6 +381,16 @@ bool attach_texture_to_framebuffer(Framebuffer *framebuffer, uint slot, const Te
 bool overload attach_texture_to_framebuffer(Framebuffer *framebuffer, const Texture texture) {
    return attach_texture_to_framebuffer(framebuffer, 0, texture);
 }
+
+Framebuffer overload create_framebuffer(void) {
+   Framebuffer fb = {0};
+
+   glCreateFramebuffers(1, &fb.handle);
+
+
+   return fb;
+}
+
 
 Framebuffer create_framebuffer_from_textures(Texture color, Texture depth) {
    Framebuffer fb = {0};
@@ -454,7 +464,7 @@ Framebuffer create_framebuffer_multisample_with_renderbuffers(int width, int hei
 
    GLenum status = glCheckNamedFramebufferStatus(fb.handle, GL_FRAMEBUFFER);
    if (GL_FRAMEBUFFER_COMPLETE != status) {
-      fprintf(stderr, "[ERROR] Multisample framebuffer incomplete: 0x%X\n", status);
+      trace_error("Multisample framebuffer incomplete: 0x%X\n", status);
       glDeleteFramebuffers(1, &fb.handle);
       fb.handle = 0;
    }
@@ -575,6 +585,8 @@ void blit_framebuffer_depth(const Framebuffer dst_fb, const Framebuffer src_fb) 
 }
 
 
+// TODO: Maybe we should somehow provide the intent of the framebuffer so it know which attachments to blit
+//       and check which ones they are reading from. And from that we could auto bind textures with its correct attachment
 // http://wikis.khronos.org/opengl/Framebuffer#Blitting
 void overload blit_framebuffer(const Framebuffer dst_fb, const Framebuffer src_fb, uint color_mask, bool blit_depth) {
    assert_msg(is_valid_framebuffer(src_fb), "Invalid source framebuffer");

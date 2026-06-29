@@ -1,3 +1,10 @@
+#ifndef BUFFERS_HEADER
+#define BUFFERS_HEADER
+
+#include "res/shaders/common.glsl"
+#include "src/renderer/shared/types.glsl"
+
+
 #define RESTRICT restrict
 // You can call vertex_buffer.length() to get the the count of positions
 layout(std430, binding = BINDING_VERTEX_BUFFER) readonly RESTRICT buffer Vertex_Buffer {
@@ -24,32 +31,11 @@ layout(std430, binding = BINDING_INSTANCE_BUFFER) readonly RESTRICT buffer Insta
    Instance instances[];
 };
 
-layout(std140, binding = BINDING_CAMERA) uniform Camera_Buffer {
-    // mat4 view;
-    // mat4 proj;
-    vec3 camera_position;  float pad0;
-    vec3 camera_direction; float pad1;
-} camera;
-
-struct Light {
-    vec3 position; float pad0;
-    vec3 ambient;  float pad1;
-    vec3 diffuse;  float pad2;
-    vec3 specular; float pad4;
+// TODO: Check this is still under the correct size for ubo
+layout(std140, binding = BINDING_PER_FRAME) uniform Per_Frame_Buffer {
+   Per_Frame per_frame;
 };
 
-struct Camera {
-    vec3  position; float pad0;
-    float theta, phi, aspect, pad1;
-};
-
-
-layout(std140, binding = BINDING_PER_FRAME) uniform Per_Frame {
-    mat4 model, view, perspective;
-    Light  light;
-    Camera camera;
-    float elapsed_time, delta_time;
-} per_frame;
 
 layout(std430, binding = BINDING_ANIMATION_MATRICES) readonly RESTRICT buffer Animation_Matrices_Buffer {
    mat4 geometry_to_model[]; // Geometry (vertices) to Model Space. We have one per joint of all renderables and its instances of the current scene
@@ -68,4 +54,5 @@ layout(std430, binding = BINDING_JOINT_BUFFER) readonly RESTRICT buffer Joint_Bu
 layout(std430, binding = BINDING_INDICES_BUFFER) readonly RESTRICT buffer Indices_Buffer {
    float indices[];
 };
-// buffers end
+
+#endif // BUFFERS_HEADER

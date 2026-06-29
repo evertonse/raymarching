@@ -442,8 +442,12 @@ Matrix FloatsToMatrix(float floats[16]) {
    return mat;
 }
 
+
 Vector2 vector2(float v) { return (Vector2){v, v}; }
 Vector2 overload vector2(float x, float y) { return (Vector2){x, y}; }
+
+Vector2_Uint vector2_uint(uint v) { return (Vector2_Uint){v, v}; }
+Vector2_Uint overload vector2_uint(uint x, uint y) { return (Vector2_Uint){x, y}; }
 
 Vector3 vector3(float v) { return (Vector3){v, v, v}; }
 Vector3 overload vector3(float x, float y, float z) { return (Vector3){x, y, z}; }

@@ -196,22 +196,28 @@ Framebuffer apply_bloom(Framebuffer src_fb) {
    bind_shader(s.composite_shader);
    upload_push_constants(&bloom_data, size_of(bloom_data));
 
-   if (!is_valid_texture(s.previous_bloom) || s.previous_bloom.width != w || s.previous_bloom.height != h) {
+   if (!is_valid_texture(s.previous_bloom) || s.previous_bloom.width != s.mips[0].width || s.previous_bloom.height != s.mips[0].height) {
       destroy_texture(&s.previous_bloom);
       s.previous_bloom = create_texture(s.mips[0].width, s.mips[0].height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_BILINEAR, TEXTURE_WRAP_CLAMP_EDGE);
       copy_texture(s.previous_bloom, s.mips[0]); // initialize on first frame
+
+      auto checkpoint = tsave();
+         trace_infof("copying texture from to previous bloom texture %s", texture_to_tstring(s.previous_bloom));
+      trestore(checkpoint);
    }
 
    bind_texture(src_fb.color, 0);
    bind_texture(s.mips[0], 1);
-   bind_texture(s.previous_bloom, 2);
-   bind_texture_as_image(s.output_framebuffer.color, 2, TEXTURE_ACCESS_WRITE);
+   bind_texture_as_image(s.output_framebuffer.color, 0, TEXTURE_ACCESS_WRITE);
+
+   // bind_texture(s.previous_bloom, 2);
+   bind_texture_as_image(s.previous_bloom, 1, TEXTURE_ACCESS_WRITE);
 
 
    dispatch_compute_shader_2d(s.composite_shader, w, h);
    shader_memory_barrier(SHADER_BARRIER_IMAGE_ACCESS | SHADER_BARRIER_TEXTURE_FETCH);
 
-   copy_texture(s.previous_bloom, s.mips[0]);
+   // copy_texture(s.previous_bloom, s.mips[0]);
 
    return s.output_framebuffer;
 }

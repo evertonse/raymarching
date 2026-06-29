@@ -1,14 +1,6 @@
- // Match glsl types
-typedef u64        uvec2;
-typedef u32        uint;
-typedef Vector4Int ivec4;
-typedef Vector4    vec4;
-typedef float16    mat4;
-#include "./shared/types.glsl"
 
-typedef struct Joint_Vertex Joint_Vertex;
-typedef struct Draw_Command Draw_Command;
-typedef struct Material     Material;
+// #define Camera Gpu_Camera;
+#include "./shared/types.glsl"
 
 
 typedef struct {
@@ -25,7 +17,7 @@ typedef struct {
    isz index;
 } Scene_Node;
 
-constexpr int MAX_TEXTURE_PER_MATERIAL = 4;
+constexpr int MAX_TEXTURE_PER_MATERIAL = 7;
 
 static_assert(size_of(Draw_Command) % 16 == 0);
 
@@ -40,7 +32,8 @@ static_assert(size_of(Draw_Command) % 16 == 0);
 #endif
 
 typedef enum {
-   RENDER_STATE_OPAQUE,
+   RENDER_STATE_FIRST = 0,
+   RENDER_STATE_OPAQUE = 0,
    RENDER_STATE_VFX,
    RENDER_STATE_VFX_ADDITIVE,
    RENDER_STATE_COUNT,
@@ -105,8 +98,11 @@ typedef struct {
             struct {
                Texture diffuse;
                Texture specular;
+               Texture roughness;
                Texture emissive;
                Texture normal;
+               Texture height;
+               Texture ambient_occlusion;
             };
          };
          bool loaded; // Instead of that just is_valid or check the path
@@ -194,6 +190,10 @@ typedef struct {
       bool  instances_dirty;
    } scene;
 
+   // TODO: I don't think these should be part of the manager, the manger shoud only keep track of data, both gpu and cpu.
+   // Rendering or framerbuffer stuff should be done by some other system probably. we need to make this simpler and cleaner.
+   Framebuffer geometry_framebuffer;
+   Shader_Index geometry_framebuffer_shader;
    GLuint vao; // TODO: Remove, the renderer should simply have one vertex array for everything and bind just the index buffer when needed
 } Manager;
 
@@ -633,10 +633,13 @@ void update_manager_gpu_resources() {
 
          material->loaded = true;
          da_append(&material_handles, (Material) {
-            .diffuse_handle  = material->diffuse.bindless_handle,
-            .specular_handle = material->specular.bindless_handle,
-            .emissive_handle = material->emissive.bindless_handle,
-            .normal_handle   = material->normal.bindless_handle,
+            .diffuse_handle            = material->diffuse.bindless_handle,
+            .specular_handle           = material->specular.bindless_handle,
+            .roughness_handle          = material->roughness.bindless_handle ,
+            .emissive_handle           = material->emissive.bindless_handle,
+            .normal_handle             = material->normal.bindless_handle,
+            .height_handle             = material->height.bindless_handle,
+            .ambient_occlusion_handle  = material->ambient_occlusion.bindless_handle
          });
       }
 
@@ -663,48 +666,21 @@ void update_manager_gpu_resources() {
 
 
 // Bind textures for a specific material index from the manager
+// TODO: This should go
 void bind_material_textures(u32 material_index, Shader shader) {
-   if (material_index >= manager.materials.count) {
-      // Invalid material index, set defaults
-      upload_uniform_bool(shader, "has_specular", false);
-      upload_uniform_bool(shader, "has_emissive", false);
-      return;
-   }
-
    auto material = &manager.materials.items[material_index];
 
    // Ensure textures are loaded
+
    if (!material->loaded) {
       trace_warn("Materials should have been loaded already, but it's not. Loading it for now, but if you keep fucking this up u're done boy.");
-      if (material->diffuse.path) {
-         material->diffuse = create_texture_from_filepath(material->diffuse.path);
-      }
-      if (material->specular.path) {
-         material->specular = create_texture_from_filepath(material->specular.path);
-      }
-      if (material->emissive.path) {
-         material->emissive = create_texture_from_filepath(material->emissive.path);
+      for (isz material_texture_index = 0; material_texture_index < MAX_TEXTURE_PER_MATERIAL; material_texture_index += 1) {
+         auto texture = &material->textures[material_texture_index];
+         if (texture->path) {
+            *texture = create_texture_from_filepath(texture->path);
+         }
       }
       material->loaded = true;
-   }
-
-   // TODO: Move this to Draw_Command data
-   upload_uniform_bool(shader, "has_specular", false);
-   upload_uniform_bool(shader, "has_emissive", false);
-
-   // Bind textures
-   if (is_valid_texture(material->diffuse)) {
-      bind_texture(material->diffuse, 3);
-   }
-
-   if (is_valid_texture(material->specular)) {
-      bind_texture(material->specular, 4);
-      upload_uniform_bool(shader, "has_specular", true);
-   }
-
-   if (is_valid_texture(material->emissive)) {
-      bind_texture(material->emissive, 5);
-      upload_uniform_bool(shader, "has_emissive", true);
    }
 }
 
@@ -747,14 +723,13 @@ void draw_from_index(const Draw_Index draw_index, Shader shader) {
 
 // Draw all indices ever created
 // Accept framebuffer but expects to be bound already.
-Framebuffer draw_indirect(Framebuffer framebuffer, Shader shader) {
-   static Framebuffer resolved_framebuffer = {0};
+Framebuffer draw_indirect(Framebuffer framebuffer, Shader shader, Texture *out_ambient_occlusion_texture) {
    update_manager_gpu_resources();
 
 
    assert_msg(is_valid_buffer(manager.draw_commands.buffer), "Draw Comands Buffer is should always be valid in this function");
 
-   {
+   { // TODO: This shouldn't be here
       glBindVertexArray(manager.vao);
       glVertexArrayElementBuffer(manager.vao, manager.indices.buffer.handle);
    }
@@ -815,43 +790,126 @@ Framebuffer draw_indirect(Framebuffer framebuffer, Shader shader) {
    }
 #endif
 
-   const isz stride = size_of(manager.draw_commands.items[0]);
-   for (uint render_state_index = 0; render_state_index < RENDER_STATE_COUNT; render_state_index++) {
+
+   bool geometry_buffer_is_valid = is_valid_framebuffer(manager.geometry_framebuffer);
+
+   const int resolution_scale_factor = 1; // There's not much reason do downscale. Soft Fade particles looks bad and bilinearly sampling normals? That feels like asking for trouble.
+   bool dimensions_are_valid =
+         ((manager.geometry_framebuffer.color.width  * resolution_scale_factor) == framebuffer.color.width)
+      && ((manager.geometry_framebuffer.color.height * resolution_scale_factor) == framebuffer.color.height)
+   ;
+
+   if (!dimensions_are_valid) {
+      if (geometry_buffer_is_valid) {
+         trace_warn("Geometry framebuffer was valid, but not matching dimensions");
+         destroy_framebuffer(&manager.geometry_framebuffer);
+      }
+      trace_okay("Geometry framebuffer created.");
+
+      {
+         manager.geometry_framebuffer = create_framebuffer();
+         auto width  = framebuffer.color.width  / resolution_scale_factor;
+         auto height = framebuffer.color.height / resolution_scale_factor;
+         // TODO: - Change type to RG16f for normals and reconstruct the last dimension on shader
+         //       - Experiment with lowering the resolution for the prepass
+         //       - Lower the bit depth
+         //       - Experiment with different filtering options
+         {
+            const Texture color_attachment_texture = create_texture(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+            bool ok = attach_texture_to_framebuffer(&manager.geometry_framebuffer, FRAMEBUFFER_ATTACHMENTH_COLOR, color_attachment_texture);
+            if (ok) {
+               trace_okay("Able to create color attachment texture !");
+            }
+         }
+
+         {
+            const Texture depth_attachment_texture = create_texture(width, height, nullptr, TEXTURE_FORMAT_DEPTH24, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+            bool ok = attach_texture_to_framebuffer(&manager.geometry_framebuffer, 0, depth_attachment_texture);
+            if (ok) {
+               trace_okay("Able to create depth attachment texture !");
+            }
+         }
+
+         {
+            const Texture normal_attachment_texture = create_texture(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+            bool ok = attach_texture_to_framebuffer(&manager.geometry_framebuffer, FRAMEBUFFER_ATTACHMENTH_NORMAL, normal_attachment_texture);
+            if (ok) {
+               trace_okay("Able to create normal attachment texture !");
+            }
+         }
+
+         {
+            const Texture position_attachment_texture = create_texture(width, height, nullptr, TEXTURE_FORMAT_RGBA32F, TEXTURE_TYPE_2D, TEXTURE_FILTER_NONE, TEXTURE_WRAP_CLAMP_EDGE);
+            bool ok = attach_texture_to_framebuffer(&manager.geometry_framebuffer, FRAMEBUFFER_ATTACHMENTH_POSITION, position_attachment_texture);
+            if (ok) {
+               trace_okay("Able to create position attachment texture !");
+            }
+         }
+
+      }
+   }
+
+   if (!is_valid_shader(manager.geometry_framebuffer_shader)) {
+      auto path = "res/shaders/src/geometry/geometry.glsl";
+      manager.geometry_framebuffer_shader = create_managed_shader(path);
+      if (!is_valid_shader(manager.geometry_framebuffer_shader)) {
+         trace_error("%s: Could not create shader from %s", __func__, path);
+      }
+   }
+
+
+
+
+   // NOTE: Could it be faster to make OPAQUE pass write depth to a 2d Image using gl_FragCoord instead of resolving the multisamped depth?
+   //       Prolly **slower** because might mess with hardware early-z.
+   //       If we depth prepass always then we need to change all of this.
+   // I think blending should be disabled if we're mostly interested in depth and normals.
+   bind_framebuffer(manager.geometry_framebuffer);
+   clear_framebuffer(manager.geometry_framebuffer);
+   set_framebuffer_draw_attachments(manager.geometry_framebuffer, 0b111);
+   bind_shader(manager.geometry_framebuffer_shader);
+
+   Texture ambient_occlusion = {0};
+   bool prepass_done = false;
+   for (uint render_state_index = RENDER_STATE_FIRST; render_state_index < RENDER_STATE_COUNT; render_state_index += 1) {
+
+      // When we're done rendering the geomtry buffer up to the opaque
+      // Then we're gonna rerender everything from the beggining but int he multisampled one.
+      if (!prepass_done && render_state_index == (RENDER_STATE_OPAQUE + 1)) {
+
+         Texture depth_buffer        = manager.geometry_framebuffer.depth;
+         Texture direct_light_buffer = manager.geometry_framebuffer.colors[FRAMEBUFFER_ATTACHMENTH_COLOR];
+         Texture normal_buffer       = manager.geometry_framebuffer.colors[FRAMEBUFFER_ATTACHMENTH_NORMAL];
+         Texture position_buffer     = manager.geometry_framebuffer.colors[FRAMEBUFFER_ATTACHMENTH_POSITION];
+
+         // Changes the shader bound, ok?
+         ambient_occlusion = create_ambient_occlusion_texture(direct_light_buffer, normal_buffer, position_buffer, depth_buffer);
+
+         // New information to aid the rendering.
+         // For soft particles AO and more in the future.
+         bind_texture(depth_buffer,      BINDING_FRAMEBUFFER_DEPTH_TEXTURE);
+         bind_texture(normal_buffer,     BINDING_FRAMEBUFFER_NORMAL_TEXTURE);
+         bind_texture(position_buffer,   BINDING_FRAMEBUFFER_POSITION_TEXTURE);
+         bind_texture(ambient_occlusion, BINDING_AMBIENT_OCCLUSION_TEXTURE);
+
+         bind_framebuffer(framebuffer);
+         // We're only insterest in color and depth now.
+         set_framebuffer_draw_attachments(framebuffer, 0b1);
+
+         bind_shader(shader);
+
+         prepass_done = true;
+         render_state_index = RENDER_STATE_FIRST - 1; // Start all over again
+         continue;
+      }
+
+
       u32 offset = manager.draw_commands.render_state.offsets[render_state_index];
       u32 count = (render_state_index + 1 < RENDER_STATE_COUNT) ?
            manager.draw_commands.render_state.offsets[render_state_index + 1] - offset
          : manager.draw_commands.count - offset
       ;
-
-
-      if (render_state_index == (RENDER_STATE_OPAQUE + 1)) {
-         // For soft particles, it it a problem to bind a depth texture while still rendering
-         // But let's assume transparent and opaque normal geometry has written to depth already.
-         assert_msg(
-               RENDER_STATE_VFX          == render_state_index
-            || RENDER_STATE_VFX_ADDITIVE == render_state_index,
-            "Since vfx doesn't write to depth I feel safer binding the current framebuffer depth texture for reading"
-         );
-
-         // NOTE: Could it be faster to make OPAQUE pass write depth to a 2d Image using gl_FragCoord instead of resolving the multisamped depth?
-         //       Prolly **slower** because might mess with hardware early-z.
-         //       If we depth prepass always then we need to change all of this.
-         if (!is_valid_framebuffer(resolved_framebuffer)) {
-            resolved_framebuffer = create_framebuffer_same_attachments_but_not_multisampled(framebuffer);
-         }
-
-         blit_framebuffer(resolved_framebuffer, framebuffer, 0b11, true);
-
-         if (false /* not necessary from my understanding but if anything happens you may try this */ ) {
-            bind_framebuffer(framebuffer);
-         }
-      }
-
-      if (is_valid_framebuffer(resolved_framebuffer)) {
-         bind_texture(resolved_framebuffer.depth,     BINDING_FRAMEBUFFER_DEPTH_TEXTURE);
-         bind_texture(resolved_framebuffer.colors[1], BINDING_FRAMEBUFFER_NORMAL_TEXTURE);
-      }
-
+      // Nothing to render in this bucket.
       if (0 == count) {
          continue;
       }
@@ -859,17 +917,21 @@ Framebuffer draw_indirect(Framebuffer framebuffer, Shader shader) {
 
       manager.draw_commands.render_state.apply[render_state_index]();
 
-      Vector4 push_constants = vector4(*(float*)&render_state_index, vector3(0));
-      upload_push_constants(&push_constants, size_of(push_constants));
+      // We might wanna have some screen size information here maybe? Maybe Uniform Buffer is best actually;
+      if (prepass_done) {
+         Vector4 push_constants = vector4(interpret_as(float, render_state_index), vector3(0));
+         upload_push_constants(&push_constants, size_of(push_constants));
+      }
 
+      static constexpr isz stride = size_of(manager.draw_commands.items[0]);
       auto draw_commands_size            = count  * stride;
       auto draw_commands_offset_in_bytes = offset * stride;
 
       {
-         // Separately slides the SSBO view for gl_DrawID indexing.
+         // Separately slides the storage buffer view for gl_DrawID indexing.
          // NOTE: If we decide to only bind_buffer view once before call, then in shader every use
-         // of gl_DrawID will have to take an offset because it won't be able to be used as an index by itself anymore.
-         // Because of GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT
+         //       of gl_DrawID will have to take an offset because it won't be able to be used as an index by itself anymore.
+         //       Because of GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT
          bind_buffer_view(&manager.draw_commands.buffer, BUFFER_TYPE_STORAGE, BINDING_DRAW_COMMAND, draw_commands_offset_in_bytes, draw_commands_size);
       }
 
@@ -889,9 +951,11 @@ Framebuffer draw_indirect(Framebuffer framebuffer, Shader shader) {
       }
    }
 
-   // glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
-   // glFinish();
-   return resolved_framebuffer;
+   if (out_ambient_occlusion_texture) {
+      *out_ambient_occlusion_texture = ambient_occlusion;
+   }
+
+   return manager.geometry_framebuffer;
 }
 
 
@@ -911,7 +975,16 @@ void grow_materials_if_needed(u32 required_materials) {
 
 
 // Add a material to the manager and return its index
-u32 push_material_to_manager(const char* diffuse_path, const char* specular_path, const char* emissive_path, const char* normal_path) {
+u32 push_material_to_manager(
+   const char *diffuse_path,
+   const char *specular_path,
+   const char *roughness_path,
+   const char *emissive_path,
+   const char *normal_path,
+   const char *height_path,
+   const char *ambient_occlusion_path
+) {
+
    grow_materials_if_needed(1);
 
    u32 material_index = manager.materials.count;
@@ -920,16 +993,28 @@ u32 push_material_to_manager(const char* diffuse_path, const char* specular_path
    // Zero Initialize
    *material = zero_of(*material);
 
+   const char *texture_paths[] = {
+      diffuse_path,
+      specular_path,
+      roughness_path,
+      emissive_path,
+      normal_path,
+      height_path,
+      ambient_occlusion_path
+   };
+
    // Store paths (we'll load textures later in load_manager_textures())
-   material->diffuse.path  = diffuse_path  ? strdup(diffuse_path)  : nullptr;
-   material->specular.path = specular_path ? strdup(specular_path) : nullptr;
-   material->emissive.path = emissive_path ? strdup(emissive_path) : nullptr;
-   material->normal.path   = normal_path   ? strdup(normal_path)   : nullptr;
-   if (material->normal.path != nullptr) {
-      if (is_debugging()) {
-         debug_break();
-      }
+   // material->diffuse.path  = diffuse_path  ? strdup(diffuse_path)  : nullptr;
+   // material->specular.path = specular_path ? strdup(specular_path) : nullptr;
+   // material->emissive.path = emissive_path ? strdup(emissive_path) : nullptr;
+   // material->normal.path   = normal_path   ? strdup(normal_path)   : nullptr;
+
+   for (isz material_texture_index = 0; material_texture_index < min(count_of(texture_paths), MAX_TEXTURE_PER_MATERIAL); material_texture_index += 1) {
+      auto texture = &material->textures[material_texture_index];
+      auto texture_path = texture_paths[material_texture_index];
+      texture->path = texture_path ? strdup(texture_path) : nullptr;
    }
+
    material->loaded = false;
 
 
@@ -1012,7 +1097,7 @@ Draw_Index push_mesh_to_manager(const Mesh *mesh, u32 material_index_base) {
 
 
 // Push entire model to buffer manager, handling all meshes and materials
-Draw_Index push_model_to_manager(const Model *model, Animation_Index *animation_index) {
+internal Draw_Index push_model_to_manager(const Model *model, Animation_Index *animation_index) {
    assert(model != nullptr);
    assert(model->meshes.items != nullptr);
    assert(model->meshes.count > 0);
@@ -1033,8 +1118,15 @@ Draw_Index push_model_to_manager(const Model *model, Animation_Index *animation_
    u32 material_index_base = manager.materials.count;
    for (isz material_index = 0; material_index < model->materials.count; material_index += 1) {
       auto material = model->materials.items[material_index];
-      // (void)(material.normal && (debug_break(), 1));
-      push_material_to_manager(material.diffuse, material.specular, material.emissive, material.normal);
+      push_material_to_manager(
+         material.diffuse,
+         material.specular,
+         material.roughness,
+         material.emissive,
+         material.normal,
+         material.height,
+         material.ambient_occlusion
+      );
    }
 
    Draw_Index result_draw_index = {0};
@@ -1405,6 +1497,13 @@ void update_position(Scene_Node node, Vector3 position) {
 void update_scale(Scene_Node node, float scale) {
    Transform transform = get_transform(node);
    transform.scale = vector3(scale);
+   update_transform(node, transform);
+   return;
+}
+
+void update_rotation(Scene_Node node, Quaternion quaternion) {
+   Transform transform = get_transform(node);
+   transform.rotation = quaternion;
    update_transform(node, transform);
    return;
 }

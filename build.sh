@@ -66,6 +66,7 @@ WINDOWS_DESTINATION_DIR='C:\Dev\code\GPUCompute'
 DEBUGGER_DIRECTORY='E:\Dev\programs'
 DEBUGGER_EXECUTABLE_NAME='raddbg.exe'
 DEBUGGER_FILEPATH="$DEBUGGER_DIRECTORY\\$DEBUGGER_EXECUTABLE_NAME"
+DEBUGGER_PBD_TO_RDI_EXE="$DEBUGGER_DIRECTORY\\radbin.exe"
 
 config_gcc_linux() {
     cc='gcc'
@@ -86,9 +87,10 @@ config_mingw() {
 
 config_clang_from_linux_to_windows() {
     local target='x86_64-w64-windows-gnu' # Also valid: 'x86_64-w64-windows-gnu' 'x86_64-windows-gnu' but don't know the difference
-    cc="clang --target=$target"
+    cc="clang --target=$target -fdefer-ts" # -fdefer-ts requires clang 22
     cxx="clang++ --target=$target"
     glfw_obj=rglfw.obj
+    tinyexr_obj=tinyexr_obj.obj
     bin='main.exe'
     pdb='main.pdb'
 
@@ -194,6 +196,10 @@ build() {
     [ -f "$glfw_obj" ] || $cc rglfw.c -o $glfw_obj -c -lc -lm -O3
     popd
 
+    pushd ./src/deps/tinyexr/
+    [ -f "$tinyexr_obj" ] || $cc exr_build.c -Iinclude -std=c11 -o $tinyexr_obj -c -O3
+    popd
+
     profile_start
 
     # Extensions from clang: https://clang.llvm.org/docs/LanguageExtensions.html#matrix-types
@@ -223,9 +229,9 @@ build() {
         $flags \
         src/main.c                         \
         src/deps/glfw/$glfw_obj            \
+        src/deps/tinyexr/$tinyexr_obj      \
         -o $bin                            \
-        -Isrc/deps/                        \
-        -Isrc/deps/glfw/glfw/include/      \
+        -I src/deps/                       \
         -lm -lgdi32 -luser32               \
         -lkernel32 -lwinmm
 
@@ -269,6 +275,7 @@ sync_to_windows() {
     local exclude_patterns=(
         --exclude='.git'
         --exclude='*.zip'
+        --exclude='*.o'
         --exclude='.cache'
         --exclude="$glfw_obj"
     )
@@ -297,9 +304,21 @@ on_wsl() {
 start_debugger() {
     local debugger="$(wslpath "$DEBUGGER_FILEPATH")"
     local target_dir="$(wslpath "$WINDOWS_DESTINATION_DIR")"
+    local debbuger_pbd_to_rdi="$(wslpath "$DEBUGGER_PBD_TO_RDI_EXE")"
+
     echo "Starting debugger $debugger from $target_dir..."
-    cd "$target_dir" && "$debugger" "$1" # Pass in the executable
+
+    # Pass in $1 which is .pdb file to converted to .rdi
+    # Understand the following: When we let the raddbg.exe make the conversion to rdi it probably uses some flags to
+    # strip a lot of it down making the rdi file a couple hundred of Kb wheres when we do it ourselves we get bit more than 8000 Kb.
+    # When rdi file is converted by raddbg, breakpoints doesn't work, options behaves weirdly with no error messages.
+    # It seems that we can only create once ourselves and the debugger picks up from there, but just to be sure will convert everytime.
+    cd "$target_dir" && "$debbuger_pbd_to_rdi" --rdi "$1"
+
+    # Pass in $2 which is the executable file
+    cd "$target_dir" && "$debugger" "$2"
 }
+
 
 main() {
     case "$1" in
@@ -331,7 +350,7 @@ main() {
 
             build "debug"
             sync_to_windows
-            start_debugger $bin
+            start_debugger $pdb $bin
             ;;
         *)
             echo "Usage: $0 {build|run|debug}"

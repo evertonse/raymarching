@@ -31,7 +31,6 @@ typedef struct {
       } *items;
       u32 count;
    } translation_keyframes, scale_keyframes, rotation_keyframes;
-
 } Joint_Animation;
 
 #include "ufbx.h" // @REMOVEME when animation is debugged enough

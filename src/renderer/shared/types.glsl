@@ -1,4 +1,19 @@
 #ifndef SHARED_TYPES_HEADER
+#define SHARED_TYPES_HEADER
+
+#if defined(__STDC__)
+#  define STRUCT struct
+   // Match glsl types. These have to exist though, this is not plug an play.
+   typedef u64        uvec2;
+   typedef u32        uint;
+   typedef Vector4Int ivec4;
+   typedef Vector4    vec4;
+   typedef Vector3    vec3;
+   typedef float16    mat4;
+#else
+#  define STRUCT
+#endif
+
 // This sequence can't change, and to be in this order and must come first.
 // TODO: change instace to instances to match others
 #define DRAW_COMMAND_BASE                                               \
@@ -34,10 +49,17 @@ struct Instance {
 };
 
 struct Material {
-   uvec2 diffuse_handle;
-   uvec2 specular_handle;
-   uvec2 emissive_handle;
-   uvec2 normal_handle;
+   uvec2 diffuse_handle          ;
+   uvec2 specular_handle         ;
+   uvec2 roughness_handle        ;
+   uvec2 emissive_handle         ;
+   uvec2 normal_handle           ;
+   uvec2 height_handle           ;
+   uvec2 ambient_occlusion_handle;
+
+   // float metallic;            // 0.0 = dielectric, 1.0 = metal
+   // float roughness;           // 0.0 = mirror,     1.0 = diffuse
+   // float index_of_refraction; // for dielectrics
 };
 
 struct Joint_Vertex {
@@ -77,6 +99,65 @@ struct Joint_Vertex {
 */
 
 
-#define SHARED_TYPES_HEADER
+#define LIGHT_TYPE_DIRECTIONAL 0u
+#define LIGHT_TYPE_POINT       1u
+#define LIGHT_TYPE_SPOT        2u
 
+// Maybe better packing?
+struct Light {
+   // direction for spot lights it mean the cone opens from this direction it pierces the cones in the the middle of its base  and direction lights
+   // direction for directional lights just means the direction. Position is ignored.
+   vec3 forward; float pad0;
+
+   vec3 position;   // world position (for spot/point lights)
+   uint type;       // LIGHT_TYPE_*
+   vec4 color;      // .rgb=RGB .w = intensity that multiplyes color (we're in hdr)
+
+
+   float range; // Attenuation distance (spot light)
+
+   // For spotlight avoid invalid state by having cone_angle_increment instead of outer_angle
+   float cone_angle;
+   float cone_angle_increment;
+
+   float shadowBias; // Depth bias
+   // Shadows
+   uint  shadow_map_index; // Index into shadow atlas or array texture
+   uint  casts_shadows;    // Boolean flag
+   float radius;    // Light source radius for soft shadows
+   float pad1;
+};
+
+
+struct Camera {
+   vec3 position; float pad0;
+   float theta, phi, aspect, pad1;
+};
+
+
+struct Per_Frame {
+   STRUCT Camera camera;
+   float elapsed_time, delta_time; uint screen_width, screen_height;
+};
+
+#if defined(__STDC__)
+   typedef struct Gpu_Camera Gpu_Camera;
+   typedef struct Per_Frame  Per_Frame;
+   typedef struct Joint_Vertex Joint_Vertex;
+   typedef struct Draw_Command Draw_Command;
+   typedef struct Material     Material;
+#endif
+
+#if 0
+struct Ibl {
+   samplerCube irradiance_map; // Pre integrated diffuse irradiance
+   samplerCube radiance_map;   // Pre integrated specular radiance
+   sampler2D brdf_lut;         // 2D BRDF lookup table
+
+   float intensity;
+   uint pad0;
+   uint pad1;
+   uint pad2;
+};
+#endif
 #endif // SHARED_TYPES_HEADER

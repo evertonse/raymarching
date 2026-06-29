@@ -41,6 +41,13 @@ void init_window(void) {
       exit(EXIT_FAILURE);
    }
 
+   if (!glfwVulkanSupported()) {
+      trace_warn("Failed to find the Vulkan loader.");
+   } else {
+      trace_okay("Found the Vulkan loader.");
+   }
+
+
    {  // open gl hints
       glfwSetErrorCallback(window_error_callback);
       glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);

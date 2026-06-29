@@ -1,16 +1,75 @@
+[ ] Support for hdr texture from filepath (exr format)
+[ ] Investigate including crash in glfinish when including common.glsl computer shader for generating relaxed cone map
+[ ] Cache textures with the same name
+[ ] Immediate Drawing mode
+[x] Fix tangent frame creation
+[ ] Separate radiance function calls in to direct and indirect
+[x] Fix lights creation
+[ ] Port light creation to cpu instead of inside shader
+[ ] SS Fluid Rendering http://geeks3d.com/20100809/siggraph-2010-screen-space-fluid-rendering-for-games/
+
+[ ] Dual quaternion skinning https://users.cs.utah.edu/~ladislav/kavan07skinning/kavan07skinning.pdf
+[x] (edit: it looks correct imma check hits) Make sure normal rotation by joint_transforms is correct.
+[ ] Share code between geometry.glsl and main.glsl so they don't desynchronize.
+[ ] Get diffuse indirect lighting data from ambient occlusion calculation
+[x] Need to regenerate mips after blur in ambient occlusion
+[ ] virtual point lights (VPLs).
+
+[ ] Add support for slug's algorithm text.
+[ ] MSDF Text (https://www.redblobgames.com/articles/sdf-fonts/) (https://www.redblobgames.com/blog/2024-09-22-sdf-antialiasing/)
+[ ] Screen Space shadows for contact shadows in conjunction with cascading shadow maps
+
+[ ] H-trace Gi
+[ ] Maybe manager should be two fold, one for cpu data and another one for gpu data the rendering part would use both that lives somewhere else.
+    Also maybe it should have its own context with the opengl context extension.
+
+[ ] Integrate cute_net when doing networking for the gameplay units
+
+[ ] Find out: If we're doing a depth prepass what do we do with it, how does this helps specially if we're using a normal nonmultisampled depth with a multisampled framebuffer
+
+[ ] OpenAL and miniaudio
+[ ] Joint Bilateral Filter for blurring
+[ ] octahedral shadow maps
+[ ] SSDO
+[ ] Real-Time Diffuse Global Illumination Using Radiance Hints
+[ ] TuboGI using spherical harmonics, joint bilateral to blur and upsample https://youtu.be/dmdyqzelBIY?si=Fv6LRmDPoo2IJ78e
+
+
+[ ] Maybe make the framebuffer not be a thing necessarily. Only textures that a "bound" for draw, and internally the api attach to an internal framebuffer compatible and set necessary attachments. That would need to play nice with hardware assisted msaa. That depends also is there can be two framebuffers all with its own draw buffers attachments being drawn in flight.
+
+[ ] Screen Space object picking. Send mouse position in command buffer in terms of framebuffer dimensions and let the depth buffer sort out the closest object by writing an object id to a cpu mapped buffer (single int). Each instance would have an id that correspond to a scene_node and thats it. After it renders we will have a pixel perfect object selection.
+
+
+[ ] Scene file format: ids and transforms only initially.
+[ ] Gizmos
+[ ] Investigate arcs when too smalll gets bad rendering
+[ ] Sparse Virtual Texture?
+[ ] Compressed Textures
+[ ] Investigate Why league map taking so much space (4gb vram?)
+[ ] Fix pathing in league map, you can ajusta unit position.y bath on the depth in the map. Example midlane depth = 0, river would be like 0.1 depth to make the carachter and spells have a depth feelings
+[ ] Make better ao
+[x] (edit: we "fixed" by passing whole ass linear view space position.xyz int a buffer) Fix linearizing depth
+
 [x] Add bicubic filtering for bloom upsampler https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1?permalink_comment_id=1879143#file-tex2dcatmullrom-hlsl-L5
 
 [ ] Timed logging function (each function gets a slice of time to log based on __func__)
 
+[ ] Atmospheric Shaders
+[ ] 3d Fog
+
+[ ] RTGI https://columbusutrigas.com/posts/rtgi/
+[ ] SSDO
 [ ] DDGI
 [ ] SSGI
 
 [ ] GTAO + Contact Occlusion
 [ ] Oct normals
+[ ] Bent normals
 
 [ ] Maybe transform Shader into a handle and make a update_shader_system to check for realod on every single shader through the update function instead of calling reload_if_needed on individual shaders in use site.
 
-[ ] Immediate Drawing mode
+
+[ ] Depth of Field
 [ ] Implement Panini projection. These are the effects order to remember for lens:
     Before Lens:
         SSR
@@ -27,14 +86,13 @@
         Colorgrading / LUT
         Film grain
 
-[ ] Additive Blending
-[ ] Add Diana vfx from unity old project
+[ ] Additive Blending. Need to check if we can avoid writting a different instruction for different blends if we're using *premultiplied alpha*.
+[ ] Add Diana vfx from unity old project.
 
 [ ] Make bloom temporal
 [ ] Fix health bad line rendering (affect bloom with flickering).
 [ ] Read more about these libs bgfx bimg noise soloud
 [x] Add support for anisotropic texture filter
-[ ] Add support for slug's algorithm text.
 [ ] Immediate Gui please
 
 [ ] Make manager allow custom shader api that includes depth and alpha
@@ -75,7 +133,7 @@
 
 ## General
 
-[ ] New tonemap taken from that video about how outdated unreal engine's Tonemap is
+[ ] New tonemap taken from that video about how outdated unreal engine's default tonemap is.
 
 [x] Investigate why auto reload is not working sometimes
 
@@ -106,7 +164,7 @@
 
 [ ] PBR Shading
 
-[ ] SSAO (GTAO)
+[ ] SSAO (GTAO or Screen Space Indirect Lighting with Visibility Bitmask)
 
 
 [x] Parallax Mapping
@@ -316,6 +374,7 @@
 
 [x] Bindless textures
 [ ] MSAA manually
+[ ] SMAA (Subpixel Morphological Anti-Aliasing
 
 [x] Big Buffers for all rendering data by a manager abstraction.
 [x] Manager bind vb and ib, you forgot

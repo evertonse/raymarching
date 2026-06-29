@@ -1,12 +1,3 @@
-mat4 matrix_translation_row(vec3 translation) {
-    return mat4(
-        1.0, 0.0, 0.0, translation.x,
-        0.0, 1.0, 0.0, translation.y,
-        0.0, 0.0, 1.0, translation.z,
-        0.0, 0.0, 0.0, 1.0
-    );
-}
-
 mat4 matrix_translation(vec3 translationVector) {
     return mat4(
         1.0, 0.0, 0.0, 0.0,

@@ -512,6 +512,7 @@ typedef struct {
         char* items;
         char* chars;
         u8*   data;
+        void* data_void;
     };
     union {
         usz count;
@@ -1168,8 +1169,8 @@ void cye_trace_log(Cye_Log_Level level, ZString fmt, ...);
 #define cye_trace_fatal(...) cye_trace_log(CYE_LOG_FATAL,   __VA_ARGS__)
 #define cye_trace_debug(fmt, ...) cye_trace_log(CYE_LOG_DEBUG, "`%s`: "fmt, __func__, __VA_ARGS__)
 
-#define cye_return_defer(code) do { code; goto defer; } while(0)
-#define cye_result_defer(value) do { result = (value); goto defer; } while(0)
+#define cye_return_defer(code) do { code; goto defer_return; } while(0)
+#define cye_result_defer(value) do { result = (value); goto defer_return; } while(0)
 
 // Consider using logging instead ? Maybe not
 #define cye_todo(msg)        do { fprintf(stderr, "%s:%d: %s TODO: %s\n",       __FILE__, __LINE__,__func__,  msg); abort(); } while(0)
@@ -2019,7 +2020,7 @@ bool cye_copy_file(ZString src_path, ZString dst_path) {
         }
     }
 
-defer:
+defer_return:
     free(buf);
     close(src_fd);
     close(dst_fd);
@@ -2098,7 +2099,7 @@ bool cye_copy_dir(ZString src_path, ZString dst_path) {
         default: cye_unreachable("copy_directory_recursively");
     }
 
-defer:
+defer_return:
     cye_temp_restore(temp_checkpoint);
     cye_da_free(src_ds);
     cye_da_free(dst_ds);
@@ -2170,7 +2171,7 @@ bool cye_read_dir_filtered(
         cye_result_defer(false);
     }
 
-defer:
+defer_return:
     if (dir) {
         closedir(dir);
     }
@@ -2220,7 +2221,7 @@ defer:
         cye_result_defer(false);
     }
 
-defer:
+defer_return:
     if (find_handle != INVALID_HANDLE_VALUE) {
         FindClose(find_handle);
     }
@@ -2285,7 +2286,7 @@ bool cye_append_file(const char* path, const void* data, usz count) {
 
 #endif
 
-defer:
+defer_return:
 
 #ifndef PLATFORM_WINDOWS
     if (fd != -1) {
@@ -2337,7 +2338,7 @@ bool cye_write_file(ZString path, const void *data, usz size) {
         buf  += n;
     }
 
-defer:
+defer_return:
     if (f) fclose(f);
     return result;
 }
@@ -2461,7 +2462,7 @@ bool cye_ds_read_file(ZString path, Cye_DString *ds) {
     }
     ds->count = new_count;
 
-defer:
+defer_return:
     if (!result) cye_trace_error("Could not read file %s: %s", path, strerror(errno));
 close:
     if (f) fclose(f);
@@ -3068,7 +3069,7 @@ bool cye_is_period_dir(ZString path) {
         }
     }
 
-defer:
+defer_return:
     return result;
 }
 

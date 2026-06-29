@@ -1,5 +1,5 @@
 
-Framebuffer apply_postprocess(Framebuffer hdr_fb, Framebuffer geometry_buffer_fb) {
+Framebuffer apply_postprocess(Framebuffer hdr_fb, Framebuffer geometry_framebuffer, Texture ambient_occlusion) {
 
    static Countdown shader_reload = {0};
 
@@ -86,13 +86,27 @@ Framebuffer apply_postprocess(Framebuffer hdr_fb, Framebuffer geometry_buffer_fb
    // Binding final output image
    bind_texture_as_image(s.output_fb.color, BINDING_LDR_SCENE_IMAGE, TEXTURE_ACCESS_WRITE);
 
-   if (is_valid_framebuffer_and_its_textures(geometry_buffer_fb)) {
-      bind_texture(geometry_buffer_fb.depth,     BINDING_FRAMEBUFFER_DEPTH_TEXTURE);
-      bind_texture(geometry_buffer_fb.colors[1], BINDING_FRAMEBUFFER_NORMAL_TEXTURE);
+
+   Texture depth_buffer        = manager.geometry_framebuffer.depth;
+   Texture direct_light_buffer = manager.geometry_framebuffer.colors[FRAMEBUFFER_ATTACHMENTH_COLOR];
+   Texture normal_buffer       = manager.geometry_framebuffer.colors[FRAMEBUFFER_ATTACHMENTH_NORMAL];
+   Texture position_buffer     = manager.geometry_framebuffer.colors[FRAMEBUFFER_ATTACHMENTH_POSITION];
+
+   if (is_valid_framebuffer(geometry_framebuffer)
+      && is_valid_texture(depth_buffer)
+      && is_valid_texture(normal_buffer)
+      && is_valid_texture(position_buffer)
+      && is_valid_texture(ambient_occlusion)
+   ) {
+      bind_texture(depth_buffer,        BINDING_FRAMEBUFFER_DEPTH_TEXTURE);
+      bind_texture(direct_light_buffer, BINDING_FRAMEBUFFER_DIRECT_LIGHT_TEXTURE);
+      bind_texture(normal_buffer,       BINDING_FRAMEBUFFER_NORMAL_TEXTURE);
+      bind_texture(position_buffer,     BINDING_FRAMEBUFFER_POSITION_TEXTURE);
+      bind_texture(ambient_occlusion,   BINDING_AMBIENT_OCCLUSION_TEXTURE);
+   } else {
+      trace_error("Geometry Framebuffer Invalid");
    }
 
-   static float exposure = 1.0f;
-   upload_uniform_float(s.shader, "exposure", exposure);
    dispatch_compute_shader_2d(s.shader, w, h);
    shader_memory_barrier(SHADER_BARRIER_IMAGE_ACCESS | SHADER_BARRIER_TEXTURE_FETCH);
 
